@@ -10,6 +10,7 @@ const qrcode = require('qrcode-terminal');
 const EventEmitter = require('events');
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 
 class ClienteWhatsApp extends EventEmitter {
   /**
@@ -49,8 +50,8 @@ class ClienteWhatsApp extends EventEmitter {
     this.cliente = new Client({
       authStrategy: new LocalAuth({ clientId: this.clienteId }),
       puppeteer: {
-        executablePath: '/usr/bin/google-chrome',
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '/usr/bin/google-chrome'],
+        executablePath: process.env.CHROME_EXECUTABLE_PATH,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', process.env.CHROME_EXECUTABLE_PATH],
       }
     });
 
@@ -62,13 +63,38 @@ class ClienteWhatsApp extends EventEmitter {
    * Configura todos os listeners de eventos do cliente
    */
   configurarOuvinteEventos() {
-    // Evento para código QR
-    this.cliente.on('qr', (qr) => {
-      qrcode.generate(qr, { small: true });
-      this.registrador.info('Código QR gerado para autenticação');
-      this.emit('qr', qr);
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
     });
 
+    let pairingCodeRequested = false;
+
+    rl.question('Digite 1 para gerar QR code ou 2 para código de pareamento: ', (opcao) => {
+        if (opcao === '1') {
+            this.cliente.on('qr', (qr) => {
+                qrcode.generate(qr, { small: true });
+                this.emit('qr', qr);
+            });
+        } else if (opcao === '2') {
+            rl.question('Digite o número de telefone (ex: 351912345678, sem "+" ou espaços): ', async (phoneNumber) => {
+                if (!/^\d{9,15}$/.test(phoneNumber)) {
+                    rl.close();
+                    return;
+                }
+
+                if (!pairingCodeRequested) {
+                    const pairingCode = await this.cliente.requestPairingCode(phoneNumber);
+                    console.log('Código de pareamento gerado: ', pairingCode);
+                    this.emit('pairingCode', pairingCode); // Emite o código de pareamento
+                    pairingCodeRequested = true;
+                }
+                rl.close();
+            });
+        } else {
+            rl.close();
+        }
+    });
     // Evento quando o cliente está pronto
     this.cliente.on('ready', () => {
       this.pronto = true;

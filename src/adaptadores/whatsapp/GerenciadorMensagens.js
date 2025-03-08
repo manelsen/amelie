@@ -231,7 +231,7 @@ class GerenciadorMensagens {
       const ehGrupo = chat.id._serialized.endsWith('@g.us');
       
       // Verificar se é um comando
-      if (msg.body && msg.body.startsWith('.')) {
+      if (msg.body && msg.body.startsWith('/')) {
         return await this.processarComando(msg, chatId);
       }
       
