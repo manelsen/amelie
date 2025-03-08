@@ -152,7 +152,7 @@ class FilaProcessadorImagem {
       const { imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
       
       try {
-        this.registrador.info(`[Etapa 1] Iniciando preparo da imagem para análise (Job ${job.id})`);
+        this.registrador.debug(`[Etapa 1] Iniciando preparo da imagem para análise (Job ${job.id})`);
         
         // Verificar se temos dados da imagem válidos
         if (!imageData || !imageData.data) {
@@ -230,7 +230,7 @@ class FilaProcessadorImagem {
       } = job.data;
       
       try {
-        this.registrador.info(`[Etapa 2] Iniciando análise da imagem (Job ${job.id})`);
+        this.registrador.debug(`[Etapa 2] Iniciando análise da imagem (Job ${job.id})`);
         
         // Se a análise está demorando, notificar via callback
         if (Date.now() - uploadTimestamp > 10000 && this.respostaCallback) {
@@ -288,7 +288,7 @@ class FilaProcessadorImagem {
             transacaoId,
             remetenteName
           });
-          this.registrador.info(`[Etapa 2] Resposta de imagem enviada para callback - Transação ${transacaoId}`);
+          this.registrador.debug(`[Etapa 2] Resposta de imagem enviada para callback - Transação ${transacaoId}`);
         } else {
           this.registrador.warn(`[Etapa 2] Não há callback configurado para receber a resposta - Transação ${transacaoId}`);
         }

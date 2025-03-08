@@ -86,6 +86,99 @@ class GerenciadorTransacoes {
     });
   }
 
+
+/**
+ * Adiciona dados essenciais de recuperação à transação
+ * @param {string} transacaoId - ID da transação
+ * @param {Object} dadosRecuperacao - Dados necessários para recuperação
+ */
+async adicionarDadosRecuperacao(transacaoId, dadosRecuperacao) {
+  return new Promise((resolve, reject) => {
+    const agora = new Date();
+    
+    this.transacoesDb.update(
+      { id: transacaoId },
+      { 
+        $set: { 
+          dadosRecuperacao: dadosRecuperacao,
+          ultimaAtualizacao: agora
+        },
+        $push: {
+          historico: {
+            data: agora,
+            status: 'dados_recuperacao_adicionados',
+            detalhes: 'Dados para recuperação persistidos'
+          }
+        }
+      },
+      {},
+      (err, numUpdated) => {
+        if (err) {
+          this.registrador.error(`Erro ao adicionar dados de recuperação: ${err.message}`);
+          reject(err);
+        } else if (numUpdated === 0) {
+          this.registrador.warn(`Transação ${transacaoId} não encontrada para adicionar dados de recuperação`);
+          resolve(false);
+        } else {
+          this.registrador.debug(`Dados de recuperação adicionados à transação ${transacaoId}`);
+          resolve(true);
+        }
+      }
+    );
+  });
+}
+
+/**
+ * Recupera transações interrompidas após restart do sistema
+ * @returns {Promise<number>} Número de transações recuperadas
+ */
+async recuperarTransacoesIncompletas() {
+  return new Promise((resolve, reject) => {
+    // Buscar transações em estados que precisam de recuperação
+    this.transacoesDb.find({
+      status: { $in: ['processando', 'resposta_gerada', 'falha_temporaria'] },
+      resposta: { $exists: true }, // Tem resposta, mas não foi entregue
+      dadosRecuperacao: { $exists: true } // Tem dados para recuperação
+    }, async (err, transacoes) => {
+      if (err) {
+        this.registrador.error(`Erro ao buscar transações para recuperação: ${err.message}`);
+        reject(err);
+        return;
+      }
+      
+      if (transacoes.length === 0) {
+        this.registrador.info(`Nenhuma transação pendente para recuperação`);
+        resolve(0);
+        return;
+      }
+      
+      this.registrador.info(`Recuperando ${transacoes.length} transações interrompidas...`);
+      
+      let recuperadas = 0;
+      
+      for (const transacao of transacoes) {
+        try {
+          // Emitir evento para permitir que módulos interessados possam processar a recuperação
+          this.emit('transacao_para_recuperar', transacao);
+          recuperadas++;
+          
+          // Atualizar histórico
+          await this.atualizarStatusTransacao(
+            transacao.id, 
+            'recuperacao_em_andamento', 
+            'Transação recuperada após restart do sistema'
+          );
+        } catch (erro) {
+          this.registrador.error(`Erro ao recuperar transação ${transacao.id}: ${erro.message}`);
+        }
+      }
+      
+      this.registrador.info(`${recuperadas} transações enviadas para recuperação`);
+      resolve(recuperadas);
+    });
+  });
+}
+
   /**
    * Determina o tipo de uma mensagem
    * @param {Object} mensagem - Mensagem do WhatsApp
@@ -396,6 +489,24 @@ class GerenciadorTransacoes {
           throw erro;
         }
       }
+
+      /**
+     * Obtém uma transação pelo ID
+     * @param {string} transacaoId - ID da transação
+     * @returns {Promise<Object>} Transação encontrada ou null se não existir
+     */
+    async obterTransacao(transacaoId) {
+      return new Promise((resolve, reject) => {
+        this.transacoesDb.findOne({ id: transacaoId }, (err, transacao) => {
+          if (err) {
+            this.registrador.error(`Erro ao buscar transação ${transacaoId}: ${err.message}`);
+            reject(err);
+          } else {
+            resolve(transacao);
+          }
+        });
+      });
     }
+  }
     
     module.exports = GerenciadorTransacoes;

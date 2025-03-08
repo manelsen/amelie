@@ -128,27 +128,15 @@ Meu repositório fica em https://github.com/manelsen/amelie
 
 Esses são meus comandos disponíveis para configuração:
 
-!cego - Aplica configurações para usuários com deficiência visual
+.cego - Aplica configurações para usuários com deficiência visual
 
-!audio - Liga/desliga a transcrição de áudio
-!video - Liga/desliga a interpretação de vídeo
-!imagem - Liga/desliga a audiodescrição de imagem
+.audio - Liga/desliga a transcrição de áudio
+.video - Liga/desliga a interpretação de vídeo
+.imagem - Liga/desliga a audiodescrição de imagem
 
-!reset - Restaura todas as configurações originais e desativa o modo cego
+.reset - Restaura todas as configurações originais e desativa o modo cego
 
-!prompt set <nome> <texto> - Define uma nova personalidade
-!prompt get <nome> - Mostra uma personalidade existente
-!prompt list - Lista todas as personalidades
-!prompt use <nome> - Usa uma personalidade específica
-!prompt delete <nome> - Exclui uma personalidade existente
-!prompt clear - Remove a personalidade ativa
-
-!config set <param> <valor> - Define um parâmetro de configuração
-!config get [param] - Mostra a configuração atual
-
-!users - Lista os usuários do grupo
-
-!ajuda - Mostra esta mensagem de ajuda`;
+.ajuda - Mostra esta mensagem de ajuda`;
 
 // Inicializar os componentes do sistema
 logger.info('🤖 Iniciando Amélie - Assistente Virtual de IA para WhatsApp');
@@ -274,3 +262,48 @@ process.on('uncaughtException', (erro) => {
 
 // Mensagem final de inicialização
 logger.info('🚀 Sistema iniciado com sucesso! Aguardando conexão do WhatsApp...');
+
+
+// Monitoramento de memória para prevenir OOM Killer
+logger.info('✅ Iniciando monitor de memória preventivo');
+const LIMITE_MEMORIA_MB = 900; // 900MB
+
+setInterval(() => {
+  const usoMemoria = process.memoryUsage();
+  const heapUsadoMB = Math.round(usoMemoria.heapUsed / 1024 / 1024);
+  const rssMB = Math.round(usoMemoria.rss / 1024 / 1024);
+  
+  // Só logar quando estiver acima de 50% do limite para não encher os logs
+  if (rssMB > LIMITE_MEMORIA_MB * 0.5) {
+    logger.info(`📊 Memória atual: Heap ${heapUsadoMB}MB / RSS ${rssMB}MB`);
+  }
+  
+  // Se estiver acima de 80% do limite, forçar coleta de lixo
+  if (rssMB > LIMITE_MEMORIA_MB * 0.8 && global.gc) {
+    logger.warn(`🧹 Uso de memória alto (${rssMB}MB) - Executando coleta de lixo`);
+    global.gc();
+  }
+  
+  // Se ultrapassar o limite, agendar reinicialização
+  if (rssMB > LIMITE_MEMORIA_MB) {
+    logger.warn(`⚠️ ALERTA DE MEMÓRIA: ${rssMB}MB excede limite de ${LIMITE_MEMORIA_MB}MB`);
+    
+    // Verificar se não há uma reinicialização já agendada
+    if (!global.reinicializacaoAgendada) {
+      logger.warn('💤 Agendando reinicialização em 30 segundos...');
+      global.reinicializacaoAgendada = true;
+      
+      setTimeout(async () => {
+        try {
+          logger.warn('🔄 Executando reinicialização de emergência');
+          await clienteWhatsApp.reiniciarCompleto();
+          logger.info('✅ Reinicialização concluída');
+        } catch (err) {
+          logger.error(`❌ Erro na reinicialização: ${err.message}`);
+        } finally {
+          global.reinicializacaoAgendada = false;
+        }
+      }, 30000); // 30 segundos de espera
+    }
+  }
+}, 3 * 60 * 1000); // Verificar a cada 3 minutos

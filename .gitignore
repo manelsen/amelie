@@ -18,3 +18,4 @@ tx_*
 inactive_restart_*
 temp/*
 blocked/*
+package-lock.json

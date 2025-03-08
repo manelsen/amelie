@@ -585,6 +585,51 @@ salvarEstadoCritico() {
   }
 }
 
+/**
+ * Inicializa e configura a recuperação segura de transações
+ */
+async inicializarRecuperacaoSegura() {
+  this.registrador.info('🚀 Iniciando procedimento de recuperação de transações...');
+  
+  // Indicador de sistema em inicialização para coordenar os componentes
+  global.sistemaRecuperando = true;
+  
+  try {
+    // Aguardar o cliente estar pronto
+    if (!this.clienteWhatsApp.pronto) {
+      this.registrador.info('⏳ Aguardando cliente WhatsApp estar pronto antes de recuperar transações...');
+      await new Promise(resolve => {
+        const verificador = setInterval(() => {
+          if (this.clienteWhatsApp.pronto) {
+            clearInterval(verificador);
+            resolve();
+          }
+        }, 1000);
+      });
+    }
+    
+    // Um pouco mais de tempo para ter certeza que o cliente está estável
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    
+    // Processar notificações pendentes
+    const notificacoesProcessadas = await this.clienteWhatsApp.processarNotificacoesPendentes();
+    
+    // Permitir mais um tempinho de estabilização antes da recuperação completa
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    // Completar inicialização segura
+    global.sistemaRecuperando = false;
+    this.registrador.info(`✅ Recuperação segura concluída! ${notificacoesProcessadas} notificações recuperadas`);
+    
+    return notificacoesProcessadas;
+  } catch (erro) {
+    this.registrador.error(`❌ Erro na recuperação segura: ${erro.message}`);
+    // Mesmo com erro, finalizar o modo de recuperação
+    global.sistemaRecuperando = false;
+    return 0;
+  }
+}
+
 }
 
 module.exports = MonitorSaude;

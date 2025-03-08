@@ -66,6 +66,25 @@ class GerenciadorMensagens {
     this.configurarCallbacksProcessamento();
   }
 
+/**
+ * Inicializa o gerenciador e configura recuperação de mensagens
+ */
+iniciar() {
+  // Registrar como handler de mensagens
+  this.clienteWhatsApp.on('mensagem', this.processarMensagem.bind(this));
+  this.clienteWhatsApp.on('entrada_grupo', this.processarEntradaGrupo.bind(this));
+  
+  // NOVO: Configurar ouvinte para recuperar transações após restart
+  this.gerenciadorTransacoes.on('transacao_para_recuperar', this.recuperarTransacao.bind(this));
+  
+  // NOVO: Realizar recuperação inicial após 10 segundos
+  setTimeout(async () => {
+    await this.gerenciadorTransacoes.recuperarTransacoesIncompletas();
+  }, 10000);
+  
+  this.registrador.info('🚀 GerenciadorMensagens inicializado com recuperação robusta');
+}
+
   /**
    * Configura callbacks para receber resultados do processamento de filas
    */
@@ -567,11 +586,8 @@ Esses são meus comandos disponíveis para configuração:
     }
   }
 
-  /**
- * Processa mensagens de texto
- * @param {Object} msg - Mensagem do WhatsApp
- * @param {string} chatId - ID do chat
- * @returns {Promise<boolean>} Sucesso do processamento
+/**
+ * Processa uma mensagem de texto com persistência aprimorada
  */
 async processarMensagemTexto(msg, chatId) {
   try {
@@ -582,83 +598,41 @@ async processarMensagemTexto(msg, chatId) {
     const transacao = await this.gerenciadorTransacoes.criarTransacao(msg, chat);
     this.registrador.info(`Nova transação criada: ${transacao.id} para mensagem de ${remetente.name}`);
     
+    // NOVO: Salvar dados essenciais para recuperação
+    await this.gerenciadorTransacoes.adicionarDadosRecuperacao(transacao.id, {
+      tipo: 'texto',
+      remetenteId: msg.from,
+      remetenteNome: remetente.name,
+      chatId: chatId,
+      textoOriginal: msg.body,
+      timestampOriginal: msg.timestamp
+    });
+    
     // Marcar como processando
     await this.gerenciadorTransacoes.marcarComoProcessando(transacao.id);
     
-    // Verificar se é uma mensagem com imagem anexada ou respondendo a uma imagem
-    let imagemData = null;
-    let textoPromptUsuario = msg.body;
+    // ✨ AQUI ESTAVA O ERRO! Precisamos montar o histórico da conversa ✨
+    // Obter histórico do chat
+    const historico = await this.clienteWhatsApp.obterHistoricoMensagens(chatId);
     
-    // Verificar se está respondendo a alguma mensagem
-    if (msg.hasQuotedMsg) {
-      const msgCitada = await msg.getQuotedMessage();
-      
-      // Verificar se a mensagem citada tem mídia
-      if (msgCitada.hasMedia) {
-        const midia = await msgCitada.downloadMedia();
-        if (midia && midia.mimetype.startsWith('image/')) {
-          imagemData = midia;
-          this.registrador.info(`Usuário está respondendo a uma imagem com texto: "${textoPromptUsuario}"`);
-        }
-      }
-    }
+    // Verificar se a última mensagem já é a atual
+    const ultimaMensagem = historico.length > 0 ? historico[historico.length - 1] : '';
+    const mensagemUsuarioAtual = `${remetente.name}: ${msg.body}`;
     
-    // Verificar se o bot foi mencionado e se está respondendo a uma imagem
-    const ehMencionado = await this.verificarMencaoBotNaMensagem(msg);
-    
-    // Se não encontrou imagem na resposta direta mas o bot foi mencionado, 
-    // busca imagens no contexto recente
-    if (!imagemData && ehMencionado && msg.hasQuotedMsg) {
-      const msgCitada = await msg.getQuotedMessage();
-      
-      // Se a mensagem citada é do bot e contém referência a uma imagem original
-      if (msgCitada.fromMe && msgCitada._data.quotedMsg) {
-        try {
-          // Tentar recuperar a mensagem original citada pelo bot
-          const msgOriginal = await this.clienteWhatsApp.cliente.getMessageById(
-            msgCitada._data.quotedMsg.id._serialized
-          );
-          
-          if (msgOriginal && msgOriginal.hasMedia) {
-            const midia = await msgOriginal.downloadMedia();
-            if (midia && midia.mimetype.startsWith('image/')) {
-              imagemData = midia;
-              this.registrador.info(`Recuperada imagem de contexto anterior com: "${textoPromptUsuario}"`);
-            }
-          }
-        } catch (erroRecuperacao) {
-          this.registrador.warn(`Não foi possível recuperar imagem do contexto: ${erroRecuperacao.message}`);
-        }
-      }
-    }
+    // Só adiciona a mensagem atual se ela não for a última do histórico
+    const textoHistorico = ultimaMensagem.includes(msg.body)
+      ? `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${historico.join('\n')}`
+      : `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${historico.join('\n')}\n${mensagemUsuarioAtual}`;
     
     // Obter resposta da IA
-    let resposta;
-    
-    if (imagemData) {
-      resposta = await this.gerarRespostaComTextoEImagem(textoPromptUsuario, imagemData, chatId);
-    } else {
-      // Obter histórico do chat
-      const historico = await this.clienteWhatsApp.obterHistoricoMensagens(chatId);
-      
-      // Verificar se a última mensagem já é a atual
-      const ultimaMensagem = historico.length > 0 ? historico[historico.length - 1] : '';
-      const mensagemUsuarioAtual = `${remetente.name}: ${msg.body}`;
-      
-      // Só adiciona a mensagem atual se ela não for a última do histórico
-      const textoHistorico = ultimaMensagem.includes(msg.body)
-        ? `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${historico.join('\n')}`
-        : `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${historico.join('\n')}\n${mensagemUsuarioAtual}`;
-      
-      resposta = await this.gerarRespostaComTexto(textoHistorico, chatId);
-    }
+    let resposta = await this.gerarRespostaComTexto(textoHistorico, chatId);
 
     // Adicionar resposta à transação
     await this.gerenciadorTransacoes.adicionarRespostaTransacao(transacao.id, resposta);
     
     // Enviar a resposta
     try {
-      const enviado = await this.enviarResposta(msg, resposta);
+      const enviado = await this.enviarResposta(msg, resposta, transacao.id);
       
       if (enviado) {
         // Marcar como entregue com sucesso
@@ -682,10 +656,47 @@ async processarMensagemTexto(msg, chatId) {
     }
   } catch (erro) {
     this.registrador.error(`Erro ao processar mensagem de texto: ${erro.message}`, { erro });
-    await msg.reply('Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.');
     return false;
   }
 }
+/**
+ * Recupera uma transação interrompida
+ * @param {Object} transacao - Transação a ser recuperada
+ */
+async recuperarTransacao(transacao) {
+  try {
+    this.registrador.info(`⏱️ Recuperando transação ${transacao.id} após reinicialização`);
+    
+    if (!transacao.dadosRecuperacao || !transacao.resposta) {
+      this.registrador.warn(`Transação ${transacao.id} não possui dados suficientes para recuperação`);
+      return false;
+    }
+    
+    const { remetenteId, chatId } = transacao.dadosRecuperacao;
+    
+    if (!remetenteId || !chatId) {
+      this.registrador.warn(`Dados insuficientes para recuperar transação ${transacao.id}`);
+      return false;
+    }
+    
+    // Enviar mensagem diretamente usando as informações persistidas
+    await this.clienteWhatsApp.enviarMensagem(
+      remetenteId, 
+      transacao.resposta,
+      { isRecoveredMessage: true }
+    );
+    
+    // Marcar como entregue
+    await this.gerenciadorTransacoes.marcarComoEntregue(transacao.id);
+    
+    this.registrador.info(`✅ Transação ${transacao.id} recuperada e entregue com sucesso!`);
+    return true;
+  } catch (erro) {
+    this.registrador.error(`Falha na recuperação da transação ${transacao.id}: ${erro.message}`);
+    return false;
+  }
+}
+
 
 /**
  * Verifica se o bot foi mencionado na mensagem
@@ -1144,66 +1155,108 @@ return {
 * @param {string} texto - Texto da resposta
 * @returns {Promise<boolean>} Sucesso do envio
 */
-async enviarResposta(mensagemOriginal, texto) {
-try {
-if (!texto || typeof texto !== 'string' || texto.trim() === '') {
-  this.registrador.error('Tentativa de enviar mensagem inválida:', { texto });
-  texto = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
-}
+async enviarResposta(mensagemOriginal, texto, transacaoId = null) {
+  try {
+    if (!texto || typeof texto !== 'string' || texto.trim() === '') {
+      this.registrador.error('Tentativa de enviar mensagem inválida:', { texto });
+      texto = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
+    }
 
-let textoReduzido = texto.trim();
-textoReduzido = textoReduzido.replace(/^(?:amélie:[\s]*)+/i, '');
-textoReduzido = textoReduzido.replace(/^(?:amelie:[\s]*)+/i, '');
-textoReduzido = textoReduzido.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
+    // Verificação de segurança para casos onde a mensagem original não é mais válida
+    if (!mensagemOriginal || typeof mensagemOriginal.getChat !== 'function') {
+      this.registrador.warn(`Mensagem original inválida ou inacessível, tentando recuperação alternativa`);
+      
+      // Se temos transacaoId, tentamos recuperar dados de lá
+      if (transacaoId) {
+        const transacao = await this.gerenciadorTransacoes.obterTransacao(transacaoId);
+        if (transacao && transacao.dadosRecuperacao && transacao.dadosRecuperacao.remetenteId) {
+          this.registrador.info(`Recuperando envio via dados da transação ${transacaoId}`);
+          return await this.clienteWhatsApp.enviarMensagem(transacao.dadosRecuperacao.remetenteId, texto);
+        }
+      }
+      
+      // Alternativa: tenta usar campos disponíveis na mensagem original
+      if (mensagemOriginal && mensagemOriginal.from) {
+        return await this.clienteWhatsApp.enviarMensagem(mensagemOriginal.from, texto);
+      }
+      
+      this.registrador.error(`Impossível enviar mensagem - referências quebradas e sem transação recuperável`);
+      return false;
+    }
 
-// Obter informações do remetente e do chat
-const chat = await mensagemOriginal.getChat();
-const ehGrupo = chat.id._serialized.endsWith('@g.us');
-const remetente = await this.obterOuCriarUsuario(mensagemOriginal.author || mensagemOriginal.from);
-const nomeRemetente = remetente.name;
+    // Restante da função como antes...
+    let textoReduzido = texto.trim();
+    textoReduzido = textoReduzido.replace(/^(?:amélie:[\s]*)+/i, '');
+    textoReduzido = textoReduzido.replace(/^(?:amelie:[\s]*)+/i, '');
+    textoReduzido = textoReduzido.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
 
-// Preparar o texto de log
-let prefixoLog = `\nMensagem de ${nomeRemetente}`;
+    // Obter informações do remetente e do chat
+    const chat = await mensagemOriginal.getChat();
+    const ehGrupo = chat.id._serialized.endsWith('@g.us');
+    const remetente = await this.obterOuCriarUsuario(mensagemOriginal.author || mensagemOriginal.from);
+    const nomeRemetente = remetente.name;
 
-// Adicionar informação do grupo, se aplicável
-if (ehGrupo) {
-  prefixoLog += ` no grupo "${chat.name || 'Desconhecido'}"`;
-}
+    // Preparar o texto de log
+    let prefixoLog = `\nMensagem de ${nomeRemetente}`;
 
-// Obter o corpo da mensagem original
-const mensagemOriginalTexto = mensagemOriginal.body || "[Mídia sem texto]";
+    // Adicionar informação do grupo, se aplicável
+    if (ehGrupo) {
+      prefixoLog += ` no grupo "${chat.name || 'Desconhecido'}"`;
+    }
 
-// Log no formato solicitado
-this.registrador.debug(`${prefixoLog}: ${mensagemOriginalTexto}\nResposta: ${textoReduzido}`);
+    // Obter o corpo da mensagem original
+    const mensagemOriginalTexto = mensagemOriginal.body || "[Mídia sem texto]";
 
-// Enviar a mensagem usando o método atualizado do ClienteWhatsApp
-const chatId = chat.id._serialized;
-const enviado = await this.clienteWhatsApp.enviarMensagem(chatId, textoReduzido, mensagemOriginal);
+    // Log no formato solicitado
+    this.registrador.debug(`${prefixoLog}: ${mensagemOriginalTexto}\nResposta: ${textoReduzido}`);
 
-// Se não foi enviado mas também não lançou erro, é porque foi enfileirado
-if (!enviado) {
-  this.registrador.info(`Mensagem para ${chatId} colocada na fila de pendentes`);
-}
+    // Enviar a mensagem usando o método atualizado do ClienteWhatsApp
+    const chatId = chat.id._serialized;
+    const enviado = await this.clienteWhatsApp.enviarMensagem(chatId, textoReduzido, mensagemOriginal);
 
-return enviado;
-} catch (erro) {
-this.registrador.error('Erro ao enviar resposta:', { 
-  erro: erro.message,
-  stack: erro.stack,
-  texto: texto
-});
+    // Se não foi enviado mas também não lançou erro, é porque foi enfileirado
+    if (!enviado) {
+      this.registrador.info(`Mensagem para ${chatId} colocada na fila de pendentes`);
+    }
 
-// Tentar salvar como notificação pendente
-try {
-  const chatId = mensagemOriginal.chat.id._serialized;
-  await this.clienteWhatsApp.salvarNotificacaoPendente(chatId, texto, mensagemOriginal);
-  this.registrador.info(`Mensagem salva como notificação pendente para ${chatId}`);
-} catch (erroSalvar) {
-  this.registrador.error(`Falha ao salvar notificação pendente: ${erroSalvar.message}`);
-}
+    return enviado;
+  } catch (erro) {
+    this.registrador.error('Erro ao enviar resposta:', { 
+      erro: erro.message,
+      stack: erro.stack,
+      texto: texto
+    });
 
-return false; // Retornar false em vez de propagar o erro
-}
+    // Tentar salvar como notificação pendente
+    try {
+      // Se temos transacaoId, usamos os dados da transação
+      if (transacaoId) {
+        const transacao = await this.gerenciadorTransacoes.obterTransacao(transacaoId);
+        if (transacao && transacao.dadosRecuperacao && transacao.dadosRecuperacao.remetenteId) {
+          await this.clienteWhatsApp.salvarNotificacaoPendente(
+            transacao.dadosRecuperacao.remetenteId, 
+            texto, 
+            { transacaoId }
+          );
+          this.registrador.info(`Mensagem salva como notificação pendente via transação ${transacaoId}`);
+          return false;
+        }
+      }
+
+      // Tentar via mensagem original como fallback
+      if (mensagemOriginal && mensagemOriginal.chat) {
+        const chatId = mensagemOriginal.chat.id._serialized;
+        await this.clienteWhatsApp.salvarNotificacaoPendente(chatId, texto, mensagemOriginal);
+        this.registrador.info(`Mensagem salva como notificação pendente para ${chatId}`);
+      } else {
+        this.registrador.error(`Não foi possível salvar notificação pendente - dados insuficientes`);
+      }
+    } catch (erroSalvar) {
+      this.registrador.error(`Falha ao salvar notificação pendente: ${erroSalvar.message}`);
+    }
+
+    return false;
+  }
 }
 
 /**

@@ -34,7 +34,7 @@ class ClienteWhatsApp extends EventEmitter {
     if (!fs.existsSync(this.diretorioTemp)) {
       try {
         fs.mkdirSync(this.diretorioTemp, { recursive: true });
-        this.registrador.info('Diretório de arquivos temporários criado');
+        this.debug('Diretório de arquivos temporários criado');
       } catch (erro) {
         this.registrador.error(`Erro ao criar diretório temporário: ${erro.message}`);
       }
@@ -51,7 +51,29 @@ class ClienteWhatsApp extends EventEmitter {
       authStrategy: new LocalAuth({ clientId: this.clienteId }),
       puppeteer: {
         executablePath: process.env.CHROME_EXECUTABLE_PATH,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', process.env.CHROME_EXECUTABLE_PATH],
+        args: [
+          '--no-sandbox', 
+          '--disable-setuid-sandbox', 
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--disable-gpu',
+          '--js-flags=--expose-gc',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-breakpad',
+          '--disable-component-extensions-with-background-pages',
+          '--disable-features=TranslateUI,BlinkGenPropertyTrees',
+          '--disable-ipc-flooding-protection',
+          '--disable-renderer-backgrounding',
+        ],
+        defaultViewport: {
+          width: 800,
+          height: 600
+        },
+        // Adicione um timeout para operações do navegador
+        timeout: 60000,
+        ignoreHTTPSErrors: true
       }
     });
 
@@ -201,13 +223,6 @@ async estaProntoRealmente() {
   }
 }
 
-  /**
-   * Envia uma mensagem como resposta à mensagem original
-   * @param {string} para - ID do destinatário 
-   * @param {string} conteudo - Texto da mensagem
-   * @param {Object} mensagemOriginal - Objeto da mensagem original para responder
-   * @returns {Promise<boolean>} Sucesso do envio
-   */
 /**
  * Envia uma mensagem como resposta à mensagem original
  * @param {string} para - ID do destinatário 
@@ -218,6 +233,17 @@ async estaProntoRealmente() {
 async enviarMensagem(para, conteudo, opcoes = null) {
   // Verificação básica de prontidão
   const clientePronto = await this.estaProntoRealmente();
+  
+  // NOVO: Flag para controlar se devemos tentar reply ou não
+  let tentarReply = true;
+  
+  // NOVO: Verificação de segurança para identificar mensagens após restart
+  if (opcoes && opcoes.isRecoveredMessage) {
+    tentarReply = false; // Nunca tente reply em mensagens recuperadas
+  }
+  
+  // Tentar extrair o ID do destinatário de várias formas possíveis
+  const destinatarioReal = para.includes('@') ? para : `${para}@c.us`;
   
   // Determinar se estamos lidando com um objeto de mensagem ou opções
   let mensagemOriginal = null;
@@ -232,66 +258,77 @@ async enviarMensagem(para, conteudo, opcoes = null) {
       mensagemOriginal = opcoes;
     }
   }
-  
-  if (!clientePronto) {
+
+  // NOVA VERIFICAÇÃO DE SEGURANÇA: Se estamos após restart, fazer uma abordagem direta
+  if (!clientePronto || !tentarReply) {
     try {
-      this.registrador.info(`Cliente não parece pronto, mas tentando envio direto para ${para}`);
+      this.registrador.info(`Enviando mensagem direta para ${destinatarioReal} (${tentarReply ? 'cliente não pronto' : 'modo recovery'})`);
       
-      if (mensagemOriginal) {
-        // Formato antigo com objeto de mensagem
-        await mensagemOriginal.reply(conteudo);
-      } else if (quotedMessageId) {
-        // Novo formato com ID da mensagem para citar
-        await this.cliente.sendMessage(para, conteudo, { quotedMessageId });
-      } else {
-        // Mensagem sem citação
-        await this.cliente.sendMessage(para, conteudo);
-      }
+      // Enviar mensagem direta sem tentar responder
+      await this.cliente.sendMessage(destinatarioReal, conteudo);
       
       this.ultimoEnvio = Date.now();
-      this.registrador.info(`Mensagem enviada com sucesso (envio direto) para ${para}`);
+      this.registrador.info(`Mensagem enviada com sucesso (envio direto) para ${destinatarioReal}`);
       return true;
     } catch (erroEnvio) {
-      this.registrador.warn(`Falha no envio direto para ${para}, adicionando à fila de pendentes: ${erroEnvio.message}`);
+      this.registrador.warn(`Falha no envio direto para ${destinatarioReal}, adicionando à fila de pendentes: ${erroEnvio.message}`);
       
       this.mensagensPendentes.push({ 
-        para, 
+        para: destinatarioReal, 
         conteudo, 
         timestamp: Date.now(),
-        mensagemOriginalId: mensagemOriginal ? mensagemOriginal.id?._serialized : quotedMessageId 
+        naoUsarReply: true // Marca para não tentar usar reply
       });
       
-      await this.salvarNotificacaoPendente(para, conteudo, opcoes);
+      await this.salvarNotificacaoPendente(destinatarioReal, conteudo, { naoUsarReply: true });
       return false;
     }
   }
   
+  // Tentar enviar com reply apenas se temos uma mensagem original válida
+  const usarReply = mensagemOriginal && typeof mensagemOriginal.reply === 'function';
   let tentativas = 0;
   const maxTentativas = 3;
   
   while (tentativas < maxTentativas) {
     try {
-      if (mensagemOriginal) {
-        // Responde diretamente à mensagem original
+      if (usarReply) {
+        // Tenta responder à mensagem original
         await mensagemOriginal.reply(conteudo);
       } else if (quotedMessageId) {
-        // Responde citando a mensagem pelo ID
-        await this.cliente.sendMessage(para, conteudo, { quotedMessageId });
+        // Tenta responder citando a mensagem pelo ID
+        await this.cliente.sendMessage(destinatarioReal, conteudo, { quotedMessageId });
       } else {
-        // Caso não tenha mensagem original
-        await this.cliente.sendMessage(para, conteudo);
+        // Caso não tenha mensagem original, envia normalmente
+        await this.cliente.sendMessage(destinatarioReal, conteudo);
       }
       
       this.ultimoEnvio = Date.now();
-      this.registrador.info(`Mensagem enviada com sucesso para ${para}`);
+      this.registrador.debug(`Mensagem enviada com sucesso para ${destinatarioReal}`);
       return true;
     } catch (erro) {
       tentativas++;
       this.registrador.error(`Erro ao enviar mensagem (tentativa ${tentativas}): ${erro.message}`);
       
+      // NOVO: Se falhar com reply, tenta sem reply na próxima vez
+      if (erro.message.includes('quoted message') || erro.message.includes('Could not get')) {
+        this.registrador.info(`Erro de mensagem citada, tentando envio direto...`);
+        
+        try {
+          // Tenta enviar diretamente sem citação
+          await this.cliente.sendMessage(destinatarioReal, conteudo);
+          
+          this.ultimoEnvio = Date.now();
+          this.registrador.info(`Mensagem enviada com sucesso (sem citação) para ${destinatarioReal}`);
+          return true;
+        } catch (erroSimples) {
+          this.registrador.error(`Falha também no envio simples: ${erroSimples.message}`);
+        }
+      }
+      
       if (tentativas >= maxTentativas) {
-        // Salvar para tentativa futura
-        await this.salvarNotificacaoPendente(para, conteudo, opcoes);
+        // Salvar para tentativa futura, marcando para não usar reply
+        await this.salvarNotificacaoPendente(destinatarioReal, conteudo, { naoUsarReply: true });
         throw erro;
       }
       
@@ -405,7 +442,7 @@ async salvarNotificacaoPendente(para, conteudo, opcoes = null) {
 }
 
 /**
- * Processa notificações pendentes salvas em arquivo
+ * Processa notificações pendentes incluindo transações
  * @returns {Promise<number>} Número de notificações processadas
  */
 async processarNotificacoesPendentes() {
@@ -419,6 +456,7 @@ async processarNotificacoesPendentes() {
     
     if (arquivos.length === 0) return 0;
     
+    this.registrador.info(`Encontradas ${arquivos.length} notificações pendentes para processar`);
     let processados = 0;
     
     for (const arquivo of arquivos) {
@@ -433,37 +471,112 @@ async processarNotificacoesPendentes() {
           continue;
         }
         
-        // Tentar enviar a mensagem
-        const chat = await this.cliente.getChatById(notificacao.para);
-        await chat.sendSeen();
-        
-        if (notificacao.mensagemOriginalId) {
-          // Se temos ID da mensagem original, enviar como resposta
-          await this.cliente.sendMessage(
-            notificacao.para, 
-            notificacao.conteudo, 
-            { quotedMessageId: notificacao.mensagemOriginalId }
-          );
-        } else {
-          // Enviar mensagem sem referência
-          await this.cliente.sendMessage(notificacao.para, notificacao.conteudo);
+        // Marcar chat como visto antes de enviar (evita problemas de estado)
+        try {
+          const chat = await this.cliente.getChatById(notificacao.para);
+          await chat.sendSeen();
+        } catch (erroChat) {
+          this.registrador.warn(`Não foi possível marcar chat como visto: ${erroChat.message}`);
+          // Continuar mesmo assim
         }
         
-        // Remover o arquivo após envio bem-sucedido
-        fs.unlinkSync(caminhoArquivo);
-        this.registrador.info(`✅ Notificação pendente enviada para ${notificacao.para}`);
+        // Pequena pausa antes de enviar (estabilidade)
+        await new Promise(resolve => setTimeout(resolve, 800));
         
-        processados++;
+        // Tentar enviar a mensagem
+        try {
+          if (notificacao.naoUsarReply) {
+            // Enviar mensagem sem tentar responder à mensagem original
+            this.registrador.info(`Enviando notificação diretamente (sem reply) para ${notificacao.para}`);
+            await this.cliente.sendMessage(notificacao.para, notificacao.conteudo);
+          } else {
+            // Tentar enviar normalmente (pode tentar usar reply)
+            this.registrador.info(`Processando notificação pendente para ${notificacao.para}`);
+            await this.enviarMensagem(
+              notificacao.para, 
+              notificacao.conteudo, 
+              { 
+                isRecoveredNotification: true, 
+                transacaoId: notificacao.transacaoId 
+              }
+            );
+          }
+          
+          // Remover o arquivo após envio bem-sucedido
+          fs.unlinkSync(caminhoArquivo);
+          this.registrador.info(`✅ Notificação pendente enviada para ${notificacao.para}`);
+          
+          // Se a notificação tem transação associada, atualizar status
+          if (notificacao.transacaoId && this.gerenciadorTransacoes) {
+            try {
+              await this.gerenciadorTransacoes.marcarComoEntregue(notificacao.transacaoId);
+              this.registrador.info(`✅ Transação ${notificacao.transacaoId} atualizada após recuperação`);
+            } catch (erroTransacao) {
+              this.registrador.warn(`Não foi possível atualizar transação ${notificacao.transacaoId}: ${erroTransacao.message}`);
+            }
+          }
+          
+          processados++;
+        } catch (erroEnvio) {
+          // Atualizar contadores de tentativas na notificação
+          notificacao.tentativas = (notificacao.tentativas || 0) + 1;
+          notificacao.ultimaTentativa = Date.now();
+          
+          // Se falhar por problema de mensagem citada, ou após várias tentativas, marcar para não usar reply
+          if (erroEnvio.message.includes('quoted message') || 
+              erroEnvio.message.includes('Could not get') || 
+              notificacao.tentativas >= 3) {
+            
+            notificacao.naoUsarReply = true;
+            this.registrador.info(`Notificação ${arquivo} marcada para envio sem reply nas próximas tentativas`);
+          }
+          
+          // Salvar notificação atualizada
+          fs.writeFileSync(caminhoArquivo, JSON.stringify(notificacao, null, 2), 'utf8');
+          this.registrador.warn(`❌ Falha ao processar notificação (${notificacao.tentativas} tentativas): ${erroEnvio.message}`);
+          
+          // Se já tentou muitas vezes, tenta um método diferente
+          if (notificacao.tentativas >= 5) {
+            try {
+              this.registrador.info(`Tentando método alternativo para notificação problemática...`);
+              // Método desespero: envio direto via API
+              await this.cliente.sendMessage(notificacao.para, notificacao.conteudo);
+              
+              // Se conseguiu, remover arquivo
+              fs.unlinkSync(caminhoArquivo);
+              this.registrador.info(`✅ Notificação problemática resolvida via método alternativo!`);
+              processados++;
+            } catch (erroFinal) {
+              this.registrador.error(`💔 Todos os métodos falharam para notificação: ${erroFinal.message}`);
+            }
+          }
+        }
       } catch (erroProcessamento) {
         this.registrador.error(`Erro ao processar arquivo de notificação ${arquivo}: ${erroProcessamento.message}`);
+        
+        // Se o arquivo estiver corrompido, tentar mover para outra pasta
+        try {
+          const diretorioErros = path.join(process.cwd(), 'temp', 'erros');
+          if (!fs.existsSync(diretorioErros)) {
+            fs.mkdirSync(diretorioErros, { recursive: true });
+          }
+          
+          const caminhoOriginal = path.join(diretorioTemp, arquivo);
+          const caminhoDestino = path.join(diretorioErros, `${arquivo}.corrupto`);
+          
+          fs.renameSync(caminhoOriginal, caminhoDestino);
+          this.registrador.info(`Arquivo corrompido movido para: ${caminhoDestino}`);
+        } catch (erroMover) {
+          this.registrador.error(`Não foi possível mover arquivo corrompido: ${erroMover.message}`);
+        }
       }
       
-      // Pequena pausa entre processamentos
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Pequena pausa entre processamentos para não sobrecarregar
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
     if (processados > 0) {
-      this.registrador.info(`Processadas ${processados} notificações pendentes`);
+      this.registrador.info(`✨ Processadas ${processados} notificações pendentes com sucesso!`);
     }
     
     return processados;
@@ -478,7 +591,7 @@ async processarNotificacoesPendentes() {
    * @returns {Promise<boolean>} Sucesso da reconexão
    */
   async reconectar() {
-    this.registrador.info('Tentando reconexão simples do WhatsApp...');
+    this.registrador.debug('Tentando reconexão simples do WhatsApp...');
     
     try {
       // Tentar reconectar sem reiniciar tudo
@@ -497,7 +610,7 @@ async processarNotificacoesPendentes() {
       const reconectouRealmente = await this.estaProntoRealmente();
       
       if (reconectouRealmente) {
-        this.registrador.info('Reconexão bem-sucedida!');
+        this.registrador.debug('Reconexão bem-sucedida!');
         this.tentativasReconexao = 0;
         return true;
       } else {
@@ -615,7 +728,7 @@ async processarNotificacoesPendentes() {
      */
     async deveResponderNoGrupo(msg, chat) {
       if (msg.body && msg.body.startsWith('!')) {
-        this.registrador.info("Respondendo porque é um comando");
+        this.registrador.debug("Respondendo porque é um comando");
         return true;
       }
   
