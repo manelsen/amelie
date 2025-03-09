@@ -305,28 +305,33 @@ iniciar() {
           const BOT_NAME = process.env.BOT_NAME || 'Amélie';
           const LINK_GRUPO_OFICIAL = process.env.LINK_GRUPO_OFICIAL || 'https://chat.whatsapp.com/C0Ys7pQ6lZH5zqDD9A8cLp';
 
-          const textoAjuda = `Olá! Eu sou a ${BOT_NAME}, sua assistente de AI multimídia acessível integrada ao WhatsApp.
-Minha idealizadora é a Belle Utsch. 
-
-Quer conhecê-la? Fala com ela em https://beacons.ai/belleutsch
-Quer entrar no grupo oficial da ${BOT_NAME}? O link é ${LINK_GRUPO_OFICIAL}
-Meu repositório fica em https://github.com/manelsen/amelie
-
+          const textoAjuda = `Olá! Eu sou a Amélie, sua assistente de AI multimídia acessível integrada ao WhatsApp.
 Esses são meus comandos disponíveis para configuração.
 
-Use com um ponto antes da palavra de comando, sem espaço.
+Use com um ponto antes da palavra de comando, sem espaço, e todas as letras são minúsculas.
 
 Comandos:
 
 .cego - Aplica configurações para usuários com deficiência visual
 
 .audio - Liga/desliga a transcrição de áudio
+
 .video - Liga/desliga a interpretação de vídeo
+
 .imagem - Liga/desliga a audiodescrição de imagem
+
+.longo - Usa audiodescrição longa e detalhada
+
+.curto - Usa audiodescrição curta e concisa
 
 .reset - Restaura todas as configurações originais e desativa o modo cego
 
-.ajuda - Mostra esta mensagem de ajuda`;
+.ajuda - Mostra esta mensagem de ajuda
+
+Minha idealizadora é a Belle Utsch. 
+Se quiser conhecer, fala com ela em https://beacons.ai/belleutsch
+Quer entrar no grupo oficial da Amélie? O link é https://chat.whatsapp.com/C0Ys7pQ6lZH5zqDD9A8cLp
+Meu repositório fica em https://github.com/manelsen/amelie`;
           
           await msg.reply(textoAjuda);
           return true;
@@ -357,6 +362,14 @@ Comandos:
 
         case 'imagem':
           await this.tratarComandoAlternarMidia(msg, chatId, 'mediaImage', 'audiodescrição de imagem');
+          return true;
+
+        case 'longo':
+          await this.tratarComandoLongo(msg, chatId);
+          return true;
+
+        case 'curto':
+          await this.tratarComandoCurto(msg, chatId);
           return true;
 
         case 'filas':
@@ -469,24 +482,33 @@ Comandos:
         const BOT_NAME = process.env.BOT_NAME || 'Amélie';
         const LINK_GRUPO_OFICIAL = process.env.LINK_GRUPO_OFICIAL || 'https://chat.whatsapp.com/C0Ys7pQ6lZH5zqDD9A8cLp';
         
-        const textoAjuda = `Olá! Eu sou a ${BOT_NAME}, sua assistente de AI multimídia acessível integrada ao WhatsApp.
-Minha idealizadora é a Belle Utsch. 
+        const textoAjuda = `Olá! Eu sou a Amélie, sua assistente de AI multimídia acessível integrada ao WhatsApp.
+Esses são meus comandos disponíveis para configuração.
 
-Quer conhecê-la? Fala com ela em https://beacons.ai/belleutsch
-Quer entrar no grupo oficial da ${BOT_NAME}? O link é ${LINK_GRUPO_OFICIAL}
-Meu repositório fica em https://github.com/manelsen/amelie
+Use com um ponto antes da palavra de comando, sem espaço, e todas as letras são minúsculas.
 
-Esses são meus comandos disponíveis para configuração:
+Comandos:
 
 .cego - Aplica configurações para usuários com deficiência visual
 
 .audio - Liga/desliga a transcrição de áudio
+
 .video - Liga/desliga a interpretação de vídeo
+
 .imagem - Liga/desliga a audiodescrição de imagem
+
+.longo - Usa audiodescrição longa e detalhada
+
+.curto - Usa audiodescrição curta e concisa
 
 .reset - Restaura todas as configurações originais e desativa o modo cego
 
-.ajuda - Mostra esta mensagem de ajuda`;
+.ajuda - Mostra esta mensagem de ajuda
+
+Minha idealizadora é a Belle Utsch. 
+Se quiser conhecer, fala com ela em https://beacons.ai/belleutsch
+Quer entrar no grupo oficial da Amélie? O link é https://chat.whatsapp.com/C0Ys7pQ6lZH5zqDD9A8cLp
+Meu repositório fica em https://github.com/manelsen/amelie`;
 
         await chat.sendMessage(textoAjuda);
         
@@ -887,32 +909,16 @@ async verificarMencaoBotNaMensagem(msg) {
       const transacao = await this.gerenciadorTransacoes.criarTransacao(msg, chat);
       this.registrador.info(`Nova transação criada: ${transacao.id} para mensagem de imagem de ${remetente.name}`);
       
-      // Enviar feedback inicial (opcional - avisa o usuário que a imagem está sendo processada)
-      // await msg.reply("✨ Estou processando sua imagem! Aguarde um momento...");
-      
       // Marcar transação como processando
       await this.gerenciadorTransacoes.marcarComoProcessando(transacao.id);
       
       // Determinar o prompt do usuário
-      let promptUsuario = `Analise esta imagem de forma extremamente detalhada para pessoas com deficiência visual.
-      Inclua:
-      1. Se for uma receita, recibo ou documento, transcreva o texto integralmente, verbatim, incluindo, mas não limitado, a CNPJ, produtos, preços, nomes de remédios, posologia, nome do profissional e CRM, etc.
-      2. Número exato de pessoas, suas posições e roupas (cores, tipos)
-      3. Ambiente e cenário completo, em todos os planos
-      4. Todos os objetos visíveis 
-      5. Movimentos e ações detalhadas
-      6. Expressões faciais
-      7. Textos visíveis
-      8. Qualquer outro detalhe relevante
-
-      Crie uma descrição organizada e acessível.`;
+      let promptUsuario = "";
       
       if (msg.body && msg.body.trim() !== '') {
         promptUsuario = msg.body.trim();
       }
       
-      // MUDANÇA IMPORTANTE: Adicionando à fila de imagem desacoplada,
-      // mas agora passando o callback para o gerenciador de mensagens
       await this.filaProcessamentoImagem.add('process-image', {
         imageData: imagemData, 
         chatId, 
@@ -921,7 +927,8 @@ async verificarMencaoBotNaMensagem(msg) {
         userPrompt: promptUsuario,
         senderNumber: msg.from,
         transacaoId: transacao.id,
-        remetenteName: remetente.name // Adicionando o nome do remetente para o log
+        remetenteName: remetente.name,
+        modoDescricao: config.modoDescricao || 'curto' // Adicionado com padrão 'curto'
       }, { 
         removeOnComplete: true,
         removeOnFail: false,
@@ -1059,7 +1066,8 @@ Crie uma descrição organizada e acessível.`;
           userPrompt: promptUsuario,
           senderNumber: msg.from,
           transacaoId: transacao.id,
-          remetenteName: remetente.name // Adicionando o nome do remetente para o log
+          remetenteName: remetente.name,
+          modoDescricao: config.modoDescricao || 'curto' // Adicionado com padrão 'curto'
         }, { 
           jobId: trabalhoId,
           removeOnComplete: true,
@@ -1067,7 +1075,7 @@ Crie uma descrição organizada e acessível.`;
           timeout: 300000 // 5 minutos
         });
         
-        this.registrador.info(`🚀 Vídeo de ${remetente.name} adicionado à fila com sucesso: ${arquivoTemporario} (Job ${trabalhoId})`);
+        this.registrador.debug(`🚀 Vídeo de ${remetente.name} adicionado à fila com sucesso: ${arquivoTemporario} (Job ${trabalhoId})`);
         return true;
         
       } catch (erroProcessamento) {
@@ -1476,6 +1484,76 @@ case 'get':
 default:
   await msg.reply('Subcomando de config desconhecido. Use .ajuda para ver os comandos disponíveis.');
 }
+}
+
+/**
+ * Configura o modo de descrição longa para imagens e vídeos
+ * @param {Object} msg - Mensagem recebida
+ * @param {string} chatId - ID do chat
+ * @async
+ */
+async tratarComandoLongo(msg, chatId) {
+  try {
+    const BOT_NAME = process.env.BOT_NAME || 'Amélie';
+    
+    // Configurar explicitamente para usar descrição longa
+    await this.gerenciadorConfig.definirConfig(chatId, 'mediaImage', true);
+    await this.gerenciadorConfig.definirConfig(chatId, 'mediaVideo', true);
+    await this.gerenciadorConfig.definirConfig(chatId, 'modoDescricao', 'longo');
+    
+    // Forçar a atualização do banco de dados
+    await this.gerenciadorConfig.definirConfig(chatId, 'descricaoLonga', true);
+    await this.gerenciadorConfig.definirConfig(chatId, 'descricaoCurta', false);
+    
+    // Logs para depuração
+    this.registrador.info(`Modo longo ativado para ${chatId}, verificando configuração...`);
+    const configAtualizada = await this.gerenciadorConfig.obterConfig(chatId);
+    this.registrador.info(`Modo de descrição atual: ${configAtualizada.modoDescricao}`);
+    
+    await msg.reply('Modo de descrição longa e detalhada ativado para imagens e vídeos. Toda mídia visual será descrita com o máximo de detalhes possível.');
+    
+    this.registrador.info(`Modo de descrição longa ativado para o chat ${chatId}`);
+    return true;
+  } catch (erro) {
+    this.registrador.error(`Erro ao aplicar modo de descrição longa: ${erro.message}`, { erro });
+    await msg.reply('Desculpe, ocorreu um erro ao configurar o modo de descrição longa. Por favor, tente novamente.');
+    return false;
+  }
+}
+
+/**
+ * Configura o modo de descrição curta para imagens e vídeos
+ * @param {Object} msg - Mensagem recebida
+ * @param {string} chatId - ID do chat
+ * @async
+ */
+async tratarComandoCurto(msg, chatId) {
+  try {
+    const BOT_NAME = process.env.BOT_NAME || 'Amélie';
+    
+    // Configurar explicitamente para usar descrição curta
+    await this.gerenciadorConfig.definirConfig(chatId, 'mediaImage', true);
+    await this.gerenciadorConfig.definirConfig(chatId, 'mediaVideo', true);
+    await this.gerenciadorConfig.definirConfig(chatId, 'modoDescricao', 'curto');
+    
+    // Forçar a atualização do banco de dados
+    await this.gerenciadorConfig.definirConfig(chatId, 'descricaoLonga', false);
+    await this.gerenciadorConfig.definirConfig(chatId, 'descricaoCurta', true);
+    
+    // Logs para depuração
+    this.registrador.info(`Modo curto ativado para ${chatId}, verificando configuração...`);
+    const configAtualizada = await this.gerenciadorConfig.obterConfig(chatId);
+    this.registrador.info(`Modo de descrição atual: ${configAtualizada.modoDescricao}`);
+    
+    await msg.reply('Modo de descrição curta e concisa ativado para imagens e vídeos. Toda mídia visual será descrita de forma breve e objetiva, limitado a cerca de 200 caracteres.');
+    
+    this.registrador.info(`Modo de descrição curta ativado para o chat ${chatId}`);
+    return true;
+  } catch (erro) {
+    this.registrador.error(`Erro ao aplicar modo de descrição curta: ${erro.message}`, { erro });
+    await msg.reply('Desculpe, ocorreu um erro ao configurar o modo de descrição curta. Por favor, tente novamente.');
+    return false;
+  }
 }
 
 /**

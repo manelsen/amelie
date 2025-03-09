@@ -96,6 +96,112 @@ class GerenciadorAI extends IAPort {
     return `${model}_${temperature}_${topK}_${topP}_${maxOutputTokens}_${crypto.createHash('md5').update(systemInstruction || '').digest('hex')}`;
   }
 
+    /**
+   * Obtém configurações para processamento de imagem/vídeo diretamente do banco
+   * @param {string} chatId - ID do chat
+   * @param {string} tipo - Tipo de mídia ('imagem' ou 'video')
+   * @returns {Promise<Object>} Configurações do processamento
+   */
+  async obterConfigDireta(chatId, tipo = 'imagem') {
+    try {
+      // Importar ConfigManager
+      const caminhoConfig = path.resolve(__dirname, '../../config/ConfigManager');
+      const ConfigManager = require(caminhoConfig);
+      
+      // Criar instância temporária para acessar o banco
+      const gerenciadorConfig = new ConfigManager(this.registrador, path.join(process.cwd(), 'db'));
+      
+      // Obter configuração do banco
+      const config = await gerenciadorConfig.obterConfig(chatId);
+      
+      // Log para depuração
+      this.registrador.debug(`GerenciadorAI - Config direta para ${chatId}: modo=${config.modoDescricao || 'não definido'}`);
+      
+      return config;
+    } catch (erro) {
+      this.registrador.error(`Erro ao obter configuração direta: ${erro.message}`);
+      // Retornar configuração padrão em caso de erro
+      return { modoDescricao: 'curto' };
+    }
+  }
+
+   /**
+   * Obtém configurações para processamento de imagem/vídeo diretamente do banco
+   * @param {string} chatId - ID do chat específico para obter a configuração
+   * @param {string} tipo - Tipo de mídia ('imagem' ou 'video')
+   * @returns {Promise<Object>} Configurações do processamento
+   */
+  async obterConfigDireta(chatId, tipo = 'imagem') {
+    try {
+      // Importar ConfigManager
+      const caminhoConfig = path.resolve(__dirname, '../../config/ConfigManager');
+      const ConfigManager = require(caminhoConfig);
+      
+      // Criar instância temporária para acessar o banco
+      const gerenciadorConfig = new ConfigManager(this.registrador, path.join(process.cwd(), 'db'));
+      
+      // Obter configuração do banco
+      const config = await gerenciadorConfig.obterConfig(chatId);
+      
+      // Log para depuração
+      this.registrador.debug(`GerenciadorAI - Config direta para ${chatId}: modo=${config.modoDescricao || 'não definido'}`);
+      
+      return config;
+    } catch (erro) {
+      this.registrador.error(`Erro ao obter configuração direta: ${erro.message}`);
+      // Retornar configuração padrão em caso de erro
+      return { modoDescricao: 'curto' };
+    }
+  }
+
+  /**
+   * Obtém configurações para processamento de imagem
+   * @param {string} chatId - ID do chat
+   * @returns {Promise<Object>} Configurações do processamento
+   */
+  async obterConfigProcessamento(chatId) {
+    try {
+      // Tentar obter configurações do gerenciador
+      if (this.gerenciadorConfig) {
+        const config = await this.gerenciadorConfig.obterConfig(chatId);
+        
+        // Obter o modo de audiodescrição
+        const modoAudiodescricao = config.modoAudiodescricao || 'longo';
+        
+        // Ajustar as instruções de sistema com base no modo
+        let sistemInstructions;
+        if (modoAudiodescricao === 'curto') {
+          sistemInstructions = obterInstrucaoImagemCurta();
+        } else {
+          sistemInstructions = obterInstrucaoImagem();
+        }
+        
+        return {
+          temperature: config.temperature || 0.7,
+          topK: config.topK || 1,
+          topP: config.topP || 0.95,
+          maxOutputTokens: config.maxOutputTokens || 800,
+          model: config.model || "gemini-2.0-flash",
+          systemInstructions: sistemInstructions,
+          modoAudiodescricao
+        };
+      }
+    } catch (erro) {
+      this.registrador.warn(`Erro ao obter configurações: ${erro.message}, usando padrão`);
+    }
+    
+    // Configuração padrão
+    return {
+      temperature: 0.7,
+      topK: 1,
+      topP: 0.95,
+      maxOutputTokens: 800,
+      model: "gemini-2.0-flash", // Usar o modelo rápido para imagens simples
+      systemInstructions: obterInstrucaoImagem(),
+      modoAudiodescricao: 'longo'
+    };
+  }
+  
   /**
    * Obtém ou cria um modelo com as configurações especificadas
    * @param {Object} config - Configurações do modelo

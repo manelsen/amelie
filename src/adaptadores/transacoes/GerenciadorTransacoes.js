@@ -17,7 +17,7 @@ class GerenciadorTransacoes {
    * @param {Object} registrador - Objeto logger para registro de eventos
    * @param {string} diretorioDB - Diretório para os bancos de dados
    */
-  constructor(registrador, diretorioDB = './db') {
+  constructor(registrador, diretorioDB = path.join(process.cwd(), 'db')) {
     this.registrador = registrador;
     this.diretorioDB = diretorioDB;
     

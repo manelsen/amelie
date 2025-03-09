@@ -15,7 +15,7 @@ class ConfigManager {
    * @param {Object} registrador - Objeto logger para registro de eventos
    * @param {string} diretorioDB - Diretório para os bancos de dados
    */
-  constructor(registrador, diretorioDB = './db') {
+  constructor(registrador, diretorioDB = path.join(process.cwd(), 'db')) {
     this.registrador = registrador;
     this.diretorioDB = diretorioDB;
     
@@ -31,16 +31,17 @@ class ConfigManager {
     this.groupsDb = new Datastore({ filename: path.join(this.diretorioDB, 'groups.db'), autoload: true });
     this.usersDb = new Datastore({ filename: path.join(this.diretorioDB, 'users.db'), autoload: true });
     
-    // Configuração padrão para a assistente
-    this.configPadrao = {
-      temperature: 0.9,
-      topK: 1,
-      topP: 0.95,
-      maxOutputTokens: 1024,
-      mediaImage: true,  
-      mediaAudio: false,  
-      mediaVideo: true   
-    };
+// Configuração padrão para a assistente
+this.configPadrao = {
+  temperature: 0.9,
+  topK: 1,
+  topP: 0.95,
+  maxOutputTokens: 1024,
+  mediaImage: true,  
+  mediaAudio: false,  
+  mediaVideo: true,
+  modoDescricao: 'curto' // Adicionado com padrão 'curto'
+};
     
     this.registrador.info('Gerenciador de configurações inicializado');
   }
@@ -116,7 +117,13 @@ async resetarConfig(chatId) {
   return new Promise((resolve, reject) => {
     this.configDb.update(
       { chatId },
-      { $set: this.configPadrao },
+      { $set: {
+        ...this.configPadrao,
+        modoDescricao: 'curto', // Alterado para 'curto' como padrão
+        descricaoLonga: false,
+        descricaoCurta: true,
+        activePrompt: null // Limpar prompt ativo
+      }},
       { upsert: true },
       (err) => {
         if (err) {

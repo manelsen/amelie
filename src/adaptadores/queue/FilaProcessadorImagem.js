@@ -144,6 +144,34 @@ class FilaProcessadorImagem {
   }
 
   /**
+  * Obtém configurações para processamento de imagem diretamente do banco de dados
+  * @param {string} chatId - ID do chat específico para obter a configuração
+  * @returns {Promise<Object>} Configurações do processamento
+  */
+  async obterConfigDireta(chatId) {
+    try {
+      // Importar ConfigManager
+      const caminhoConfig = path.resolve(__dirname, '../../config/ConfigManager');
+      const ConfigManager = require(caminhoConfig);
+      
+      // Criar instância temporária para acessar o banco
+      const gerenciadorConfig = new ConfigManager(this.registrador, path.join(process.cwd(), 'db'));
+      
+      // Obter configuração do banco para o chat específico
+      const config = await gerenciadorConfig.obterConfig(chatId);
+      
+      // Log para depuração
+      this.registrador.debug(`FilaProcessadorImagem - Config direta para ${chatId}: modo=${config.modoDescricao || 'não definido'}`);
+      
+      return config;
+    } catch (erro) {
+      this.registrador.error(`Erro ao obter configuração direta: ${erro.message}`);
+      // Retornar configuração padrão em caso de erro
+      return { modoDescricao: 'curto' };
+    }
+  }
+
+  /**
    * Configura os processadores das filas
    */
   configurarProcessadores() {
@@ -221,81 +249,90 @@ class FilaProcessadorImagem {
         throw erro;
       }
     });
+
+
     
     // 2. Processador para análise da imagem
-    this.imageAnalysisQueue.process('analyze-image', 5, async (job) => {
-      const { 
-        imageData, chatId, messageId, mimeType, userPrompt, senderNumber, 
-        transacaoId, uploadTimestamp, remetenteName 
-      } = job.data;
-      
-      try {
-        this.registrador.debug(`[Etapa 2] Iniciando análise da imagem (Job ${job.id})`);
-        
-        // Se a análise está demorando, notificar via callback
-        if (Date.now() - uploadTimestamp > 10000 && this.respostaCallback) {
-          this.respostaCallback({
-            resposta: "Estou analisando sua imagem... isso pode levar alguns segundos.",
-            chatId,
-            messageId,
-            senderNumber,
-            transacaoId,
-            isProgress: true
-          });
-        }
-        
-        // Obter configurações do usuário
-        const config = await this.obterConfigProcessamento(chatId);
-        
-        // Usar o gerenciadorAI para processar a imagem
-        const parteImagem = {
-          inlineData: {
-            data: imageData.data,
-            mimeType: imageData.mimetype
-          }
-        };
-        
-        const promptFinal = this.prepararPromptUsuario(userPrompt);
-        
-        const partesConteudo = [
-          parteImagem,
-          { text: promptFinal }
-        ];
-        
-        // Obter modelo
-        const modelo = this.gerenciadorAI.obterOuCriarModelo(config);
-        
-        // Adicionar timeout para a chamada à IA
-        const promessaRespostaIA = modelo.generateContent(partesConteudo);
-        const promessaTimeoutIA = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Timeout na análise de imagem pela IA")), 45000)
-        );
-        
-        const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
-        let resposta = resultado.response.text();
-        
-        if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
-          resposta = "Não consegui gerar uma descrição clara para esta imagem.";
-        }
-        
-        // Enviar resposta através do callback em vez de diretamente
-        if (this.respostaCallback) {
-          this.respostaCallback({
-            resposta,
-            chatId,
-            messageId,
-            senderNumber,
-            transacaoId,
-            remetenteName
-          });
-          this.registrador.debug(`[Etapa 2] Resposta de imagem enviada para callback - Transação ${transacaoId}`);
-        } else {
-          this.registrador.warn(`[Etapa 2] Não há callback configurado para receber a resposta - Transação ${transacaoId}`);
-        }
-        
-        return { success: true };
-      } catch (erro) {
-        this.registrador.error(`[Etapa 2] Erro na análise da imagem: ${erro.message}`, { erro, jobId: job.id });
+    /**
+    * Processador para análise da imagem
+    * Obtém a configuração diretamente do banco de dados para garantir
+    * que as preferências específicas do chat sejam respeitadas
+    */
+   this.imageAnalysisQueue.process('analyze-image', 5, async (job) => {
+     const { 
+       imageData, chatId, messageId, mimeType, userPrompt, senderNumber, 
+       transacaoId, uploadTimestamp, remetenteName
+     } = job.data;
+     
+     try {
+       this.registrador.debug(`[Etapa 2] Iniciando análise da imagem (Job ${job.id})`);
+       
+       if (Date.now() - uploadTimestamp > 10000) {
+         this.registrador.debug(`Job ${job.id} está demorando mais que o esperado (${Math.round((Date.now() - uploadTimestamp)/1000)}s)`);
+       }
+       
+       // Obter configurações do usuário DIRETAMENTE do banco de dados
+       const configDireta = await this.obterConfigDireta(chatId);
+       const modoDescricao = configDireta.modoDescricao || 'curto';
+       
+       this.registrador.debug(`Modo de descrição obtido diretamente do banco: ${modoDescricao} para chat ${chatId}`);
+       
+       // Obter configurações gerais de processamento
+       const config = await this.obterConfigProcessamento(chatId);
+       
+       // Usar o gerenciadorAI para processar a imagem
+       const parteImagem = {
+         inlineData: {
+           data: imageData.data,
+           mimeType: imageData.mimetype
+         }
+       };
+       
+       // IMPORTANTE: Usar o modo obtido diretamente do banco de dados
+       const promptFinal = this.prepararPromptUsuario(userPrompt, modoDescricao);
+       
+       // Registrar o prompt que será usado
+       this.registrador.debug(`Usando modo de descrição: ${modoDescricao} para imagem`);
+       
+       const partesConteudo = [
+         parteImagem,
+         { text: promptFinal }
+       ];
+       
+       // Obter modelo
+       const modelo = this.gerenciadorAI.obterOuCriarModelo(config);
+       
+       // Adicionar timeout para a chamada à IA
+       const promessaRespostaIA = modelo.generateContent(partesConteudo);
+       const promessaTimeoutIA = new Promise((_, reject) => 
+         setTimeout(() => reject(new Error("Timeout na análise de imagem pela IA")), 45000)
+       );
+       
+       const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
+       let resposta = resultado.response.text();
+       
+       if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
+         resposta = "Não consegui gerar uma descrição clara para esta imagem.";
+       }
+       
+       // Enviar resposta através do callback em vez de diretamente
+       if (this.respostaCallback) {
+         this.respostaCallback({
+           resposta,
+           chatId,
+           messageId,
+           senderNumber,
+           transacaoId,
+           remetenteName
+         });
+         this.registrador.debug(`[Etapa 2] Resposta de imagem enviada para callback - Transação ${transacaoId}`);
+       } else {
+         this.registrador.warn(`[Etapa 2] Não há callback configurado para receber a resposta - Transação ${transacaoId}`);
+       }
+       
+       return { success: true };
+     } catch (erro) {
+       this.registrador.error(`[Etapa 2] Erro na análise da imagem: ${erro.message}`, { erro, jobId: job.id });
         
         // Verificar se é um erro de segurança
         if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
@@ -414,29 +451,32 @@ class FilaProcessadorImagem {
   }
 
   /**
-   * Prepara o prompt do usuário, adicionando orientações se necessário
-   * @param {string} promptUsuario - Prompt original do usuário
-   * @returns {string} Prompt processado
-   */
-  prepararPromptUsuario(promptUsuario) {
-    // Se não tiver prompt do usuário, usar o padrão para audiodescrição
-    if (!promptUsuario || promptUsuario.trim() === '') {
-      return `Analise esta imagem de forma extremamente detalhada para pessoas com deficiência visual.
-      Inclua:
-      1. Se for uma receita, recibo ou documento, transcreva o texto integralmente, verbatim, incluindo, mas não limitado, a CNPJ, produtos, preços, nomes de remédios, posologia, nome do profissional e CRM, etc.
-      2. Número exato de pessoas, suas posições e roupas (cores, tipos)
-      3. Ambiente e cenário completo, em todos os planos
-      4. Todos os objetos visíveis 
-      5. Movimentos e ações detalhadas
-      6. Expressões faciais
-      7. Textos visíveis
-      8. Qualquer outro detalhe relevante
-
-      Crie uma descrição organizada e acessível.`;
-    }
+ * Prepara o prompt do usuário, adicionando orientações com base no modo de descrição
+ * @param {string} promptUsuario - Prompt original do usuário
+ * @param {string} modoDescricao - Modo de descrição (longo ou curto)
+ * @returns {string} Prompt processado
+ */
+prepararPromptUsuario(promptUsuario, modoDescricao = 'curto') {
+  // Log para depuração detalhado
+  this.registrador.debug(`Preparando prompt com modo explícito: ${modoDescricao}`);
+  
+  // Se não tiver prompt do usuário, usar o padrão para descrição
+  if (!promptUsuario || promptUsuario.trim() === '') {
+    const { obterPromptImagem, obterPromptImagemCurto } = require('../../config/InstrucoesSistema');
     
-    return promptUsuario;
+    if (modoDescricao === 'longo') {
+      const promptLongo = obterPromptImagem();
+      this.registrador.debug('Usando prompt LONGO para imagem - escolha explícita');
+      return promptLongo;
+    } else {
+      const promptCurto = obterPromptImagemCurto();
+      this.registrador.debug('Usando prompt CURTO para imagem - escolha explícita');
+      return promptCurto;
+    }
   }
+  
+  return promptUsuario;
+}
 
   /**
    * Configura eventos para uma fila
@@ -520,7 +560,35 @@ class FilaProcessadorImagem {
    * @returns {Promise<Object>} Configurações do processamento
    */
   async obterConfigProcessamento(chatId) {
-    // Configuração padrão - normalmente seria obtida do ConfigManager
+    try {
+      // Tentar obter configurações do gerenciador de configurações, se existir
+      if (this.gerenciadorConfig) {
+        const config = await this.gerenciadorConfig.obterConfig(chatId);
+        
+        // Usar o modo de descrição configurado
+        const modoDescricao = config.modoDescricao || 'longo';
+        const { obterInstrucaoImagem, obterInstrucaoImagemCurta } = require('../../config/InstrucoesSistema');
+        
+        // Escolher as instruções apropriadas com base no modo
+        const systemInstructions = modoDescricao === 'curto' 
+          ? obterInstrucaoImagemCurta() 
+          : obterInstrucaoImagem();
+        
+        return {
+          temperature: config.temperature || 0.7,
+          topK: config.topK || 1,
+          topP: config.topP || 0.95,
+          maxOutputTokens: config.maxOutputTokens || 800,
+          model: "gemini-2.0-flash",
+          systemInstructions,
+          modoDescricao
+        };
+      }
+    } catch (erro) {
+      this.registrador.warn(`Erro ao obter configurações específicas: ${erro.message}, usando padrão`);
+    }
+    
+    // Configuração padrão
     return {
       temperature: 0.7,
       topK: 1,
@@ -549,6 +617,9 @@ Comandos:
 .video - Liga/desliga a interpretação de vídeo
 .imagem - Liga/desliga a audiodescrição de imagem
 
+.longo - Usa audiodescrição longa e detalhada para imagens e vídeos
+.curto - Usa audiodescrição curta e concisa para imagens e vídeos
+
 .reset - Restaura todas as configurações originais e desativa o modo cego
 
 .ajuda - Mostra esta mensagem de ajuda
@@ -575,7 +646,8 @@ Comandos:
       7. Textos visíveis
       8. Qualquer outro detalhe relevante
 
-      Crie uma descrição organizada e acessível.`
+      Crie uma descrição organizada e acessível.`,
+      modoDescricao: 'longo'
     };
   }
 

@@ -66,12 +66,16 @@ class ClienteWhatsApp extends EventEmitter {
           '--disable-features=TranslateUI,BlinkGenPropertyTrees',
           '--disable-ipc-flooding-protection',
           '--disable-renderer-backgrounding',
+          '--aggressive-cache-discard',
+          '--disable-cache',
+          '--disable-application-cache',
+          '--disable-offline-load-stale-cache',
+          '--disk-cache-size=0'
         ],
         defaultViewport: {
           width: 800,
           height: 600
         },
-        // Adicione um timeout para operações do navegador
         timeout: 60000,
         ignoreHTTPSErrors: true
       }

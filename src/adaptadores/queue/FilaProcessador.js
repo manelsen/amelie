@@ -17,20 +17,21 @@ const {
 
 class FilaProcessador {
   /**
-   * Cria uma instância do gerenciador de filas
-   * @param {Object} registrador - Objeto logger para registro de eventos
-   * @param {Object} gerenciadorAI - Instância do gerenciador de IA
-   * @param {Object} clienteWhatsApp - Instância do cliente WhatsApp
-   * @param {Object} opcoes - Opções de configuração
-   */
-  constructor(registrador, gerenciadorAI, clienteWhatsApp, opcoes = {}) {
-    this.registrador = registrador;
-    this.gerenciadorAI = gerenciadorAI;
-    this.clienteWhatsApp = clienteWhatsApp;
-    this.opcoes = {
-      enviarRespostaDireta: true,
-      ...opcoes
-    };
+ * Cria uma instância do gerenciador de filas
+ * @param {Object} registrador - Objeto logger para registro de eventos
+ * @param {Object} gerenciadorAI - Instância do gerenciador de IA
+ * @param {Object} clienteWhatsApp - Instância do cliente WhatsApp
+ * @param {Object} opcoes - Opções de configuração
+ */
+constructor(registrador, gerenciadorAI, clienteWhatsApp, opcoes = {}) {
+  this.registrador = registrador;
+  this.gerenciadorAI = gerenciadorAI;
+  this.clienteWhatsApp = clienteWhatsApp;
+  this.opcoes = {
+    enviarRespostaDireta: true,
+    enviarMensagensProgresso: false, // Nova opção, desabilitada por padrão
+    ...opcoes
+  };
     
     // Callback para retornar resultados ao invés de enviar diretamente
     this.resultCallback = null;
@@ -183,6 +184,34 @@ class FilaProcessador {
   }
 
   /**
+ * Obtém configurações para processamento de vídeo diretamente do banco de dados
+ * @param {string} chatId - ID do chat específico para obter a configuração
+ * @returns {Promise<Object>} Configurações do processamento
+ */
+async obterConfigDireta(chatId) {
+  try {
+    // Importar ConfigManager
+    const caminhoConfig = path.resolve(__dirname, '../../config/ConfigManager');
+    const ConfigManager = require(caminhoConfig);
+    
+    // Criar instância temporária para acessar o banco
+    const gerenciadorConfig = new ConfigManager(this.registrador, path.join(process.cwd(), 'db'));
+    
+    // Obter configuração do banco para o chat específico
+    const config = await gerenciadorConfig.obterConfig(chatId);
+    
+    // Log para depuração
+    this.registrador.debug(`FilaProcessador - Config direta para ${chatId}: modo=${config.modoDescricao || 'não definido'}`);
+    
+    return config;
+  } catch (erro) {
+    this.registrador.error(`Erro ao obter configuração direta: ${erro.message}`);
+    // Retornar configuração padrão em caso de erro
+    return { modoDescricao: 'curto' };
+  }
+}
+
+  /**
    * Configura os processadores das filas
    */
   configurarProcessadores() {
@@ -292,19 +321,9 @@ this.videoProcessingCheckQueue.process('check-processing', 3, async (job) => {
   try {
     this.registrador.debug(`[Etapa 2] Verificando processamento do vídeo: ${fileName} (Job ${job.id}), tentativa ${tentativas + 1}`);
     
-    // Se já estamos na tentativa 10, enviar feedback ao usuário
+    // Se já estamos na tentativa 10, fazer log, mas não enviar feedback ao usuário
     if (tentativas === 10) {
-      if (this.resultCallback) {
-        this.resultCallback({
-          resposta: "Seu vídeo está demorando mais que o normal para ser processado. Continuarei tentando, mas pode ser que ele seja muito complexo ou longo.",
-          chatId,
-          messageId,
-          senderNumber,
-          transacaoId,
-          isProgress: true,
-          remetenteName
-        });
-      }
+      this.registrador.debug(`Job ${job.id} - tentativa 10, processamento prolongado`);
     }
     
     // Obter estado atual do arquivo - com tratamento de erro aprimorado
@@ -316,7 +335,7 @@ this.videoProcessingCheckQueue.process('check-processing', 3, async (job) => {
       if (erroAcesso.message && erroAcesso.message.includes('403 Forbidden')) {
         this.registrador.warn(`Arquivo ${fileName} não está mais acessível (403 Forbidden). Abortando processamento.`);
         
-        // Notificar usuário
+        // Notificar usuário apenas sobre falha final, não sobre progresso
         if (this.resultCallback) {
           this.resultCallback({
             resposta: "Desculpe, encontrei um problema técnico ao processar seu vídeo. Parece que ele é muito complexo para meu sistema. Poderia tentar com um vídeo mais curto ou de menor resolução?",
@@ -341,45 +360,17 @@ this.videoProcessingCheckQueue.process('check-processing', 3, async (job) => {
     // Reduzir o limite máximo de tentativas para falhar mais cedo
     const maxTentativas = 10; // antes era 12
     
-    // Controle para mensagens de progresso - enviar uma a cada 20 segundos
-    const ultimaMensagemTimestamp = job.data.ultimaMensagemTimestamp || 0;
-    const enviarAtualizacao = Date.now() - ultimaMensagemTimestamp > 20000;
-    
     // Verificar o estado do arquivo
     if (arquivo.state === "PROCESSING") {
       // Se ainda está processando e não excedeu o limite de tentativas, reagendar
       if (tentativas < maxTentativas) {
         this.registrador.debug(`[Etapa 2] Vídeo ainda em processamento, reagendando verificação... (tentativa ${tentativas + 1})`);
         
-        // Enviar mensagem de progresso apenas se necessário
-        if (enviarAtualizacao) {
-          const mensagemProgresso = "Seu vídeo está sendo processado... isso pode levar alguns minutos para vídeos longos ou complexos.";
-          
-          if (this.resultCallback) {
-            this.resultCallback({
-              resposta: mensagemProgresso,
-              chatId,
-              messageId,
-              senderNumber,
-              transacaoId,
-              isProgress: true,
-              remetenteName
-            });
-          }
-          
-          // Reagendar esta verificação após 15 segundos (aumentamos para dar mais tempo)
-          await this.videoProcessingCheckQueue.add('check-processing', {
-            ...job.data,
-            tentativas: tentativas + 1,
-            ultimaMensagemTimestamp: Date.now()
-          }, { delay: 15000 });
-        } else {
-          // Reagendar sem enviar mensagem
-          await this.videoProcessingCheckQueue.add('check-processing', {
-            ...job.data,
-            tentativas: tentativas + 1
-          }, { delay: 15000 });
-        }
+        // Reagendar sem enviar mensagem de progresso
+        await this.videoProcessingCheckQueue.add('check-processing', {
+          ...job.data,
+          tentativas: tentativas + 1
+        }, { delay: 15000 });
         
         return { success: true, status: "PROCESSING", tentativas: tentativas + 1 };
       } else {
@@ -409,7 +400,9 @@ this.videoProcessingCheckQueue.process('check-processing', 3, async (job) => {
       fileState: arquivo.state,
       fileUri: arquivo.uri,
       fileMimeType: arquivo.mimeType,
-      remetenteName
+      remetenteName,
+      // Passar o modo de descrição para a próxima etapa
+      modoDescricao: job.data.modoDescricao || 'curto'
     });
     
     return { success: true, status: arquivo.state };
@@ -511,150 +504,167 @@ this.videoProcessingCheckQueue.process('check-processing', 3, async (job) => {
 });
     
     // 3. Processador para análise do vídeo
-    this.videoAnalysisQueue.process('analyze-video', 3, async (job) => {
-      const { 
-        fileName, tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, 
-        transacaoId, fileState, fileUri, fileMimeType, remetenteName 
-      } = job.data;
-      
-      try {
-        this.registrador.debug(`[Etapa 3] Iniciando análise do vídeo: ${fileName} (Job ${job.id})`);
-        
-        // Obter configurações do usuário
-        const config = await this.obterConfigProcessamento(chatId);
-        
-        // Obter modelo
-        const modelo = this.gerenciadorAI.obterOuCriarModelo(config);
-        
-        // Preparar partes de conteúdo
-        const partesConteudo = [
-          {
-            fileData: {
-              mimeType: fileMimeType,
-              fileUri: fileUri
-            }
-          },
-          {
-            text: (config.systemInstructions || obterInstrucaoVideo()) + "\n" + userPrompt
-          }
-        ];
-        
-        // Adicionar timeout para a chamada à IA - aumentado para 2 minutos
-        const promessaRespostaIA = modelo.generateContent(partesConteudo);
-        const promessaTimeoutIA = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Timeout na análise de vídeo pela IA")), 120000)
-        );
-        
-        const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
-        let resposta = resultado.response.text();
-        
-        if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
-          resposta = "Não consegui gerar uma descrição clara para este vídeo.";
+/**
+ * Processador para análise do vídeo
+ * Obtém a configuração diretamente do banco de dados para garantir
+ * que as preferências específicas do chat sejam respeitadas
+ */
+this.videoAnalysisQueue.process('analyze-video', 3, async (job) => {
+  const { 
+    fileName, tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, 
+    transacaoId, fileState, fileUri, fileMimeType, remetenteName
+  } = job.data;
+  
+  try {
+    this.registrador.debug(`[Etapa 3] Iniciando análise do vídeo: ${fileName} (Job ${job.id})`);
+    
+    // Obter configuração diretamente do banco de dados para este chat específico
+    const configDireta = await this.obterConfigDireta(chatId);
+    const modoDescricao = configDireta.modoDescricao || 'curto';
+    
+    this.registrador.debug(`Modo de descrição obtido diretamente do banco: ${modoDescricao} para chat ${chatId}`);
+    
+    // Obter configurações gerais de processamento
+    const config = await this.obterConfigProcessamento(chatId);
+    
+    // Obter modelo
+    const modelo = this.gerenciadorAI.obterOuCriarModelo(config);
+    
+    // Preparar o prompt adequado com base no modo obtido diretamente do banco
+    const { obterPromptVideo, obterPromptVideoCurto } = require('../../config/InstrucoesSistema');
+    const promptBase = modoDescricao === 'longo' ? obterPromptVideo() : obterPromptVideoCurto();
+    
+    this.registrador.debug(`Usando prompt base ${modoDescricao.toUpperCase()} para vídeo`);
+    
+    // Preparar partes de conteúdo
+    const partesConteudo = [
+      {
+        fileData: {
+          mimeType: fileMimeType,
+          fileUri: fileUri
         }
-        
-        // Log do processamento concluído
-        this.registrador.debug(`[Etapa 3] Análise de vídeo concluída com sucesso para ${remetenteName || senderNumber}`);
-        
-        // Enviar resposta via callback ou diretamente
-        if (this.resultCallback) {
-          this.resultCallback({
-            resposta,
-            chatId,
-            messageId,
-            senderNumber,
-            transacaoId,
-            remetenteName
-          });
-          this.registrador.debug(`[Etapa 3] Resposta de vídeo enviada para callback - Transação ${transacaoId}`);
-        } else if (this.opcoes.enviarRespostaDireta) {
-          await this.clienteWhatsApp.enviarMensagem(senderNumber, resposta);
-          this.registrador.debug(`[Etapa 3] Resposta de vídeo enviada diretamente para ${senderNumber}`);
-        }
-        
-        // Limpar o arquivo temporário
-        this.limparArquivoTemporario(tempFilename);
-        
-        // Limpar o arquivo do Google
-        await this.gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
-        
-        return { success: true };
-      } catch (erro) {
-        this.registrador.error(`[Etapa 3] Erro na análise do vídeo: ${erro.message}`, { erro, jobId: job.id });
-        
-        // Verificar se é um erro de segurança
-        if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
-            erro.message.includes('blocked') || erro.message.includes('Blocked')) {
-          await this.salvarArquivoBloqueado(tempFilename, {
-            mimeType,
-            erro: erro.message,
-            senderNumber,
-            chatId,
-            messageId,
-            userPrompt,
-            transacaoId,
-            jobId: job.id
-          });
-          
-          // Notificar via callback ou diretamente
-          if (this.resultCallback) {
-            this.resultCallback({
-              resposta: "Este conteúdo não pôde ser processado por questões de segurança.",
-              chatId,
-              messageId,
-              senderNumber,
-              transacaoId,
-              isError: true,
-              errorType: 'safety',
-              remetenteName
-            });
-          } else if (this.opcoes.enviarRespostaDireta) {
-            await this.clienteWhatsApp.enviarMensagem(
-              senderNumber, 
-              "Este conteúdo não pôde ser processado por questões de segurança."
-            );
-          }
-        } else {
-          // Notificar sobre outros tipos de erro
-          const errorMessage = this.obterMensagemErroAmigavel(erro);
-          
-          if (this.resultCallback) {
-            this.resultCallback({
-              resposta: errorMessage,
-              chatId,
-              messageId,
-              senderNumber,
-              transacaoId,
-              isError: true,
-              errorType: 'general',
-              remetenteName
-            });
-          } else if (this.opcoes.enviarRespostaDireta) {
-            await this.clienteWhatsApp.enviarMensagem(senderNumber, errorMessage);
-          }
-        }
-        
-        // Limpar o arquivo temporário (apenas se não for bloqueio de segurança)
-        if (!erro.message.includes('SAFETY') && !erro.message.includes('safety')) {
-          this.limparArquivoTemporario(tempFilename);
-        }
-        
-        // Tentar excluir o arquivo do Google AI em caso de erro
-        try {
-          await this.gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
-        } catch (errDelete) {
-          this.registrador.warn(`Não foi possível excluir o arquivo remoto: ${errDelete.message}`);
-        }
-        
-        throw erro;
+      },
+      {
+        text: promptBase + "\n" + userPrompt
       }
-    });
+    ];
+    
+    // Adicionar timeout para a chamada à IA - aumentado para 2 minutos
+    const promessaRespostaIA = modelo.generateContent(partesConteudo);
+    const promessaTimeoutIA = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Timeout na análise de vídeo pela IA")), 120000)
+    );
+    
+    const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
+    let resposta = resultado.response.text();
+    
+    if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
+      resposta = "Não consegui gerar uma descrição clara para este vídeo.";
+    }
+    
+    // Log do processamento concluído
+    this.registrador.debug(`[Etapa 3] Análise de vídeo concluída com sucesso para ${remetenteName || senderNumber} usando modo ${modoDescricao}`);
+    
+    // Enviar resposta via callback ou diretamente
+    if (this.resultCallback) {
+      this.resultCallback({
+        resposta,
+        chatId,
+        messageId,
+        senderNumber,
+        transacaoId,
+        remetenteName
+      });
+      this.registrador.debug(`[Etapa 3] Resposta de vídeo enviada para callback - Transação ${transacaoId}`);
+    } else if (this.opcoes.enviarRespostaDireta) {
+      await this.clienteWhatsApp.enviarMensagem(senderNumber, resposta);
+      this.registrador.debug(`[Etapa 3] Resposta de vídeo enviada diretamente para ${senderNumber}`);
+    }
+    
+    // Limpar o arquivo temporário
+    this.limparArquivoTemporario(tempFilename);
+    
+    // Limpar o arquivo do Google
+    await this.gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
+    
+    return { success: true };
+  } catch (erro) {
+    this.registrador.error(`[Etapa 3] Erro na análise do vídeo: ${erro.message}`, { erro, jobId: job.id });
+    
+    // Verificar se é um erro de segurança
+    if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
+        erro.message.includes('blocked') || erro.message.includes('Blocked')) {
+      await this.salvarArquivoBloqueado(tempFilename, {
+        mimeType,
+        erro: erro.message,
+        senderNumber,
+        chatId,
+        messageId,
+        userPrompt,
+        transacaoId,
+        jobId: job.id
+      });
+      
+      // Notificar via callback ou diretamente
+      if (this.resultCallback) {
+        this.resultCallback({
+          resposta: "Este conteúdo não pôde ser processado por questões de segurança.",
+          chatId,
+          messageId,
+          senderNumber,
+          transacaoId,
+          isError: true,
+          errorType: 'safety',
+          remetenteName
+        });
+      } else if (this.opcoes.enviarRespostaDireta) {
+        await this.clienteWhatsApp.enviarMensagem(
+          senderNumber, 
+          "Este conteúdo não pôde ser processado por questões de segurança."
+        );
+      }
+    } else {
+      // Notificar sobre outros tipos de erro
+      const errorMessage = this.obterMensagemErroAmigavel(erro);
+      
+      if (this.resultCallback) {
+        this.resultCallback({
+          resposta: errorMessage,
+          chatId,
+          messageId,
+          senderNumber,
+          transacaoId,
+          isError: true,
+          errorType: 'general',
+          remetenteName
+        });
+      } else if (this.opcoes.enviarRespostaDireta) {
+        await this.clienteWhatsApp.enviarMensagem(senderNumber, errorMessage);
+      }
+    }
+    
+    // Limpar o arquivo temporário (apenas se não for bloqueio de segurança)
+    if (!erro.message.includes('SAFETY') && !erro.message.includes('safety')) {
+      this.limparArquivoTemporario(tempFilename);
+    }
+    
+    // Tentar excluir o arquivo do Google AI em caso de erro
+    try {
+      await this.gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
+    } catch (errDelete) {
+      this.registrador.warn(`Não foi possível excluir o arquivo remoto: ${errDelete.message}`);
+    }
+    
+    throw erro;
+  }
+});
     
     // Processador para compatibilidade com o código existente
     this.videoQueue.process('process-video', 3, async (job) => {
       const { tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
       
       try {
-        this.registrador.info(`Processando vídeo através da fila principal: ${tempFilename} (Job ${job.id})`);
+        this.registrador.info(`Processando vídeo através da fila principal - Job ${job.id}`);
         
         // Redirecionar para o novo fluxo de processamento em estágios
         const uploadJob = await this.videoUploadQueue.add('upload-video', {
@@ -788,7 +798,33 @@ configurarEventosQueue(queue, nomeEtapa) {
    * @returns {Promise<Object>} Configurações do processamento
    */
   async obterConfigProcessamento(chatId) {
-    // Configuração padrão - normalmente seria obtida do ConfigManager
+    try {
+      // Tentar obter configurações do gerenciador de configurações, se existir
+      if (this.gerenciadorConfig) {
+        const config = await this.gerenciadorConfig.obterConfig(chatId);
+        
+        // Usar o modo de descrição configurado
+        const modoDescricao = config.modoDescricao || 'longo';
+        const { obterInstrucaoVideo, obterInstrucaoVideoCurta } = require('../../config/InstrucoesSistema');
+        
+        // Escolher as instruções apropriadas com base no modo
+        const systemInstructions = modoDescricao === 'curto' 
+          ? obterInstrucaoVideoCurta() 
+          : obterInstrucaoVideo();
+        
+        return {
+          temperature: config.temperature || 0.9,
+          topK: config.topK || 1,
+          topP: config.topP || 0.95,
+          maxOutputTokens: config.maxOutputTokens || 1024,
+          systemInstructions
+        };
+      }
+    } catch (erro) {
+      this.registrador.warn(`Erro ao obter configurações específicas: ${erro.message}, usando padrão`);
+    }
+    
+    // Configuração padrão
     return {
       temperature: 0.9,
       topK: 1,
