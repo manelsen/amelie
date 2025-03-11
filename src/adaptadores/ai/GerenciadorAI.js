@@ -198,7 +198,7 @@ class GerenciadorAI extends IAPort {
       maxOutputTokens: 800,
       model: "gemini-2.0-flash", // Usar o modelo rápido para imagens simples
       systemInstructions: obterInstrucaoImagem(),
-      modoAudiodescricao: 'longo'
+      modoAudiodescricao: 'curto'
     };
   }
   
