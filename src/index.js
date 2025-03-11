@@ -24,9 +24,9 @@ const ClienteWhatsApp = require('./adaptadores/whatsapp/ClienteWhatsApp');
 const GerenciadorAI = require('./adaptadores/ai/GerenciadorAI');
 const GerenciadorMensagens = require('./adaptadores/whatsapp/GerenciadorMensagens');
 const GerenciadorNotificacoes = require('./adaptadores/whatsapp/GerenciadorNotificacoes');
-
 const FilaProcessador = require('./adaptadores/queue/FilaProcessador');
 const GerenciadorTransacoes = require('./adaptadores/transacoes/GerenciadorTransacoes');
+const criarServicoMensagem = require('./servicos/ServicoMensagem');
 
 
 // Configurações
@@ -173,6 +173,10 @@ logger.info('🧠 Gerenciador de IA inicializado');
 const gerenciadorTransacoes = new GerenciadorTransacoes(logger, path.join(process.cwd(), 'db'));
 logger.info('💼 Gerenciador de transações inicializado');
 
+// 5.5 Inicializar o serviço de mensagens
+const servicoMensagem = criarServicoMensagem(logger, clienteWhatsApp, gerenciadorTransacoes);
+logger.info('💬 Serviço de mensagens inicializado');
+
 // 6. Inicializar o processador de filas
 const filaProcessador = new FilaProcessador(
   logger, 
@@ -188,7 +192,8 @@ const gerenciadorMensagens = new GerenciadorMensagens(
   configManager,
   gerenciadorAI,
   filaProcessador.videoQueue,
-  gerenciadorTransacoes
+  gerenciadorTransacoes,
+  servicoMensagem  
 );
 logger.info('💬 Gerenciador de mensagens inicializado');
 
