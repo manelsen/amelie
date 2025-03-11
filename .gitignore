@@ -22,3 +22,4 @@ blocked/*
 package-lock.json
 memoria.sh
 diagnosticos/*
+coverage/*
