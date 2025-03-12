@@ -1422,9 +1422,10 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
     };
     
     // Prepara texto contextualizado para mídias
-    const textoContextualizado = `[Resposta para ${tipo === 'imagem' ? '📷 imagem' : '🎥 vídeo'} enviada por ${resultado.remetenteName || 'você'}]\n\n${resultado.resposta}`;
-    
-    return servicoMensagem.enviarResposta(mensagemSimulada, textoContextualizado, resultado.transacaoId);
+    // const textoContextualizado = `[Resposta para ${tipo === 'imagem' ? '📷 imagem' : '🎥 vídeo'} enviada por ${resultado.remetenteName || 'você'}]\n\n${resultado.resposta}`;    
+    // return servicoMensagem.enviarResposta(mensagemSimulada, textoContextualizado, resultado.transacaoId);
+
+    return servicoMensagem.enviarResposta(mensagemSimulada, resultado.resposta, resultado.transacaoId);
   };
   
   // Objeto para armazenar callbacks
