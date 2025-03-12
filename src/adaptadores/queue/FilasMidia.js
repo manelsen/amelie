@@ -1219,124 +1219,7 @@ const MonitoradorFilas = {
     return { contagens, trabalhos };
   },
   
-  /**
-   * Gera um relatório formatado do estado das filas
-   * @param {Object} status - Status das filas
-   * @returns {string} Relatório formatado
-   */
-  formatarRelatorioFilas: (status) => {
-    let relatorio = '📊 RELATÓRIO DE STATUS DAS FILAS DE MÍDIA 📊\n\n';
-    
-    // Contagem de trabalhos
-    relatorio += '📈 CONTAGEM DE TRABALHOS POR FILA\n';
-    relatorio += '══════════════════════════════════\n';
-    
-    // Tabela de contagens
-    relatorio += '┌─────────────┬─────────┬────────┬───────────┬────────┬─────────┐\n';
-    relatorio += '│    Fila     │ Espera  │ Ativos │ Concluídos│ Falhas │ Adiados │\n';
-    relatorio += '├─────────────┼─────────┼────────┼───────────┼────────┼─────────┤\n';
-    
-    // Adicionar linhas para cada fila
-    for (const [nome, contagens] of Object.entries(status.contagens)) {
-      if (nome !== 'total') {
-        relatorio += `│ ${nome.padEnd(11)} │ ${(contagens.waiting || 0).toString().padStart(7)} │ ${(contagens.active || 0).toString().padStart(6)} │ ${(contagens.completed || 0).toString().padStart(9)} │ ${(contagens.failed || 0).toString().padStart(6)} │ ${(contagens.delayed || 0).toString().padStart(7)} │\n`;
-      }
-    }
-    
-    // Linha de total
-    const total = status.contagens.total;
-    relatorio += '├─────────────┼─────────┼────────┼───────────┼────────┼─────────┤\n';
-    relatorio += `│ TOTAL       │ ${total.waiting.toString().padStart(7)} │ ${total.active.toString().padStart(6)} │ ${total.completed.toString().padStart(9)} │ ${total.failed.toString().padStart(6)} │ ${total.delayed.toString().padStart(7)} │\n`;
-    relatorio += '└─────────────┴─────────┴────────┴───────────┴────────┴─────────┘\n\n';
-    
-    // Taxa de sucesso
-    const taxaSucesso = total.completed > 0 ? 
-      ((total.completed / (total.completed + total.failed)) * 100).toFixed(1) + '%' : 
-      'N/A';
-    
-    relatorio += `📊 Taxa de sucesso: ${taxaSucesso}\n\n`;
-    
-    // Trabalhos ativos
-    if (status.trabalhos.ativos.length > 0) {
-      relatorio += '🔄 TRABALHOS ATIVOS\n';
-      relatorio += '═════════════════\n';
-      
-      for (const trabalho of status.trabalhos.ativos) {
-        const duracaoMs = trabalho.processedOn ? Date.now() - trabalho.processedOn : 0;
-        const duracao = Math.round(duracaoMs/1000);
-        
-        relatorio += `→ Job ${trabalho.id} (${trabalho.fila}): processando há ${duracao}s\n`;
-        if (duracaoMs > 180000) { // 3 minutos
-          relatorio += `  ⚠️ ALERTA: Este job está demorando muito!\n`;
-        }
-      }
-      relatorio += '\n';
-    }
-    
-    // Trabalhos com falha recente
-    if (status.trabalhos.falhas.length > 0) {
-      relatorio += '❌ TRABALHOS COM FALHA (10 MAIS RECENTES)\n';
-      relatorio += '═══════════════════════════════════════\n';
-      
-      for (const trabalho of status.trabalhos.falhas) {
-        relatorio += `→ Job ${trabalho.id} (${trabalho.fila}): ${trabalho.tentativas || 0} tentativas\n`;
-        relatorio += `  Motivo: ${trabalho.failedReason || 'Desconhecido'}\n`;
-      }
-      relatorio += '\n';
-    }
-    
-    // Análise e recomendações
-    relatorio += '🔍 ANÁLISE E RECOMENDAÇÕES\n';
-    relatorio += '══════════════════════════\n';
-    
-    // Verificar acúmulo de trabalhos
-    if (total.waiting > 20) {
-      relatorio += `⚠️ ALERTA: ${total.waiting} trabalhos em espera! Verifique a capacidade de processamento.\n`;
-    } else if (total.waiting > 10) {
-      relatorio += `⚠️ Atenção: ${total.waiting} trabalhos em espera. Monitore a situação.\n`;
-    } else {
-      relatorio += `✅ Carga de trabalho normal: ${total.waiting} em espera.\n`;
-    }
-    
-    // Verificar taxa de falha
-    if (total.failed > 0 && total.completed > 0) {
-      const taxaFalha = total.failed / (total.failed + total.completed);
-      if (taxaFalha > 0.2) {
-        relatorio += `⚠️ ALERTA: Taxa de falha alta: ${(taxaFalha*100).toFixed(1)}%! Verifique os logs de erro.\n`;
-      } else if (taxaFalha > 0.1) {
-        relatorio += `⚠️ Atenção: Taxa de falha: ${(taxaFalha*100).toFixed(1)}%. Verifique problemas recorrentes.\n`;
-      } else {
-        relatorio += `✅ Taxa de falha dentro do aceitável: ${(taxaFalha*100).toFixed(1)}%.\n`;
-      }
-    }
-    
-    // Timestamp do relatório
-    relatorio += `\n📆 Relatório gerado em: ${new Date().toISOString()}\n`;
-    
-    return relatorio;
-  },
-  
-  /**
-   * Inicia o monitoramento de filas
-   * @param {Object} registrador - Logger
-   * @param {Object} filas - Estrutura de filas
-   * @returns {Function} Função para parar o monitoramento
-   */
-  iniciarMonitoramento: _.curry((registrador, filas) => {
-    const intervalo = setInterval(async () => {
-      try {
-        const status = await MonitoradorFilas.obterStatusFilas(filas);
-        const relatorio = MonitoradorFilas.formatarRelatorioFilas(status);
-        registrador.info(`\nStatus das filas de mídia:\n${relatorio}`);
-      } catch (erro) {
-        registrador.error(`Erro ao monitorar filas: ${erro.message}`);
-      }
-    }, 60 * 60 * 1000); // A cada hora
-    
-    return () => clearInterval(intervalo);
-  }),
-  
-  /**
+    /**
    * Limpa trabalhos pendentes que possam causar problemas
    * @param {Object} registrador - Logger
    * @param {Object} filas - Estrutura de filas
@@ -1542,9 +1425,6 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig) =>
   filas.video.principal.process('processar-video', 3,
     ProcessadoresFilas.criarProcessadorPrincipalVideo(registrador, filas, notificarErro));
   
-  // Iniciar monitoramento de filas
-  const pararMonitoramento = MonitoradorFilas.iniciarMonitoramento(registrador, filas);
-  
   // Limpar tarefas antigas ou problemáticas
   MonitoradorFilas.limparTrabalhosPendentes(registrador, filas)
     .catch(erro => registrador.error(`Erro ao limpar trabalhos pendentes: ${erro.message}`));
@@ -1583,12 +1463,6 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig) =>
       });
     },
     
-    // Relatórios e monitoramento
-    obterRelatorioStatusFilas: async () => {
-      const status = await MonitoradorFilas.obterStatusFilas(filas);
-      return MonitoradorFilas.formatarRelatorioFilas(status);
-    },
-    
     // Limpeza de filas
     limparFilas: (apenasCompletos = true) => 
       MonitoradorFilas.limparFilas(registrador, filas, apenasCompletos),
@@ -1598,7 +1472,6 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig) =>
     
     // Finalização e liberação de recursos
     finalizar: () => {
-      pararMonitoramento();
       registrador.info('Sistema de filas de mídia finalizado');
     }
   };

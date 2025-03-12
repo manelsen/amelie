@@ -413,12 +413,6 @@ async tratarComandoFilas(msg, args, chatId) {
   const [subcomando, tipoFila, ...resto] = args;
 
   switch (subcomando) {
-    case 'status':
-      // Obter relatório de status usando o FilasMidia
-      const relatorio = await this.filasMidia.obterRelatorioStatusFilas();
-      await this.servicoMensagem.enviarResposta(msg, relatorio);
-      break;
-
     case 'limpar':
       if (!tipoFila) {
         await this.servicoMensagem.enviarResposta(msg, 'Especifique o tipo de fila para limpar: todas, video ou imagem');
