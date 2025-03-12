@@ -784,7 +784,7 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
     };
     
     const tratarComandoFilas = (dependencias) => async (mensagem, args, chatId) => {
-     const { registrador, servicoMensagem, filaProcessamento, filaProcessamentoImagem } = dependencias;
+     const { registrador, servicoMensagem, filasMidia } = dependencias;
      
      try {
        const ehAdministrador = true; // Mudar isso para sua lógica de verificação de administrador
@@ -797,26 +797,6 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
        const [subcomando, tipoFila, ...resto] = args;
     
        switch (subcomando) {
-         case 'status':
-           let relatorio = '';
-    
-           if (!tipoFila || tipoFila === 'all' || tipoFila === 'todas') {
-             // Mostrar status de todas as filas
-             const relatorioVideo = await filaProcessamento.getFormattedQueueStatus();
-             const relatorioImagem = await filaProcessamentoImagem.getFormattedQueueStatus();
-             relatorio = relatorioVideo + "\n\n" + relatorioImagem;
-           } else if (tipoFila === 'video' || tipoFila === 'videos') {
-             relatorio = await filaProcessamento.getFormattedQueueStatus();
-           } else if (tipoFila === 'imagem' || tipoFila === 'imagens' || tipoFila === 'image') {
-             relatorio = await filaProcessamentoImagem.getFormattedQueueStatus();
-           } else {
-             await servicoMensagem.enviarResposta(mensagem, 'Tipo de fila inválido. Use: todas, video ou imagem');
-             return Resultado.sucesso(false);
-           }
-    
-           await servicoMensagem.enviarResposta(mensagem, relatorio);
-           break;
-    
          case 'limpar':
            if (!tipoFila) {
              await servicoMensagem.enviarResposta(mensagem, 'Especifique o tipo de fila para limpar: todas, video ou imagem');
@@ -831,26 +811,15 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
     
            await servicoMensagem.enviarResposta(mensagem, avisoLimpeza);
     
-           if (tipoFila === 'all' || tipoFila === 'todas') {
-             const resultadoVideo = await filaProcessamento.limparFilas(apenasCompletos);
-             const resultadoImagem = await filaProcessamentoImagem.limparFilas(apenasCompletos);
-             await servicoMensagem.enviarResposta(mensagem, `✅ Limpeza concluída!\nVídeos: ${JSON.stringify(resultadoVideo)}\nImagens: ${JSON.stringify(resultadoImagem)}`);
-           } else if (tipoFila === 'video' || tipoFila === 'videos') {
-             const resultado = await filaProcessamento.limparFilas(apenasCompletos);
-             await servicoMensagem.enviarResposta(mensagem, `✅ Limpeza de filas de vídeo concluída: ${JSON.stringify(resultado)}`);
-           } else if (tipoFila === 'imagem' || tipoFila === 'imagens' || tipoFila === 'image') {
-             const resultado = await filaProcessamentoImagem.limparFilas(apenasCompletos);
-             await servicoMensagem.enviarResposta(mensagem, `✅ Limpeza de filas de imagem concluída: ${JSON.stringify(resultado)}`);
-           } else {
-             await servicoMensagem.enviarResposta(mensagem, 'Tipo de fila inválido. Use: todas, video ou imagem');
-             return Resultado.sucesso(false);
-           }
+           // Usar FilasMidia unificado para limpar
+           const resultado = await filasMidia.limparFilas(apenasCompletos);
+           await servicoMensagem.enviarResposta(mensagem, `✅ Limpeza concluída!\n${JSON.stringify(resultado, null, 2)}`);
            break;
     
          default:
            await servicoMensagem.enviarResposta(mensagem, `Comando de filas desconhecido. Use:
-    .filas status [todas|video|imagem] - Mostra status das filas
-    .filas limpar [todas|video|imagem] [tudo] - Limpa filas (use 'tudo' para limpar mesmo trabalhos em andamento)`);
+    .filas status - Mostra status das filas
+    .filas limpar [tudo] - Limpa filas (use 'tudo' para limpar mesmo trabalhos em andamento)`);
            return Resultado.sucesso(false);
        }
     
@@ -971,13 +940,13 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
     * Processamento de mensagens de imagem
     */
     const processarMensagemImagem = (dependencias) => async (dados) => {
-     const { registrador, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, filaProcessamentoImagem } = dependencias;
+     const { registrador, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, filasMidia, clienteWhatsApp } = dependencias;
      const { mensagem, chatId, dadosAnexo } = dados;
      
      try {
        const chat = await mensagem.getChat();
        const config = await gerenciadorConfig.obterConfig(chatId);
-       const remetente = await obterOuCriarUsuario(gerenciadorConfig, dependencias.clienteWhatsApp, registrador)(mensagem.author || mensagem.from, chat);
+       const remetente = await obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(mensagem.author || mensagem.from, chat);
     
        if (!config.mediaImage) {
          registrador.info(`Descrição de imagem desabilitada para o chat ${chatId}. Ignorando mensagem de imagem.`);
@@ -998,7 +967,8 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
          promptUsuario = mensagem.body.trim();
        }
     
-       await filaProcessamentoImagem.add('process-image', {
+       // Usar a API FilasMidia para adicionar a imagem à fila
+       await filasMidia.adicionarImagem({
          imageData: dadosAnexo,
          chatId,
          messageId: mensagem.id._serialized,
@@ -1007,11 +977,7 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
          senderNumber: mensagem.from,
          transacaoId: transacao.id,
          remetenteName: remetente.dados.name,
-         modoDescricao: config.modoDescricao || 'curto' // Adicionado com padrão 'curto'
-       }, {
-         removeOnComplete: true,
-         removeOnFail: false,
-         timeout: 60000 // 1 minuto
+         modoDescricao: config.modoDescricao || 'curto'
        });
     
        registrador.info(`🚀 Imagem de ${remetente.dados.name} adicionada à fila com sucesso (transação ${transacao.id})`);
@@ -1046,13 +1012,13 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
     * Processamento de mensagens de vídeo
     */
     const processarMensagemVideo = (dependencias) => async (dados) => {
-     const { registrador, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, filaProcessamento } = dependencias;
+     const { registrador, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, filasMidia, clienteWhatsApp } = dependencias;
      const { mensagem, chatId, dadosAnexo } = dados;
      
      try {
        const chat = await mensagem.getChat();
        const config = await gerenciadorConfig.obterConfig(chatId);
-       const remetente = await obterOuCriarUsuario(gerenciadorConfig, dependencias.clienteWhatsApp, registrador)(mensagem.author || mensagem.from, chat);
+       const remetente = await obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(mensagem.author || mensagem.from, chat);
     
        if (!config.mediaVideo) {
          registrador.debug(`Descrição de vídeo desabilitada para o chat ${chatId}. Ignorando mensagem de vídeo.`);
@@ -1097,7 +1063,6 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
        // Cria um arquivo temporário para o vídeo
        const dataHora = new Date().toISOString().replace(/[:.]/g, '-');
        const arquivoTemporario = `./temp/video_${dataHora}_${Math.floor(Math.random() * 10000)}.mp4`;
-       const trabalhoId = `video_${chatId}_${Date.now()}`;
     
        try {
          registrador.debug(`Salvando arquivo de vídeo ${arquivoTemporario}...`);
@@ -1111,8 +1076,8 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
            throw new Error(`Tamanho do arquivo salvo (${stats.size}) não corresponde ao buffer original (${videoBuffer.length})`);
          }
     
-         // Adicionar à fila de processamento
-         await filaProcessamento.add('process-video', {
+         // Usar FilasMidia para adicionar o vídeo à fila
+         await filasMidia.adicionarVideo({
            tempFilename: arquivoTemporario,
            chatId,
            messageId: mensagem.id._serialized,
@@ -1121,15 +1086,10 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
            senderNumber: mensagem.from,
            transacaoId: transacao.id,
            remetenteName: remetente.dados.name,
-           modoDescricao: config.modoDescricao || 'curto' // Adicionado com padrão 'curto'
-         }, {
-           jobId: trabalhoId,
-           removeOnComplete: true,
-           removeOnFail: false,
-           timeout: 300000 // 5 minutos
+           modoDescricao: config.modoDescricao || 'curto'
          });
     
-         registrador.debug(`🚀 Vídeo de ${remetente.dados.name} adicionado à fila com sucesso: ${arquivoTemporario} (Job ${trabalhoId})`);
+         registrador.debug(`🚀 Vídeo de ${remetente.dados.name} adicionado à fila com sucesso: ${arquivoTemporario}`);
          return Resultado.sucesso({ transacao });
        } catch (erroProcessamento) {
          registrador.error(`❌ Erro ao processar vídeo: ${erroProcessamento.message}`);
@@ -1273,13 +1233,13 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
        clienteWhatsApp, 
        gerenciadorConfig, 
        gerenciadorAI, 
-       filaProcessamento,
+       filasMidia,
        gerenciadorTransacoes,
        servicoMensagem
      } = dependencias;
      
      // Verificar se as dependências essenciais foram fornecidas
-     if (!registrador || !clienteWhatsApp || !gerenciadorConfig || !gerenciadorAI || !gerenciadorTransacoes || !servicoMensagem) {
+     if (!registrador || !clienteWhatsApp || !gerenciadorConfig || !gerenciadorAI || !gerenciadorTransacoes || !servicoMensagem || !filasMidia) {
        throw new Error("Dependências essenciais não fornecidas");
      }
      
@@ -1417,6 +1377,50 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
          gerenciadorTransacoes.on('transacao_para_recuperar', (transacao) => {
            recuperarTransacao(dependencias)(transacao);
          });
+         
+         // Configurar o callback unificado para todas as mídias
+         filasMidia.setCallbackRespostaUnificado(async (resultado) => {
+           try {
+             // Verificação básica do resultado recebido
+             if (!resultado || !resultado.senderNumber) {
+               registrador.warn("Resultado de fila inválido ou incompleto");
+               return;
+             }
+
+             const { resposta, senderNumber, transacaoId, remetenteName } = resultado;
+
+             // Enviar mensagem com tratamento de erro simplificado
+             try {
+               await clienteWhatsApp.enviarMensagem(senderNumber, resposta);
+               
+               // Se chegou aqui, deu certo! Vamos atualizar a transação
+               if (transacaoId) {
+                 await gerenciadorTransacoes.adicionarRespostaTransacao(transacaoId, resposta);
+                 await gerenciadorTransacoes.marcarComoEntregue(transacaoId);
+                 registrador.debug(`✅ Transação ${transacaoId} atualizada com sucesso (${remetenteName || senderNumber})`);
+               }
+             } catch (erroEnvio) {
+               // Usamos String() para garantir conversão segura
+               registrador.error(`Erro ao enviar mensagem: ${String(erroEnvio)}`);
+
+               // Registrar falha na transação
+               if (transacaoId) {
+                 try {
+                   await gerenciadorTransacoes.registrarFalhaEntrega(
+                     transacaoId,
+                     `Erro ao enviar: ${String(erroEnvio)}`
+                   );
+                 } catch (erroTransacao) {
+                   registrador.error(`Erro adicional ao registrar falha: ${String(erroTransacao)}`);
+                 }
+               }
+             }
+           } catch (erro) {
+             registrador.error(`Erro ao processar resultado de fila: ${String(erro)}`);
+           }
+         });
+         
+         registrador.info('📬 Callback unificado de filas de mídia configurado com sucesso');
          
          // Recuperação inicial após 10 segundos
          setTimeout(async () => {
