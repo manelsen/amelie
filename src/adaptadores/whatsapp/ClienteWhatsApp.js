@@ -126,6 +126,10 @@ class ClienteWhatsApp extends EventEmitter {
     // Evento para novas mensagens
     this.cliente.on('message_create', async (msg) => {
       if (!msg.fromMe) {
+        /*console.log('Mensagem completa:', 
+          JSON.stringify(msg, (key, value) => 
+            typeof value === 'object' && value !== null ? {...value} : value, 2)
+        );*/
         this.emit('mensagem', msg);
       }
     });

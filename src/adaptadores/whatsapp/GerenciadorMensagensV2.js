@@ -136,11 +136,23 @@ const verificarRespostaGrupo = (clienteWhatsApp) => async (dados) => {
 const verificarTipoMensagem = (registrador) => (dados) => {
   const { mensagem } = dados;
 
-  if (mensagem.body && mensagem.body.startsWith('.')) {
-    registrador.debug(`Comando detectado: ${mensagem.body}`);
-    return Resultado.sucesso({ ...dados, tipo: 'comando' });
+  // Verificar se é realmente um comando (começa com ponto e tem pelo menos um caractere após)
+  if (mensagem.body && mensagem.body.startsWith('.') && mensagem.body.length > 1) {
+    const comando = mensagem.body.substring(1).split(' ')[0];
+    // Lista de comandos válidos para verificação adicional
+    const comandosValidos = ['reset', 'ajuda', 'prompt', 'config', 'users', 'cego', 
+                          'audio', 'video', 'imagem', 'longo', 'curto', 'filas'];
+    
+    if (comandosValidos.includes(comando.toLowerCase())) {
+      registrador.debug(`Comando válido detectado: ${mensagem.body}`);
+      return Resultado.sucesso({ ...dados, tipo: 'comando' });
+    }
+    
+    // Comando com formato correto mas não reconhecido
+    registrador.debug(`Comando desconhecido ignorado: ${mensagem.body}`);
   }
 
+  // Continuar com a verificação de mídia e texto
   if (mensagem.hasMedia) {
     return Resultado.sucesso({ ...dados, tipo: 'midia' });
   }
@@ -887,7 +899,7 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
        const chat = await mensagem.getChat();
        const config = await gerenciadorConfig.obterConfig(chatId);
        const remetente = await obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(mensagem.author || mensagem.from, chat);
-    
+   
        if (!config.mediaAudio) {
          return Resultado.falha(new Error("Transcrição de áudio desabilitada"));
        }
