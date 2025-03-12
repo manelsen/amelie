@@ -24,3 +24,4 @@ memoria.sh
 diagnosticos/*
 coverage/*
 jsconfig.json
+src/__tests__/*

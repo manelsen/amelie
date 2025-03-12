@@ -815,7 +815,7 @@ const ProcessadoresFilas = {
     const { imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
     
     try {
-      registrador.info(`[Imagem] Redirecionando pela fila principal (Job ${job.id})`);
+      registrador.info(`Imagem inserida na fila principal (Job ${job.id})`);
       
       // Redirecionar para a nova estrutura de fila
       const uploadJob = await filas.imagem.upload.add('upload-imagem', {
@@ -1121,7 +1121,7 @@ const ProcessadoresFilas = {
     const { tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
     
     try {
-      registrador.info(`[Vídeo] Redirecionando pela fila principal (Job ${job.id})`);
+      registrador.info(`Vídeo inserido na fila principal (Job ${job.id})`);
       
       // Redirecionar para a nova estrutura de fila
       const uploadJob = await filas.video.upload.add('upload-video', {

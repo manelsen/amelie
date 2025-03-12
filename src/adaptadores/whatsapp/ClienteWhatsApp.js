@@ -754,45 +754,45 @@ class ClienteWhatsApp extends EventEmitter {
     }
   }
 
-  /**
+/**
  * Verifica se devemos responder a uma mensagem em grupo
  */
-  async deveResponderNoGrupo(msg, chat) {
-    // Se for uma mensagem com comando
-    if (msg.body && msg.body.startsWith('.')) {
-      this.registrador.debug("Respondendo porque é um comando");
-      return true;
-    }
-
-    // VAMOS ATUALIZAR ESTA PARTE:
-    // Incluir 'sticker' na verificação de tipos de mídia
-    if (msg.hasMedia && (msg.type === 'image' || msg.type === 'video' || msg.type === 'sticker')) {
-      this.registrador.debug(`Respondendo porque é mídia do tipo ${msg.type} em grupo`);
-      return true;
-    }
-
-    // O resto continua igual...
-    const mencoes = await msg.getMentions();
-    const botMencionado = mencoes.some(mencao =>
-      mencao.id._serialized === this.cliente.info.wid._serialized
-    );
-
-    if (botMencionado) {
-      this.registrador.debug("Respondendo porque o bot foi mencionado");
-      return true;
-    }
-
-    if (msg.hasQuotedMsg) {
-      const msgCitada = await msg.getQuotedMessage();
-      if (msgCitada.fromMe) {
-        this.registrador.debug("Respondendo porque é uma resposta ao bot");
-        return true;
-      }
-    }
-
-    this.registrador.debug("Não é nenhum caso especial e não vou responder");
-    return false;
+async deveResponderNoGrupo(msg, chat) {
+  // Se for uma mensagem com comando
+  if (msg.body && msg.body.startsWith('.')) {
+    this.registrador.debug("Respondendo porque é um comando");
+    return true;
   }
+
+  // AQUI ESTÁ A MÁGICA! Simplificamos tudo:
+  // Qualquer tipo de mídia passa pela verificação inicial
+  if (msg.hasMedia) {
+    this.registrador.debug(`Respondendo porque é mídia do tipo ${msg.type} em grupo`);
+    return true;
+  }
+
+  // O resto continua igual...
+  const mencoes = await msg.getMentions();
+  const botMencionado = mencoes.some(mencao => 
+    mencao.id._serialized === this.cliente.info.wid._serialized
+  );
+  
+  if (botMencionado) {
+    this.registrador.debug("Respondendo porque o bot foi mencionado");
+    return true;
+  }
+
+  if (msg.hasQuotedMsg) {
+    const msgCitada = await msg.getQuotedMessage();
+    if (msgCitada.fromMe) {
+      this.registrador.debug("Respondendo porque é uma resposta ao bot");
+      return true;
+    }
+  }
+
+  this.registrador.debug("Não é nenhum caso especial e não vou responder");
+  return false;
+}
 }
 
 module.exports = ClienteWhatsApp;

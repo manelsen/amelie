@@ -340,7 +340,7 @@ const adicionarRespostaTransacao = (gerenciadorTransacoes, registrador) => async
     // Enviar a resposta
     try {
       await servicoMensagem.enviarResposta(mensagem, resposta, transacao.id);
-      registrador.info(`Resposta enviada para mensagem de texto: ${transacao.id}`);
+      registrador.info(`Resposta de mensagem de texto enviada - ${transacao.id}`);
       return Resultado.sucesso({ transacao, resposta });
     } catch (erroEnvio) {
       registrador.error(`Erro ao enviar mensagem: ${erroEnvio.message}`);
