@@ -330,7 +330,20 @@ class GerenciadorAI extends IAPort {
       
       return this.limparResposta(textoResposta);
     } catch (erro) {
-      this.registrador.error(`Erro ao processar imagem: ${erro.message}`);
+      // Aqui adicionamos informações do usuário/grupo no log
+      const origemInfo = config.dadosOrigem ? 
+        `[Origem: ${config.dadosOrigem.tipo === 'grupo' ? 'Grupo' : 'Usuário'} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : 
+        '[Origem desconhecida]';
+      
+      // Verificar se é erro de safety
+      if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
+          erro.message.includes('blocked') || erro.message.includes('Blocked')) {
+        
+        this.registrador.warn(`⚠️ Conteúdo de imagem bloqueado por políticas de segurança ${origemInfo}`);
+        return "Este conteúdo não pôde ser processado por questões de segurança.";
+      }
+      
+      this.registrador.error(`Erro ao processar imagem: ${erro.message} ${origemInfo}`);
       return "Desculpe, ocorreu um erro ao analisar esta imagem. Por favor, tente novamente com outra imagem ou reformule seu pedido.";
     }
   }

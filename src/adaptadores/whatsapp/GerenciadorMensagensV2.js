@@ -241,7 +241,7 @@ const inferirMimeType = (buffer) => {
    const criarTransacao = (gerenciadorTransacoes, registrador) => async (mensagem, chat, remetente) => {
      try {
    const transacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
-   registrador.info(`Nova transação criada: ${transacao.id} para mensagem de ${remetente.name}`);
+   registrador.debug(`Nova transação criada: ${transacao.id} para mensagem de ${remetente.name}`);
    return Resultado.sucesso(transacao);
      } catch (erro) {
    registrador.error(`Erro ao criar transação: ${erro.message}`);
@@ -429,7 +429,7 @@ const adicionarRespostaTransacao = (gerenciadorTransacoes, registrador) => async
       'Configurações resetadas para este chat. As transcrições de áudio e imagem foram habilitadas, e os prompts especiais foram desativados.'
     );
     
-    registrador.info(`Configurações resetadas para o chat ${chatId}`);
+    registrador.debug(`Configurações resetadas para o chat ${chatId}`);
     return Resultado.sucesso(true);
 
   } catch (erro) {
@@ -727,7 +727,7 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
        const mensagemStatus = novoValor ? 'ativada' : 'desativada';
        await servicoMensagem.enviarResposta(mensagem, `A ${nomeRecurso} foi ${mensagemStatus} para este chat.`);
     
-       registrador.info(`${paramConfig} foi ${mensagemStatus} para o chat ${chatId}`);
+       registrador.debug(`${paramConfig} foi ${mensagemStatus} para o chat ${chatId}`);
        return Resultado.sucesso(true);
      } catch (erro) {
        registrador.error(`Erro ao alternar ${paramConfig}: ${erro.message}`);
@@ -751,13 +751,13 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
        await gerenciadorConfig.definirConfig(chatId, 'descricaoCurta', false);
     
        // Logs para depuração
-       registrador.info(`Modo longo ativado para ${chatId}, verificando configuração...`);
+       registrador.debug(`Modo longo ativado para ${chatId}, verificando configuração...`);
        const configAtualizada = await gerenciadorConfig.obterConfig(chatId);
-       registrador.info(`Modo de descrição atual: ${configAtualizada.modoDescricao}`);
+       registrador.debug(`Modo de descrição atual: ${configAtualizada.modoDescricao}`);
     
        await servicoMensagem.enviarResposta(mensagem, 'Modo de descrição longa e detalhada ativado para imagens e vídeos. Toda mídia visual será descrita com o máximo de detalhes possível.');
     
-       registrador.info(`Modo de descrição longa ativado para o chat ${chatId}`);
+       registrador.debug(`Modo de descrição longa ativado para o chat ${chatId}`);
        return Resultado.sucesso(true);
      } catch (erro) {
        registrador.error(`Erro ao aplicar modo de descrição longa: ${erro.message}`);
@@ -787,7 +787,7 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
     
        await servicoMensagem.enviarResposta(mensagem, 'Modo de descrição curta e concisa ativado para imagens e vídeos. Toda mídia visual será descrita de forma breve e objetiva, limitado a cerca de 200 caracteres.');
     
-       registrador.info(`Modo de descrição curta ativado para o chat ${chatId}`);
+       registrador.debug(`Modo de descrição curta ativado para o chat ${chatId}`);
        return Resultado.sucesso(true);
      } catch (erro) {
        registrador.error(`Erro ao aplicar modo de descrição curta: ${erro.message}`);
@@ -917,7 +917,7 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
        
        // Criar transação para esta mensagem
        const transacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
-       registrador.info(`Nova transação criada: ${transacao.id} para mensagem de áudio`);
+       registrador.debug(`Nova transação criada: ${transacao.id} para mensagem de áudio`);
     
        // Marcar como processando
        await gerenciadorTransacoes.marcarComoProcessando(transacao.id);
@@ -952,72 +952,82 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
     * Processamento de mensagens de imagem
     */
     const processarMensagemImagem = (dependencias) => async (dados) => {
-     const { registrador, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, filasMidia, clienteWhatsApp } = dependencias;
-     const { mensagem, chatId, dadosAnexo } = dados;
-     
-     try {
-       const chat = await mensagem.getChat();
-       const config = await gerenciadorConfig.obterConfig(chatId);
-       const remetente = await obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(mensagem.author || mensagem.from, chat);
+      const { registrador, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, filasMidia, clienteWhatsApp } = dependencias;
+      const { mensagem, chatId, dadosAnexo } = dados;
+      
+      try {
+        const chat = await mensagem.getChat();
+        const config = await gerenciadorConfig.obterConfig(chatId);
+        const remetente = await obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(mensagem.author || mensagem.from, chat);
     
-       if (!config.mediaImage) {
-         registrador.info(`Descrição de imagem desabilitada para o chat ${chatId}. Ignorando mensagem de imagem.`);
-         return Resultado.falha(new Error("Descrição de imagem desabilitada"));
-       }
+        if (!config.mediaImage) {
+          registrador.debug(`Descrição de imagem desabilitada para o chat ${chatId}. Ignorando mensagem de imagem.`);
+          return Resultado.falha(new Error("Descrição de imagem desabilitada"));
+        }
     
-       // Criar transação para esta mensagem de imagem
-       const transacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
-       registrador.info(`Nova transação criada: ${transacao.id} para mensagem de imagem de ${remetente.dados.name}`);
+        // Adicionar dados da origem
+        const dadosOrigem = {
+          id: chat.id._serialized,
+          nome: chat.isGroup ? chat.name : remetente.dados.name,
+          tipo: chat.isGroup ? 'grupo' : 'usuario',
+          remetenteId: mensagem.author || mensagem.from,
+          remetenteNome: remetente.dados.name
+        };
     
-       // Marcar transação como processando
-       await gerenciadorTransacoes.marcarComoProcessando(transacao.id);
+        // Criar transação para esta mensagem de imagem
+        const transacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
+        registrador.debug(`Nova transação criada: ${transacao.id} para mensagem de imagem de ${remetente.dados.name}`);
     
-       // Determinar o prompt do usuário
-       let promptUsuario = "";
+        // Marcar transação como processando
+        await gerenciadorTransacoes.marcarComoProcessando(transacao.id);
     
-       if (mensagem.body && mensagem.body.trim() !== '') {
-         promptUsuario = mensagem.body.trim();
-       }
+        // Determinar o prompt do usuário
+        let promptUsuario = "";
     
-       // Usar a API FilasMidia para adicionar a imagem à fila
-       await filasMidia.adicionarImagem({
-         imageData: dadosAnexo,
-         chatId,
-         messageId: mensagem.id._serialized,
-         mimeType: dadosAnexo.mimetype,
-         userPrompt: promptUsuario,
-         senderNumber: mensagem.from,
-         transacaoId: transacao.id,
-         remetenteName: remetente.dados.name,
-         modoDescricao: config.modoDescricao || 'curto'
-       });
+        if (mensagem.body && mensagem.body.trim() !== '') {
+          promptUsuario = mensagem.body.trim();
+        }
     
-       registrador.info(`🚀 Imagem de ${remetente.dados.name} adicionada à fila com sucesso (transação ${transacao.id})`);
-       return Resultado.sucesso({ transacao });
-     } catch (erro) {
-       registrador.error(`Erro ao processar mensagem de imagem: ${erro.message}`);
+        // Usar a API FilasMidia para adicionar a imagem à fila
+        await filasMidia.adicionarImagem({
+          imageData: dadosAnexo,
+          chatId,
+          messageId: mensagem.id._serialized,
+          mimeType: dadosAnexo.mimetype,
+          userPrompt: promptUsuario,
+          senderNumber: mensagem.from,
+          transacaoId: transacao.id,
+          remetenteName: remetente.dados.name,
+          modoDescricao: config.modoDescricao || 'curto',
+          dadosOrigem // Passando os dados de origem para a fila
+        });
     
-       // Verificar se é um erro de segurança
-       if (erro.message.includes('SAFETY') || erro.message.includes('safety') ||
-         erro.message.includes('blocked') || erro.message.includes('Blocked')) {
+        registrador.debug(`🚀 Imagem de ${remetente.dados.name} adicionada à fila com sucesso (transação ${transacao.id})`);
+        return Resultado.sucesso({ transacao });
+      } catch (erro) {
+        registrador.error(`Erro ao processar mensagem de imagem: ${erro.message}`);
     
-         registrador.warn(`⚠️ Conteúdo de imagem bloqueado por políticas de segurança`);
-         
-         try {
-           await servicoMensagem.enviarResposta(mensagem, 'Este conteúdo não pôde ser processado por questões de segurança.');
-         } catch (erroEnvio) {
-           registrador.error(`Não foi possível enviar mensagem de erro: ${erroEnvio.message}`);
-         }
-       } else {
-         try {
-           await servicoMensagem.enviarResposta(mensagem, 'Desculpe, ocorreu um erro ao processar sua imagem.');
-         } catch (erroEnvio) {
-           registrador.error(`Não foi possível enviar mensagem de erro: ${erroEnvio.message}`);
-         }
-       }
+        // Verificar se é um erro de segurança
+        if (erro.message.includes('SAFETY') || erro.message.includes('safety') ||
+          erro.message.includes('blocked') || erro.message.includes('Blocked')) {
     
-       return Resultado.falha(erro);
-     }
+          registrador.warn(`⚠️ Conteúdo de imagem bloqueado por políticas de segurança`);
+          
+          try {
+            await servicoMensagem.enviarResposta(mensagem, 'Este conteúdo não pôde ser processado por questões de segurança.');
+          } catch (erroEnvio) {
+            registrador.error(`Não foi possível enviar mensagem de erro: ${erroEnvio.message}`);
+          }
+        } else {
+          try {
+            await servicoMensagem.enviarResposta(mensagem, 'Desculpe, ocorreu um erro ao processar sua imagem.');
+          } catch (erroEnvio) {
+            registrador.error(`Não foi possível enviar mensagem de erro: ${erroEnvio.message}`);
+          }
+        }
+    
+        return Resultado.falha(erro);
+      }
     };
     
     /**
@@ -1050,7 +1060,7 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
     
        // Criar transação para esta mensagem de vídeo
        const transacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
-       registrador.info(`Nova transação criada: ${transacao.id} para mensagem de vídeo de ${remetente.dados.name}`);
+       registrador.debug(`Nova transação criada: ${transacao.id} para mensagem de vídeo de ${remetente.dados.name}`);
     
        // Marcar transação como processando
        await gerenciadorTransacoes.marcarComoProcessando(transacao.id);
