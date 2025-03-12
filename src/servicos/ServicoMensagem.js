@@ -229,7 +229,7 @@ const envioComReplyDireto = async (mensagemOriginal, textoSeguro, registrador) =
     await mensagemOriginal.reply(textoSeguro);
     return Resultado.sucesso({ metodoUsado: 'reply_direto' });
   } catch (erroReply) {
-    registrador.warn(`Falha no método reply direto: ${erroReply.message}`);
+    registrador.warn(`❗ Falha no método reply direto: ${erroReply.message}`);
     return Resultado.falha(erroReply);
   }
 };

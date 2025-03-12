@@ -22,7 +22,8 @@ const ConfigManager = require('./config/ConfigManager');
 
 const ClienteWhatsApp         = require('./adaptadores/whatsapp/ClienteWhatsApp');
 const GerenciadorAI           = require('./adaptadores/ai/GerenciadorAI');
-const GerenciadorMensagens    = require('./adaptadores/whatsapp/GerenciadorMensagens');
+//const GerenciadorMensagens    = require('./adaptadores/whatsapp/GerenciadorMensagens');
+const GerenciadorMensagens = require('./adaptadores/whatsapp/AdaptadorGerenciadorMensagensV2');
 const GerenciadorNotificacoes = require('./adaptadores/whatsapp/GerenciadorNotificacoes');
 const inicializarFilasMidia   = require('./adaptadores/queue/FilasMidia');
 const GerenciadorTransacoes   = require('./adaptadores/transacoes/GerenciadorTransacoes');
@@ -176,7 +177,7 @@ const servicoMensagem = criarServicoMensagem(logger, clienteWhatsApp, gerenciado
 logger.info('💬 Serviço de mensagens inicializado');
 
 // 6. Inicializar o processador de filas de mídia (substituindo os anteriores)
-const filasMidia = inicializarFilasMidia(logger, gerenciadorAI, configManager);
+const filasMidia = inicializarFilasMidia(logger, gerenciadorAI, configManager, servicoMensagem);
 logger.info('🔄 Filas de mídia inicializadas');
 
 // 7. Inicializar o gerenciador de mensagens

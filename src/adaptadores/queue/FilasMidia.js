@@ -1360,14 +1360,17 @@ const MonitoradorFilas = {
 
 // ===== INICIALIZAÇÃO FUNCIONAL =====
 
+// Modificar o inicializarFilasMidia para usar ServicoMensagem com paradigma funcional
+
 /**
  * Inicializa o sistema de filas de mídia
  * @param {Object} registrador - Logger para registro
  * @param {Object} gerenciadorAI - Gerenciador de IA
  * @param {Object} gerenciadorConfig - Gerenciador de configurações
+ * @param {Object} servicoMensagem - Serviço centralizado de mensagens
  * @returns {Object} Sistema de filas inicializado
  */
-const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig) => {
+const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, servicoMensagem) => {
   registrador.info('✨ Inicializando sistema funcional de filas de mídia...');
   
   // Criar configuração do Redis
@@ -1386,16 +1389,55 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig) =>
   // Configurar todas as filas com eventos
   const filas = CriadoresFilas.configurarTodasFilas(registrador, resultadoFilas.dados);
   
+  // Definir callbacks funcionais padrão usando Railway Pattern
+  const criarCallbackPadrao = (tipo) => (resultado) => {
+    if (!resultado || !resultado.senderNumber) {
+      registrador.warn(`Resultado de fila ${tipo} inválido ou incompleto`);
+      return Resultado.falha(new Error(`Dados de resposta ${tipo} incompletos`));
+    }
+    
+    registrador.info(`⚠️ Processando resultado de ${tipo} com callback padrão: ${resultado.transacaoId || 'sem_id'}`);
+    
+    // Criar mensagem simulada mais completa
+    const mensagemSimulada = {
+      from: resultado.senderNumber,
+      id: { _serialized: resultado.messageId || `msg_${Date.now()}` },
+      body: resultado.userPrompt || '',
+      
+      // Método getChat simplificado
+      getChat: async () => ({
+        id: { _serialized: `${resultado.chatId || resultado.senderNumber}` },
+        sendSeen: async () => true,
+        isGroup: resultado.chatId ? resultado.chatId.includes('@g.us') : false,
+        name: resultado.chatName || 'Chat'
+      }),
+      
+      // Não implementamos reply - o servicoMensagem lidará com isso
+      hasMedia: true,
+      type: tipo,
+      
+      _data: {
+        notifyName: resultado.remetenteName || 'Usuário'
+      }
+    };
+    
+    // Prepara texto contextualizado para mídias
+    const textoContextualizado = `[Resposta para ${tipo === 'imagem' ? '📷 imagem' : '🎥 vídeo'} enviada por ${resultado.remetenteName || 'você'}]\n\n${resultado.resposta}`;
+    
+    return servicoMensagem.enviarResposta(mensagemSimulada, textoContextualizado, resultado.transacaoId);
+  };
+  
   // Objeto para armazenar callbacks
   const callbacks = {
-    imagem: null,
-    video: null
+    imagem: criarCallbackPadrao('imagem'),
+    video: criarCallbackPadrao('video')
   };
   
   // Criar funções utilitárias com contexto
   const notificarErro = ProcessadoresFilas.criarNotificadorErro(registrador, (resultado) => {
     const callback = callbacks[resultado.tipo];
     if (callback) callback(resultado);
+    else registrador.warn(`Sem callback para notificar erro de ${resultado.tipo}`);
   });
   
   const processarResultado = ProcessadoresFilas.criarProcessadorResultado(registrador, callbacks);
