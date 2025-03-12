@@ -24,15 +24,11 @@ const limparTextoResposta = (texto) => {
   if (!texto || typeof texto !== 'string') {
     return "Não foi possível gerar uma resposta válida.";
   }
-  
-  // Remover prefixos comuns
-  let textoLimpo = texto.replace(/^(?:amélie:[\s]*)+/i, '');
-  textoLimpo = textoLimpo.replace(/^(?:amelie:[\s]*)+/i, '');
-
-  // Normalizar quebras de linha
-  textoLimpo = textoLimpo.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
-  
-  return textoLimpo.trim();
+    let textoLimpo = texto
+      .replace(/^(?:amélie|amelie):[\s]*/gi, '')
+      .replace(/\r\n?|\n{3,}|\*/g, '\n')
+      .trim();
+    return textoLimpo;
 };
 
 /**
