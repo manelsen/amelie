@@ -22,8 +22,7 @@ const ConfigManager = require('./config/ConfigManager');
 
 const ClienteWhatsApp         = require('./adaptadores/whatsapp/ClienteWhatsApp');
 const GerenciadorAI           = require('./adaptadores/ai/GerenciadorAI');
-//const GerenciadorMensagens    = require('./adaptadores/whatsapp/GerenciadorMensagens');
-const GerenciadorMensagens = require('./adaptadores/whatsapp/AdaptadorGerenciadorMensagensV2');
+const GerenciadorMensagens    = require('./adaptadores/whatsapp/AdaptadorGerenciadorMensagens');
 const GerenciadorNotificacoes = require('./adaptadores/whatsapp/GerenciadorNotificacoes');
 const inicializarFilasMidia   = require('./adaptadores/queue/FilasMidia');
 const GerenciadorTransacoes   = require('./adaptadores/transacoes/GerenciadorTransacoes');
@@ -186,7 +185,7 @@ const gerenciadorMensagens = new GerenciadorMensagens(
   clienteWhatsApp,
   configManager,
   gerenciadorAI,
-  filasMidia,  // Usando o novo sistema de filas de mídia
+  filasMidia,
   gerenciadorTransacoes,
   servicoMensagem  
 );
@@ -239,10 +238,10 @@ setInterval(async () => {
 setInterval(async () => {
   try {
     // Limpar notificações antigas
-    await gerenciadorNotificacoes.limparAntigas(7); // 7 dias
+    await gerenciadorNotificacoes.limparAntigas(1); // 1 dia
     
     // Limpar transações antigas
-    await gerenciadorTransacoes.limparTransacoesAntigas(7); // 7 dias
+    await gerenciadorTransacoes.limparTransacoesAntigas(1); // 1 dia
     
     // Limpar trabalhos pendentes na fila (agora usando filasMidia)
     await filasMidia.limparTrabalhosPendentes();
@@ -270,48 +269,3 @@ process.on('uncaughtException', (erro) => {
 
 // Mensagem final de inicialização
 logger.info('🚀 Sistema iniciado com sucesso! Aguardando conexão do WhatsApp...');
-
-
-// Monitoramento de memória para prevenir OOM Killer
-logger.info('✅ Iniciando monitor de memória preventivo');
-const LIMITE_MEMORIA_MB = 900; // 900MB
-
-setInterval(() => {
-  const usoMemoria = process.memoryUsage();
-  const heapUsadoMB = Math.round(usoMemoria.heapUsed / 1024 / 1024);
-  const rssMB = Math.round(usoMemoria.rss / 1024 / 1024);
-  
-  // Só logar quando estiver acima de 50% do limite para não encher os logs
-  if (rssMB > LIMITE_MEMORIA_MB * 0.5) {
-    logger.info(`📊 Memória atual: Heap ${heapUsadoMB}MB / RSS ${rssMB}MB`);
-  }
-  
-  // Se estiver acima de 80% do limite, forçar coleta de lixo
-  if (rssMB > LIMITE_MEMORIA_MB * 0.8 && global.gc) {
-    logger.warn(`🧹 Uso de memória alto (${rssMB}MB) - Executando coleta de lixo`);
-    global.gc();
-  }
-  
-  // Se ultrapassar o limite, agendar reinicialização
-  if (rssMB > LIMITE_MEMORIA_MB) {
-    logger.warn(`⚠️ ALERTA DE MEMÓRIA: ${rssMB}MB excede limite de ${LIMITE_MEMORIA_MB}MB`);
-    
-    // Verificar se não há uma reinicialização já agendada
-    if (!global.reinicializacaoAgendada) {
-      logger.warn('💤 Agendando reinicialização em 30 segundos...');
-      global.reinicializacaoAgendada = true;
-      
-      setTimeout(async () => {
-        try {
-          logger.warn('🔄 Executando reinicialização de emergência');
-          await clienteWhatsApp.reiniciarCompleto();
-          logger.info('✅ Reinicialização concluída');
-        } catch (err) {
-          logger.error(`❌ Erro na reinicialização: ${err.message}`);
-        } finally {
-          global.reinicializacaoAgendada = false;
-        }
-      }, 30000); // 30 segundos de espera
-    }
-  }
-}, 3 * 60 * 1000); // Verificar a cada 3 minutos

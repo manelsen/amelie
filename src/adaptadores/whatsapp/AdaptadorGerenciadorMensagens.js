@@ -1,4 +1,4 @@
-const criarGerenciadorMensagens = require('./GerenciadorMensagensV2');
+const criarGerenciadorMensagens = require('./GerenciadorMensagens');
 
 // Classe adaptadora que mantém a mesma API mas usa a implementação funcional
 class AdaptadorGerenciadorMensagens {
