@@ -20,20 +20,18 @@ dotenv.config();
 // Importar módulos da aplicação
 const ConfigManager = require('./config/ConfigManager');
 
-const ClienteWhatsApp = require('./adaptadores/whatsapp/ClienteWhatsApp');
-const GerenciadorAI = require('./adaptadores/ai/GerenciadorAI');
-const GerenciadorMensagens = require('./adaptadores/whatsapp/GerenciadorMensagens');
+const ClienteWhatsApp         = require('./adaptadores/whatsapp/ClienteWhatsApp');
+const GerenciadorAI           = require('./adaptadores/ai/GerenciadorAI');
+const GerenciadorMensagens    = require('./adaptadores/whatsapp/GerenciadorMensagens');
 const GerenciadorNotificacoes = require('./adaptadores/whatsapp/GerenciadorNotificacoes');
-const inicializarFilasMidia = require('./adaptadores/queue/FilasMidia');
-const GerenciadorTransacoes = require('./adaptadores/transacoes/GerenciadorTransacoes');
-const criarServicoMensagem = require('./servicos/ServicoMensagem');
+const inicializarFilasMidia   = require('./adaptadores/queue/FilasMidia');
+const GerenciadorTransacoes   = require('./adaptadores/transacoes/GerenciadorTransacoes');
+const criarServicoMensagem    = require('./servicos/ServicoMensagem');
 
 
 // Configurações
 const BOT_NAME = process.env.BOT_NAME || 'Amélie';
-const LINK_GRUPO_OFICIAL = process.env.LINK_GRUPO_OFICIAL || 'https://chat.whatsapp.com/C0Ys7pQ6lZH5zqDD9A8cLp';
 const API_KEY = process.env.API_KEY;
-const MAX_HISTORY = parseInt(process.env.MAX_HISTORY || '50');
 const nivel_debug = process.env.LOG_LEVEL || 'info';
 
 // Garantir que os diretórios essenciais existam
