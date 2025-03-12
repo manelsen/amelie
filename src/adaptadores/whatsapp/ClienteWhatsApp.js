@@ -727,7 +727,7 @@ async processarNotificacoesPendentes() {
       
       // Filtrar e mapear as mensagens
       const mensagens = mensagensObtidas
-        .filter(msg => msg.body && !msg.body.startsWith('!')) // Filtra comandos
+        .filter(msg => msg.body && !msg.body.startsWith('.')) // Filtra comandos
         .slice(-limite * 2) // Limita ao número de mensagens
         .map(msg => {
           const remetente = msg.fromMe ? 
@@ -761,7 +761,7 @@ async processarNotificacoesPendentes() {
      * @returns {Promise<boolean>} Verdadeiro se devemos responder
      */
     async deveResponderNoGrupo(msg, chat) {
-      if (msg.body && msg.body.startsWith('!')) {
+      if (msg.body && msg.body.startsWith('.')) {
         this.registrador.debug("Respondendo porque é um comando");
         return true;
       }
