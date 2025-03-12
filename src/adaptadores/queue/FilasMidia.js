@@ -4,7 +4,7 @@
  * Implementa arquitetura funcional pura com composição, padrão Railway e imutabilidade.
  * Sem classes, apenas funções e composição.
  * 
- * @author Belle Utsch (adaptado)
+ * @author Belle Utsch
  */
 
 const Queue = require('bull');
@@ -19,6 +19,25 @@ const existsAsync = promisify(fs.exists);
 const unlinkAsync = promisify(fs.unlink);
 const writeFileAsync = promisify(fs.writeFile);
 const readFileAsync = promisify(fs.readFile);
+
+// Importação corrigida - caminho correto!
+const { 
+  obterInstrucaoPadrao, 
+  obterInstrucaoImagem,
+  obterInstrucaoImagemCurta,
+  obterInstrucaoVideo,
+  obterInstrucaoVideoCurta,
+  obterPromptImagem,
+  obterPromptImagemCurto,
+  obterPromptVideo,
+  obterPromptVideoCurto
+} = require('../../config/InstrucoesSistema');
+
+// Passei por aqui
+
+console.log('🔍 Carregando FilasMidia.js');
+console.log('📁 Diretório atual:', __dirname);
+console.log('📄 Arquivo atual:', __filename);
 
 // ===== PATTERN MATCHING PARA TRATAMENTO DE ERROS (Railway Pattern) =====
 
@@ -140,14 +159,37 @@ const Utilitarios = {
    * @param {Function} tratarErro - Função para tratar erros
    * @returns {Promise<Resultado>} Resultado da operação
    */
-  tentarOperacao: _.curry(async (operacao, tratarErro) => {
-    try {
-      const resultado = await operacao();
-      return Resultado.sucesso(resultado);
-    } catch (erro) {
-      return tratarErro ? Resultado.falha(tratarErro(erro)) : Resultado.falha(erro);
+  tentarOperacao: function() {
+    // Se for chamada com estilo curry (apenas primeiro argumento)
+    if (arguments.length === 1 && typeof arguments[0] === 'function') {
+      const operacao = arguments[0];
+      // Retorna uma função que aceita o tratador de erro
+      return async function(tratarErro) {
+        try {
+          const resultado = await operacao();
+          return Resultado.sucesso(resultado);
+        } catch (erro) {
+          return tratarErro ? Resultado.falha(tratarErro(erro)) : Resultado.falha(erro);
+        }
+      };
+    } 
+    // Chamada direta sem curry
+    else if (arguments.length >= 1) {
+      const operacao = arguments[0];
+      const tratarErro = arguments[1];
+      return (async () => {
+        try {
+          const resultado = await operacao();
+          return Resultado.sucesso(resultado);
+        } catch (erro) {
+          return tratarErro ? Resultado.falha(tratarErro(erro)) : Resultado.falha(erro);
+        }
+      })();
     }
-  })
+    else {
+      throw new Error("tentarOperacao precisa de pelo menos um argumento");
+    }
+  }
 };
 
 // ===== CONFIGURAÇÃO FUNCIONAL =====
@@ -192,18 +234,8 @@ const Configuracao = {
    * @returns {Promise<Resultado>} Configurações
    */
   obterConfig: _.curry(async (gerenciadorConfig, registrador, chatId, tipoMidia) => {
-    return Utilitarios.tentarOperacao(async () => {
+    try {
       const config = await gerenciadorConfig.obterConfig(chatId);
-      
-      const { 
-        obterInstrucaoImagem, 
-        obterInstrucaoImagemCurta,
-        obterInstrucaoVideo,
-        obterInstrucaoVideoCurta 
-      } = require('../config/InstrucoesSistema');
-      
-      const modoDescricao = config.modoDescricao || 'curto';
-      registrador.debug(`Modo de descrição: ${modoDescricao} para ${tipoMidia} no chat ${chatId}`);
       
       // Usar composição para selecionar a instrução correta
       const obterInstrucao = _.cond([
@@ -214,9 +246,12 @@ const Configuracao = {
         [_.stubTrue, _.constant(null)]
       ]);
       
+      const modoDescricao = config.modoDescricao || 'curto';
+      registrador.debug(`Modo de descrição: ${modoDescricao} para ${tipoMidia} no chat ${chatId}`);
+      
       const systemInstructions = obterInstrucao({tipo: tipoMidia, modo: modoDescricao});
       
-      return {
+      return Resultado.sucesso({
         temperature: config.temperature || 0.7,
         topK: config.topK || 1,
         topP: config.topP || 0.95,
@@ -224,20 +259,20 @@ const Configuracao = {
         model: "gemini-2.0-flash",
         systemInstructions,
         modoDescricao
-      };
-    }, erro => {
+      });
+    } catch (erro) {
       registrador.warn(`Erro ao obter configurações: ${erro.message}, usando padrão`);
       
       // Configuração padrão
-      return {
+      return Resultado.sucesso({
         temperature: 0.7,
         topK: 1,
         topP: 0.95,
         maxOutputTokens: tipoMidia === 'video' ? 1024 : 800,
         model: "gemini-2.0-flash",
         modoDescricao: 'curto'
-      };
-    })();
+      });
+    }
   }),
   
   /**
@@ -250,13 +285,6 @@ const Configuracao = {
    */
   prepararPrompt: _.curry((registrador, tipoMidia, promptUsuario, modoDescricao) => {
     if (_.isEmpty(promptUsuario)) {
-      const { 
-        obterPromptImagem, 
-        obterPromptImagemCurto,
-        obterPromptVideo,
-        obterPromptVideoCurto 
-      } = require('../config/InstrucoesSistema');
-      
       // Usar composição para selecionar o prompt correto
       return _.cond([
         [_.matches({tipo: 'imagem', modo: 'longo'}), () => {
@@ -474,7 +502,7 @@ const ProcessadoresMidia = {
     }, erro => {
       registrador.error(`Erro ao processar imagem: ${erro.message}`);
       return erro;
-    })();
+    });
   }),
   
   /**
@@ -587,7 +615,7 @@ const ProcessadoresMidia = {
       Utilitarios.limparArquivo(caminhoArquivo);
       
       return erro;
-    })();
+    });
   })
 };
 

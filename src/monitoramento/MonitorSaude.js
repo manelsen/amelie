@@ -407,10 +407,10 @@ const executarBatimento = async (estado) => {
     // A cada 10 batimentos, mostra estatísticas
     if (novoContadorBatimentos % 10 === 0) {
       const tempoAtivo = formatarTempoAtivo(agora - timestamps.inicioSistema);
-      registrador.info(`💓 #${novoContadorBatimentos} - Amélie ativa há ${tempoAtivo}`);
-    } else {
+      registrador.info(`💜 #${novoContadorBatimentos} - Amélie ativa há ${tempoAtivo}`);
+    } /* else {
       registrador.info(`💓 ${new Date().toISOString()} - Amélie ativa`);
-    }
+    }*/
 
     // Verificar uso de memória ocasionalmente
     let resultadoMemoria = null;

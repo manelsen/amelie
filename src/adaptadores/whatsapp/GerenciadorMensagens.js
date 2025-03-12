@@ -6,10 +6,7 @@
  */
 
 const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
-const FilaProcessadorImagem = require('../queue/FilaProcessadorImagem');
-const FilaProcessador = require('../queue/FilaProcessador');
 
 class GerenciadorMensagens {
   /**
@@ -22,95 +19,76 @@ class GerenciadorMensagens {
    * @param {Object} gerenciadorTransacoes - Gerenciador de transações de mensagens
    * @param {Object} servicoMensagem - Serviço centralizado de envio de mensagens
    */
-  constructor(registrador, clienteWhatsApp, gerenciadorConfig, gerenciadorAI, filaProcessamento, gerenciadorTransacoes, servicoMensagem) {
-
-    this.registrador = registrador;
-    this.clienteWhatsApp = clienteWhatsApp;
-    this.gerenciadorConfig = gerenciadorConfig;
-    this.gerenciadorAI = gerenciadorAI;
-    this.filaProcessamento = filaProcessamento;
-    this.gerenciadorTransacoes = gerenciadorTransacoes;
-
-    this.servicoMensagem = servicoMensagem || {
-      enviarResposta: async (mensagemOriginal, texto, transacaoId) => {
-        try {
-          if (!texto || typeof texto !== 'string' || texto.trim() === '') {
-            this.registrador.error('Tentativa de enviar mensagem inválida:', { texto });
-            texto = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
-          }
-
-          // Verificação básica de segurança
-          if (!mensagemOriginal || typeof mensagemOriginal.reply !== 'function') {
-            const destinatario = mensagemOriginal?.from || mensagemOriginal?.author;
-
-            if (!destinatario) {
-              throw new Error("Impossível determinar destinatário para resposta");
-            }
-
-            return await this.clienteWhatsApp.enviarMensagem(destinatario, texto);
-          }
-
-          // Usar diretamente o método reply
-          await mensagemOriginal.reply(texto);
-          return true;
-        } catch (erro) {
-          this.registrador.error(`Erro ao enviar resposta direta: ${erro.message}`, { erro });
-
-          // Tentar salvar como notificação pendente
+    constructor(registrador, clienteWhatsApp, gerenciadorConfig, gerenciadorAI, filasMidia, gerenciadorTransacoes, servicoMensagem) {
+      this.registrador = registrador;
+      this.clienteWhatsApp = clienteWhatsApp;
+      this.gerenciadorConfig = gerenciadorConfig;
+      this.gerenciadorAI = gerenciadorAI;
+      this.filasMidia = filasMidia;  // Nova referência às filas de mídia unificadas
+      this.gerenciadorTransacoes = gerenciadorTransacoes;
+    
+      this.servicoMensagem = servicoMensagem || {
+        enviarResposta: async (mensagemOriginal, texto, transacaoId) => {
           try {
-            if (mensagemOriginal && mensagemOriginal.from) {
-              await this.clienteWhatsApp.salvarNotificacaoPendente(
-                mensagemOriginal.from,
-                texto,
-                { transacaoId }
-              );
-              this.registrador.info(`Mensagem salva como notificação pendente`);
+            if (!texto || typeof texto !== 'string' || texto.trim() === '') {
+              this.registrador.error('Tentativa de enviar mensagem inválida:', { texto });
+              texto = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
             }
-          } catch (erroSalvar) {
-            this.registrador.error(`Falha ao salvar notificação pendente: ${erroSalvar.message}`);
+    
+            // Verificação básica de segurança
+            if (!mensagemOriginal || typeof mensagemOriginal.reply !== 'function') {
+              const destinatario = mensagemOriginal?.from || mensagemOriginal?.author;
+    
+              if (!destinatario) {
+                throw new Error("Impossível determinar destinatário para resposta");
+              }
+    
+              return await this.clienteWhatsApp.enviarMensagem(destinatario, texto);
+            }
+    
+            // Usar diretamente o método reply
+            await mensagemOriginal.reply(texto);
+            return true;
+          } catch (erro) {
+            this.registrador.error(`Erro ao enviar resposta direta: ${erro.message}`, { erro });
+    
+            // Tentar salvar como notificação pendente
+            try {
+              if (mensagemOriginal && mensagemOriginal.from) {
+                await this.clienteWhatsApp.salvarNotificacaoPendente(
+                  mensagemOriginal.from,
+                  texto,
+                  { transacaoId }
+                );
+                this.registrador.info(`Mensagem salva como notificação pendente`);
+              }
+            } catch (erroSalvar) {
+              this.registrador.error(`Falha ao salvar notificação pendente: ${erroSalvar.message}`);
+            }
+    
+            return false;
           }
-
-          return false;
         }
+      };
+    
+      this.ultimoAudioProcessado = null;
+      this.diretorioTemp = '../temp';
+    
+      // Adicionar cache para controle de deduplicação de mensagens
+      this.mensagensProcessadas = new Map();
+    
+      // Intervalo para limpar o cache periodicamente (a cada 30 minutos)
+      setInterval(() => this.limparCacheMensagensAntigas(), 30 * 60 * 1000);
+    
+      // Garantir que o diretório temporário exista
+      if (!fs.existsSync(this.diretorioTemp)) {
+        fs.mkdirSync(this.diretorioTemp, { recursive: true });
+        this.registrador.info('Diretório de arquivos temporários criado');
       }
-    };
-
-    // Inicializar a fila de processamento, mas não delegar responsabilidades de resposta
-    // A fila agora apenas processa e retorna resultados para este gerenciador
-    this.filaProcessamento = new FilaProcessador(
-      registrador,
-      gerenciadorAI,
-      null, // Removendo referência direta ao clienteWhatsApp
-      { enviarRespostaDireta: false } // Configuração para impedir respostas diretas
-    );
-
-    this.filaProcessamentoImagem = new FilaProcessadorImagem(
-      registrador,
-      gerenciadorAI,
-      null, // Removendo referência direta ao clienteWhatsApp
-      { enviarRespostaDireta: false } // Configuração para impedir respostas diretas
-    );
-
-    // Removida a criação do FilaProcessadorAudio que não existe
-
-    this.ultimoAudioProcessado = null;
-    this.diretorioTemp = '../temp';
-
-    // Adicionar cache para controle de deduplicação de mensagens
-    this.mensagensProcessadas = new Map();
-
-    // Intervalo para limpar o cache periodicamente (a cada 30 minutos)
-    setInterval(() => this.limparCacheMensagensAntigas(), 30 * 60 * 1000);
-
-    // Garantir que o diretório temporário exista
-    if (!fs.existsSync(this.diretorioTemp)) {
-      fs.mkdirSync(this.diretorioTemp, { recursive: true });
-      this.registrador.info('Diretório de arquivos temporários criado');
+    
+      // Configurar callback para receber resultados de processamento
+      this.configurarCallbacksProcessamento();
     }
-
-    // Configurar callback para receber resultados de processamento
-    this.configurarCallbacksProcessamento();
-  }
 
   /**
    * Inicializa o gerenciador e configura recuperação de mensagens
@@ -134,57 +112,53 @@ class GerenciadorMensagens {
   /**
  * Configura callbacks para receber resultados do processamento de filas
  */
-  // No arquivo GerenciadorMensagens.js
-  configurarCallbacksProcessamento() {
-    // Simplificando drasticamente o processador
-    const processarResultadoFila = async (resultado) => {
-      try {
-        // Verificar se resultado existe e tem os dados mínimos
-        if (!resultado || !resultado.senderNumber) {
-          this.registrador.warn("Resultado de fila inválido ou incompleto");
-          return;
-        }
-
-        const { resposta, senderNumber, transacaoId } = resultado;
-
-        // Enviar a mensagem da maneira mais simples e direta possível
-        try {
-          await this.clienteWhatsApp.enviarMensagem(senderNumber, resposta);
-
-          // Se chegou aqui, deu certo! Vamos concluir a transação
-          if (transacaoId) {
-            await this.gerenciadorTransacoes.adicionarRespostaTransacao(transacaoId, resposta);
-            await this.gerenciadorTransacoes.marcarComoEntregue(transacaoId);
-          }
-        } catch (erroEnvio) {
-          // Usamos uma string simples em vez de acessar properties
-          this.registrador.error(`Erro ao enviar mensagem: ${String(erroEnvio)}`);
-
-          // Ainda tentar atualizar a transação com a falha
-          if (transacaoId) {
-            try {
-              await this.gerenciadorTransacoes.registrarFalhaEntrega(
-                transacaoId,
-                `Erro ao enviar: ${String(erroEnvio)}`
-              );
-            } catch (erroTransacao) {
-              this.registrador.error(`Erro adicional ao registrar falha: ${String(erroTransacao)}`);
-            }
-          }
-        }
-      } catch (erro) {
-        // Usar apenas String() para garantir que mesmo objetos não padronizados sejam convertidos
-        this.registrador.error(`Erro ao processar resultado de fila: ${String(erro)}`);
+configurarCallbacksProcessamento() {
+  // Criamos um único processador para tratar todos os tipos de mídia
+  const processarResultadoFila = async (resultado) => {
+    try {
+      // Verificação básica do resultado recebido
+      if (!resultado || !resultado.senderNumber) {
+        this.registrador.warn("Resultado de fila inválido ou incompleto");
+        return;
       }
-    };
 
-    // Usar a função com as filas
-    this.filaProcessamentoImagem.setRespostaCallback(processarResultadoFila);
+      const { resposta, senderNumber, transacaoId, remetenteName } = resultado;
 
-    if (this.filaProcessamento && typeof this.filaProcessamento.setResultCallback === 'function') {
-      this.filaProcessamento.setResultCallback(processarResultadoFila);
+      // Enviar mensagem com tratamento de erro simplificado
+      try {
+        await this.clienteWhatsApp.enviarMensagem(senderNumber, resposta);
+        
+        // Se chegou aqui, deu certo! Vamos atualizar a transação
+        if (transacaoId) {
+          await this.gerenciadorTransacoes.adicionarRespostaTransacao(transacaoId, resposta);
+          await this.gerenciadorTransacoes.marcarComoEntregue(transacaoId);
+          this.registrador.debug(`✅ Transação ${transacaoId} atualizada com sucesso (${remetenteName || senderNumber})`);
+        }
+      } catch (erroEnvio) {
+        // Usamos String() para garantir conversão segura
+        this.registrador.error(`Erro ao enviar mensagem: ${String(erroEnvio)}`);
+
+        // Registrar falha na transação
+        if (transacaoId) {
+          try {
+            await this.gerenciadorTransacoes.registrarFalhaEntrega(
+              transacaoId,
+              `Erro ao enviar: ${String(erroEnvio)}`
+            );
+          } catch (erroTransacao) {
+            this.registrador.error(`Erro adicional ao registrar falha: ${String(erroTransacao)}`);
+          }
+        }
+      }
+    } catch (erro) {
+      this.registrador.error(`Erro ao processar resultado de fila: ${String(erro)}`);
     }
-  }
+  };
+
+  // Configurar o callback unificado para todas as mídias
+  this.filasMidia.setCallbackRespostaUnificado(processarResultadoFila);
+  this.registrador.info('📬 Callback unificado de filas de mídia configurado com sucesso');
+}
 
   /**
    * Limpa mensagens antigas do cache de deduplicação
@@ -423,77 +397,53 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
   }
 
   /**
-   * Gerencia as filas de processamento (vídeo e imagem)
-   * @param {Object} msg - Mensagem do WhatsApp
-   * @param {Array} args - Argumentos do comando
-   * @param {string} chatId - ID do chat
-   */
-  async tratarComandoFilas(msg, args, chatId) {
-    const ehAdministrador = true; // Mudar isso para sua lógica de verificação de administrador
+ * Gerencia as filas de processamento (vídeo e imagem)
+ * @param {Object} msg - Mensagem do WhatsApp
+ * @param {Array} args - Argumentos do comando
+ * @param {string} chatId - ID do chat
+ */
+async tratarComandoFilas(msg, args, chatId) {
+  const ehAdministrador = true; // Mudar isso para sua lógica de verificação de administrador
 
-    if (!ehAdministrador) {
-      await this.servicoMensagem.enviarResposta(msg, '❌ Desculpe, apenas administradores podem gerenciar as filas.');
-      return;
-    }
-
-    const [subcomando, tipoFila, ...resto] = args;
-
-    switch (subcomando) {
-      case 'status':
-        let relatorio = '';
-
-        if (!tipoFila || tipoFila === 'all' || tipoFila === 'todas') {
-          // Mostrar status de todas as filas
-          const relatorioVideo = await this.filaProcessamento.getFormattedQueueStatus();
-          const relatorioImagem = await this.filaProcessamentoImagem.getFormattedQueueStatus();
-          relatorio = relatorioVideo + "\n\n" + relatorioImagem;
-        } else if (tipoFila === 'video' || tipoFila === 'videos') {
-          relatorio = await this.filaProcessamento.getFormattedQueueStatus();
-        } else if (tipoFila === 'imagem' || tipoFila === 'imagens' || tipoFila === 'image') {
-          relatorio = await this.filaProcessamentoImagem.getFormattedQueueStatus();
-        } else {
-          await this.servicoMensagem.enviarResposta(msg, 'Tipo de fila inválido. Use: todas, video ou imagem');
-          return;
-        }
-
-        await this.servicoMensagem.enviarResposta(msg, relatorio);
-        break;
-
-      case 'limpar':
-        if (!tipoFila) {
-          await this.servicoMensagem.enviarResposta(msg, 'Especifique o tipo de fila para limpar: todas, video ou imagem');
-          return;
-        }
-
-        // Opção para limpar tudo ou apenas trabalhos completos
-        const apenasCompletos = resto[0] !== 'tudo';
-        const avisoLimpeza = apenasCompletos
-          ? 'Limpando apenas trabalhos concluídos e falhas...'
-          : '⚠️ ATENÇÃO: Isso vai limpar TODAS as filas, incluindo trabalhos em andamento!';
-
-        await this.servicoMensagem.enviarResposta(msg, avisoLimpeza);
-
-        if (tipoFila === 'all' || tipoFila === 'todas') {
-          const resultadoVideo = await this.filaProcessamento.limparFilas(apenasCompletos);
-          const resultadoImagem = await this.filaProcessamentoImagem.limparFilas(apenasCompletos);
-          await this.servicoMensagem.enviarResposta(msg, `✅ Limpeza concluída!\nVídeos: ${JSON.stringify(resultadoVideo)}\nImagens: ${JSON.stringify(resultadoImagem)}`);
-        } else if (tipoFila === 'video' || tipoFila === 'videos') {
-          const resultado = await this.filaProcessamento.limparFilas(apenasCompletos);
-          await this.servicoMensagem.enviarResposta(msg, `✅ Limpeza de filas de vídeo concluída: ${JSON.stringify(resultado)}`);
-        } else if (tipoFila === 'imagem' || tipoFila === 'imagens' || tipoFila === 'image') {
-          const resultado = await this.filaProcessamentoImagem.limparFilas(apenasCompletos);
-          await this.servicoMensagem.enviarResposta(msg, `✅ Limpeza de filas de imagem concluída: ${JSON.stringify(resultado)}`);
-        } else {
-          await this.servicoMensagem.enviarResposta(msg, 'Tipo de fila inválido. Use: todas, video ou imagem');
-        }
-        break;
-
-      default:
-        await this.servicoMensagem.enviarResposta(msg, `Comando de filas desconhecido. Use:
-.filas status [todas|video|imagem] - Mostra status das filas
-.filas limpar [todas|video|imagem] [tudo] - Limpa filas (use 'tudo' para limpar mesmo trabalhos em andamento)`);
-    }
+  if (!ehAdministrador) {
+    await this.servicoMensagem.enviarResposta(msg, '❌ Desculpe, apenas administradores podem gerenciar as filas.');
+    return;
   }
+
+  const [subcomando, tipoFila, ...resto] = args;
+
+  switch (subcomando) {
+    case 'status':
+      // Obter relatório de status usando o FilasMidia
+      const relatorio = await this.filasMidia.obterRelatorioStatusFilas();
+      await this.servicoMensagem.enviarResposta(msg, relatorio);
+      break;
+
+    case 'limpar':
+      if (!tipoFila) {
+        await this.servicoMensagem.enviarResposta(msg, 'Especifique o tipo de fila para limpar: todas, video ou imagem');
+        return;
+      }
+
+      // Opção para limpar tudo ou apenas trabalhos completos
+      const apenasCompletos = resto[0] !== 'tudo';
+      const avisoLimpeza = apenasCompletos
+        ? 'Limpando apenas trabalhos concluídos e falhas...'
+        : '⚠️ ATENÇÃO: Isso vai limpar TODAS as filas, incluindo trabalhos em andamento!';
+
+      await this.servicoMensagem.enviarResposta(msg, avisoLimpeza);
+
+      // Usar FilasMidia unificado para limpar
+      const resultado = await this.filasMidia.limparFilas(apenasCompletos);
+      await this.servicoMensagem.enviarResposta(msg, `✅ Limpeza concluída!\n${JSON.stringify(resultado, null, 2)}`);
+      break;
+
+    default:
+      await this.servicoMensagem.enviarResposta(msg, `Comando de filas desconhecido. Use:
+.filas status - Mostra status das filas
+.filas limpar [tudo] - Limpa filas (use 'tudo' para limpar mesmo trabalhos em andamento)`);
+  }
+}
 
   /**
    * Registra este gerenciador como handler de mensagens no cliente WhatsApp
@@ -945,110 +895,108 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
  * @param {string} chatId - ID do chat
  * @returns {Promise<boolean>} Sucesso do processamento
  */
-  async processarMensagemImagem(msg, imagemData, chatId) {
-    try {
-      const chat = await msg.getChat();
-      const config = await this.gerenciadorConfig.obterConfig(chatId);
-      const remetente = await this.obterOuCriarUsuario(msg.author || msg.from, chat);
+  /**
+ * Processa uma mensagem com imagem usando a fila de processamento
+ * @param {Object} msg - Mensagem do WhatsApp
+ * @param {Object} imagemData - Dados da imagem
+ * @param {string} chatId - ID do chat
+ * @returns {Promise<boolean>} Sucesso do processamento
+ */
+async processarMensagemImagem(msg, imagemData, chatId) {
+  try {
+    const chat = await msg.getChat();
+    const config = await this.gerenciadorConfig.obterConfig(chatId);
+    const remetente = await this.obterOuCriarUsuario(msg.author || msg.from, chat);
 
-      if (!config.mediaImage) {
-        this.registrador.info(`Descrição de imagem desabilitada para o chat ${chatId}. Ignorando mensagem de imagem.`);
-        return false;
-      }
-
-      // Criar transação para esta mensagem de imagem
-      const transacao = await this.gerenciadorTransacoes.criarTransacao(msg, chat);
-      this.registrador.info(`Nova transação criada: ${transacao.id} para mensagem de imagem de ${remetente.name}`);
-
-      // Marcar transação como processando
-      await this.gerenciadorTransacoes.marcarComoProcessando(transacao.id);
-
-      // Determinar o prompt do usuário
-      let promptUsuario = "";
-
-      if (msg.body && msg.body.trim() !== '') {
-        promptUsuario = msg.body.trim();
-      }
-
-      await this.filaProcessamentoImagem.add('process-image', {
-        imageData: imagemData,
-        chatId,
-        messageId: msg.id._serialized,
-        mimeType: imagemData.mimetype,
-        userPrompt: promptUsuario,
-        senderNumber: msg.from,
-        transacaoId: transacao.id,
-        remetenteName: remetente.name,
-        modoDescricao: config.modoDescricao || 'curto' // Adicionado com padrão 'curto'
-      }, {
-        removeOnComplete: true,
-        removeOnFail: false,
-        timeout: 60000 // 1 minuto
-      });
-
-      this.registrador.info(`🚀 Imagem de ${remetente.name} adicionada à fila com sucesso (transação ${transacao.id})`);
-      return true;
-
-    } catch (erro) {
-      this.registrador.error(`Erro ao processar mensagem de imagem: ${erro.message}`, { erro });
-
-      // Verificar se é um erro de segurança
-      if (erro.message.includes('SAFETY') || erro.message.includes('safety') ||
-        erro.message.includes('blocked') || erro.message.includes('Blocked')) {
-
-        this.registrador.warn(`⚠️ Conteúdo de imagem bloqueado por políticas de segurança`);
-        this.registrador.info(`Erro de safety detectado - o callback da fila enviará a resposta`);
-      } else {
-        this.registrador.info(`Erro geral detectado - o callback da fila enviará a resposta`);
-      }
-
+    if (!config.mediaImage) {
+      this.registrador.info(`Descrição de imagem desabilitada para o chat ${chatId}. Ignorando mensagem de imagem.`);
       return false;
     }
+
+    // Criar transação para esta mensagem de imagem
+    const transacao = await this.gerenciadorTransacoes.criarTransacao(msg, chat);
+    this.registrador.info(`Nova transação criada: ${transacao.id} para mensagem de imagem de ${remetente.name}`);
+
+    // Marcar transação como processando
+    await this.gerenciadorTransacoes.marcarComoProcessando(transacao.id);
+
+    // Determinar o prompt do usuário
+    let promptUsuario = "";
+    if (msg.body && msg.body.trim() !== '') {
+      promptUsuario = msg.body.trim();
+    }
+
+    // Usar a API FilasMidia para adicionar a imagem à fila
+    await this.filasMidia.adicionarImagem({
+      imageData: imagemData,
+      chatId,
+      messageId: msg.id._serialized,
+      mimeType: imagemData.mimetype,
+      userPrompt: promptUsuario,
+      senderNumber: msg.from,
+      transacaoId: transacao.id,
+      remetenteName: remetente.name,
+      modoDescricao: config.modoDescricao || 'curto'
+    });
+
+    this.registrador.info(`🚀 Imagem de ${remetente.name} adicionada à fila com sucesso (transação ${transacao.id})`);
+    return true;
+
+  } catch (erro) {
+    this.registrador.error(`Erro ao processar mensagem de imagem: ${erro.message}`, { erro });
+
+    // Verificar se é um erro de segurança
+    if (erro.message.includes('SAFETY') || erro.message.includes('safety') ||
+      erro.message.includes('blocked') || erro.message.includes('Blocked')) {
+
+      this.registrador.warn(`⚠️ Conteúdo de imagem bloqueado por políticas de segurança`);
+      this.registrador.info(`Erro de safety detectado - o callback da fila enviará a resposta`);
+    } else {
+      this.registrador.info(`Erro geral detectado - o callback da fila enviará a resposta`);
+    }
+
+    return false;
   }
+}
 
   /**
-   * Processa uma mensagem com vídeo de forma assíncrona
-   * @param {Object} msg - Mensagem do WhatsApp
-   * @param {Object} videoData - Dados do vídeo
-   * @param {string} chatId - ID do chat
-   * @returns {Promise<boolean>} Sucesso do processamento
-   */
-  async processarMensagemVideo(msg, videoData, chatId) {
-    try {
-      const chat = await msg.getChat();
-      const config = await this.gerenciadorConfig.obterConfig(chatId);
-      const remetente = await this.obterOuCriarUsuario(msg.author || msg.from, chat);
+ * Processa uma mensagem com vídeo de forma assíncrona
+ * @param {Object} msg - Mensagem do WhatsApp
+ * @param {Object} videoData - Dados do vídeo
+ * @param {string} chatId - ID do chat
+ * @returns {Promise<boolean>} Sucesso do processamento
+ */
+async processarMensagemVideo(msg, videoData, chatId) {
+  try {
+    const chat = await msg.getChat();
+    const config = await this.gerenciadorConfig.obterConfig(chatId);
+    const remetente = await this.obterOuCriarUsuario(msg.author || msg.from, chat);
 
-      if (!config.mediaVideo) {
-        this.registrador.debug(`Descrição de vídeo desabilitada para o chat ${chatId}. Ignorando mensagem de vídeo.`);
-        return false;
-      }
+    if (!config.mediaVideo) {
+      this.registrador.debug(`Descrição de vídeo desabilitada para o chat ${chatId}. Ignorando mensagem de vídeo.`);
+      return false;
+    }
 
-      const tamanhoVideoMB = videoData.data.length / (1024 * 1024);
-      if (tamanhoVideoMB > 20) {
-        // Usando nosso serviço de mensagem centralizado
-        await this.servicoMensagem.enviarResposta(
-          msg,
-          "Desculpe, só posso processar vídeos de até 20MB. Este vídeo é muito grande para eu analisar."
-        );
+    const tamanhoVideoMB = videoData.data.length / (1024 * 1024);
+    if (tamanhoVideoMB > 20) {
+      await this.servicoMensagem.enviarResposta(
+        msg,
+        "Desculpe, só posso processar vídeos de até 20MB. Este vídeo é muito grande para eu analisar."
+      );
 
-        this.registrador.warn(`Vídeo muito grande (${tamanhoVideoMB.toFixed(2)}MB) recebido de ${remetente.name}. Processamento rejeitado.`);
-        return false;
-      }
+      this.registrador.warn(`Vídeo muito grande (${tamanhoVideoMB.toFixed(2)}MB) recebido de ${remetente.name}. Processamento rejeitado.`);
+      return false;
+    }
 
-      // Criar transação para esta mensagem de vídeo
-      const transacao = await this.gerenciadorTransacoes.criarTransacao(msg, chat);
-      this.registrador.info(`Nova transação criada: ${transacao.id} para mensagem de vídeo de ${remetente.name}`);
+    // Criar transação para esta mensagem de vídeo
+    const transacao = await this.gerenciadorTransacoes.criarTransacao(msg, chat);
+    this.registrador.info(`Nova transação criada: ${transacao.id} para mensagem de vídeo de ${remetente.name}`);
 
-      // Enviar feedback inicial e continuar processamento
-      // Descomentei esta linha para evitar envio inicial
-      // await this.servicoMensagem.enviarResposta(msg, "✨ Estou colocando seu vídeo na fila de processamento! Você receberá o resultado em breve...");
+    // Marcar transação como processando
+    await this.gerenciadorTransacoes.marcarComoProcessando(transacao.id);
 
-      // Marcar transação como processando
-      await this.gerenciadorTransacoes.marcarComoProcessando(transacao.id);
-
-      // Determinar o prompt do usuário
-      let promptUsuario = `Analise este vídeo de forma extremamente detalhada para pessoas com deficiência visual.
+    // Determinar o prompt do usuário
+    let promptUsuario = `Analise este vídeo de forma extremamente detalhada para pessoas com deficiência visual.
 Inclua:
 1. Número exato de pessoas, suas posições e roupas (cores, tipos)
 2. Ambiente e cenário completo
@@ -1060,86 +1008,74 @@ Inclua:
 
 Crie uma descrição organizada e acessível.`;
 
-      if (msg.body && msg.body.trim() !== '') {
-        promptUsuario = msg.body.trim();
+    if (msg.body && msg.body.trim() !== '') {
+      promptUsuario = msg.body.trim();
+    }
+
+    // Cria um arquivo temporário para o vídeo
+    const dataHora = new Date().toISOString().replace(/[:.]/g, '-');
+    const arquivoTemporario = `./temp/video_${dataHora}_${Math.floor(Math.random() * 10000)}.mp4`;
+
+    try {
+      this.registrador.debug(`Salvando arquivo de vídeo ${arquivoTemporario}...`);
+      const videoBuffer = Buffer.from(videoData.data, 'base64');
+
+      await fs.promises.writeFile(arquivoTemporario, videoBuffer);
+      this.registrador.debug(`✅ Arquivo de vídeo salvo com sucesso: ${arquivoTemporario} (${Math.round(videoBuffer.length / 1024)} KB)`);
+
+      const stats = await fs.promises.stat(arquivoTemporario);
+      if (stats.size !== videoBuffer.length) {
+        throw new Error(`Tamanho do arquivo salvo (${stats.size}) não corresponde ao buffer original (${videoBuffer.length})`);
       }
 
-      // Cria um arquivo temporário para o vídeo
-      const dataHora = new Date().toISOString().replace(/[:.]/g, '-');
-      const arquivoTemporario = `./temp/video_${dataHora}_${Math.floor(Math.random() * 10000)}.mp4`;
-      const trabalhoId = `video_${chatId}_${Date.now()}`;
+      // Usar FilasMidia para adicionar o vídeo à fila
+      await this.filasMidia.adicionarVideo({
+        tempFilename: arquivoTemporario,
+        chatId,
+        messageId: msg.id._serialized,
+        mimeType: videoData.mimetype,
+        userPrompt: promptUsuario,
+        senderNumber: msg.from,
+        transacaoId: transacao.id,
+        remetenteName: remetente.name,
+        modoDescricao: config.modoDescricao || 'curto'
+      });
 
-      try {
-        this.registrador.debug(`Salvando arquivo de vídeo ${arquivoTemporario}...`);
-        const videoBuffer = Buffer.from(videoData.data, 'base64');
+      this.registrador.debug(`🚀 Vídeo de ${remetente.name} adicionado à fila com sucesso: ${arquivoTemporario}`);
+      return true;
 
-        await fs.promises.writeFile(arquivoTemporario, videoBuffer);
-        this.registrador.debug(`✅ Arquivo de vídeo salvo com sucesso: ${arquivoTemporario} (${Math.round(videoBuffer.length / 1024)} KB)`);
+    } catch (erroProcessamento) {
+      this.registrador.error(`❌ Erro ao processar vídeo: ${erroProcessamento.message}`);
+      await this.servicoMensagem.enviarResposta(msg, "Ai, tive um probleminha com seu vídeo. Poderia tentar novamente?");
+      await this.gerenciadorTransacoes.registrarFalhaEntrega(transacao.id, `Erro no processamento: ${erroProcessamento.message}`);
 
-        const stats = await fs.promises.stat(arquivoTemporario);
-        if (stats.size !== videoBuffer.length) {
-          throw new Error(`Tamanho do arquivo salvo (${stats.size}) não corresponde ao buffer original (${videoBuffer.length})`);
-        }
-
-        // Adicionar à fila de processamento
-        await this.filaProcessamento.add('process-video', {
-          tempFilename: arquivoTemporario,
-          chatId,
-          messageId: msg.id._serialized,
-          mimeType: videoData.mimetype,
-          userPrompt: promptUsuario,
-          senderNumber: msg.from,
-          transacaoId: transacao.id,
-          remetenteName: remetente.name,
-          modoDescricao: config.modoDescricao || 'curto' // Adicionado com padrão 'curto'
-        }, {
-          jobId: trabalhoId,
-          removeOnComplete: true,
-          removeOnFail: false,
-          timeout: 300000 // 5 minutos
+      // Limpar arquivo se existir
+      if (fs.existsSync(arquivoTemporario)) {
+        await fs.promises.unlink(arquivoTemporario).catch(err => {
+          this.registrador.error(`Erro ao remover arquivo temporário: ${err.message}`);
         });
-
-        this.registrador.debug(`🚀 Vídeo de ${remetente.name} adicionado à fila com sucesso: ${arquivoTemporario} (Job ${trabalhoId})`);
-        return true;
-
-      } catch (erroProcessamento) {
-        this.registrador.error(`❌ Erro ao processar vídeo: ${erroProcessamento.message}`);
-
-        // CORRIGIDO: Usar servicoMensagem em vez de msg.reply diretamente
-        await this.servicoMensagem.enviarResposta(msg, "Ai, tive um probleminha com seu vídeo. Poderia tentar novamente?");
-
-        // Registrar falha na transação
-        await this.gerenciadorTransacoes.registrarFalhaEntrega(transacao.id, `Erro no processamento: ${erroProcessamento.message}`);
-
-        // Limpar arquivo se existir
-        if (fs.existsSync(arquivoTemporario)) {
-          await fs.promises.unlink(arquivoTemporario).catch(err => {
-            this.registrador.error(`Erro ao remover arquivo temporário: ${err.message}`);
-          });
-          this.registrador.info(`Arquivo temporário ${arquivoTemporario} removido após erro`);
-        }
-
-        return false;
+        this.registrador.info(`Arquivo temporário ${arquivoTemporario} removido após erro`);
       }
-    } catch (erro) {
-      this.registrador.error(`Erro ao processar mensagem de vídeo: ${erro.message}`, { erro });
-
-      let mensagemAmigavel = 'Desculpe, ocorreu um erro ao adicionar seu vídeo à fila de processamento.';
-
-      if (erro.message.includes('too large')) {
-        mensagemAmigavel = 'Ops! Este vídeo parece ser muito grande para eu processar. Poderia enviar uma versão menor ou comprimida?';
-      } else if (erro.message.includes('format')) {
-        mensagemAmigavel = 'Esse formato de vídeo está me dando trabalho! Poderia tentar enviar em outro formato?';
-      } else if (erro.message.includes('timeout')) {
-        mensagemAmigavel = 'O processamento demorou mais que o esperado. Talvez o vídeo seja muito complexo?';
-      }
-
-      // CORRIGIDO: Usar servicoMensagem em vez de msg.reply diretamente
-      await this.servicoMensagem.enviarResposta(msg, mensagemAmigavel);
 
       return false;
     }
+  } catch (erro) {
+    this.registrador.error(`Erro ao processar mensagem de vídeo: ${erro.message}`, { erro });
+
+    let mensagemAmigavel = 'Desculpe, ocorreu um erro ao adicionar seu vídeo à fila de processamento.';
+
+    if (erro.message.includes('too large')) {
+      mensagemAmigavel = 'Ops! Este vídeo parece ser muito grande para eu processar. Poderia enviar uma versão menor ou comprimida?';
+    } else if (erro.message.includes('format')) {
+      mensagemAmigavel = 'Esse formato de vídeo está me dando trabalho! Poderia tentar enviar em outro formato?';
+    } else if (erro.message.includes('timeout')) {
+      mensagemAmigavel = 'O processamento demorou mais que o esperado. Talvez o vídeo seja muito complexo?';
+    }
+
+    await this.servicoMensagem.enviarResposta(msg, mensagemAmigavel);
+    return false;
   }
+}
 
   /**
    * Obtém ou cria um registro de usuário

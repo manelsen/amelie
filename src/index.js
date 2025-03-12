@@ -24,7 +24,7 @@ const ClienteWhatsApp = require('./adaptadores/whatsapp/ClienteWhatsApp');
 const GerenciadorAI = require('./adaptadores/ai/GerenciadorAI');
 const GerenciadorMensagens = require('./adaptadores/whatsapp/GerenciadorMensagens');
 const GerenciadorNotificacoes = require('./adaptadores/whatsapp/GerenciadorNotificacoes');
-const FilaProcessador = require('./adaptadores/queue/FilaProcessador');
+const inicializarFilasMidia = require('./adaptadores/queue/FilasMidia');
 const GerenciadorTransacoes = require('./adaptadores/transacoes/GerenciadorTransacoes');
 const criarServicoMensagem = require('./servicos/ServicoMensagem');
 
@@ -177,13 +177,9 @@ logger.info('💼 Gerenciador de transações inicializado');
 const servicoMensagem = criarServicoMensagem(logger, clienteWhatsApp, gerenciadorTransacoes);
 logger.info('💬 Serviço de mensagens inicializado');
 
-// 6. Inicializar o processador de filas
-const filaProcessador = new FilaProcessador(
-  logger, 
-  gerenciadorAI, 
-  clienteWhatsApp
-);
-logger.info('🔄 Processador de filas inicializado');
+// 6. Inicializar o processador de filas de mídia (substituindo os anteriores)
+const filasMidia = inicializarFilasMidia(logger, gerenciadorAI, configManager);
+logger.info('🔄 Filas de mídia inicializadas');
 
 // 7. Inicializar o gerenciador de mensagens
 const gerenciadorMensagens = new GerenciadorMensagens(
@@ -191,7 +187,7 @@ const gerenciadorMensagens = new GerenciadorMensagens(
   clienteWhatsApp,
   configManager,
   gerenciadorAI,
-  filaProcessador.videoQueue,
+  filasMidia,  // Usando o novo sistema de filas de mídia
   gerenciadorTransacoes,
   servicoMensagem  
 );
@@ -249,8 +245,8 @@ setInterval(async () => {
     // Limpar transações antigas
     await gerenciadorTransacoes.limparTransacoesAntigas(7); // 7 dias
     
-    // Limpar trabalhos pendentes na fila
-    await filaProcessador.limparTrabalhosPendentes();
+    // Limpar trabalhos pendentes na fila (agora usando filasMidia)
+    await filasMidia.limparTrabalhosPendentes();
   } catch (erro) {
     logger.error(`Erro na limpeza periódica: ${erro.message}`);
   }
