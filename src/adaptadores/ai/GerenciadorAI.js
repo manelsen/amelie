@@ -444,6 +444,17 @@ async processarAudio(audioData, audioId, config) {
         this.registrador.info("Arquivo ainda está ativo, mas pronto para processamento");
       }
       
+      // Verificar modo legenda
+      if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
+        this.registrador.info('🎬👂 Processando vídeo no MODO LEGENDA para acessibilidade de surdos');
+        
+        // Se não tiver instruções específicas, usar o prompt de legenda
+        if (!prompt.includes("timecodes") && !prompt.includes("verbatim")) {
+          prompt = obterPromptVideoLegenda();
+          this.registrador.info('📝 Usando prompt específico de legendagem');
+        }
+      }
+      
       // Obter modelo
       const modelo = this.obterOuCriarModelo(config);
       
@@ -456,14 +467,14 @@ async processarAudio(audioData, audioId, config) {
           }
         },
         {
-          text: (config.systemInstructions || obterInstrucaoVideo()) + prompt
+          text: prompt
         }
       ];
       
       // Adicionar timeout para a chamada à IA
       const promessaRespostaIA = modelo.generateContent(partesConteudo);
       const promessaTimeoutIA = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout na análise de vídeo pela IA")), 60000)
+        setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 120000)
       );
       
       const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
@@ -476,7 +487,15 @@ async processarAudio(audioData, audioId, config) {
       // Limpar o arquivo do Google
       await this.gerenciadorArquivos.deleteFile(respostaUpload.file.name);
       
-      const respostaFinal = `✅ *Análise do seu vídeo:*\n\n${resposta}`;
+      // Formatar o início da resposta com base no modo
+      let prefixoResposta = "";
+      if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
+        prefixoResposta = "📋 *Transcrição com timecodes:*\n\n";
+      } else {
+        prefixoResposta = "✅ *Análise do seu vídeo:*\n\n";
+      }
+      
+      const respostaFinal = `${prefixoResposta}${resposta}`;
       return respostaFinal;
     } catch (erro) {
       this.registrador.error(`Erro ao processar vídeo: ${erro.message}`);

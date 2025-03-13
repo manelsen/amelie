@@ -51,6 +51,13 @@ class ConfigManager {
     return Resultado.dobrar(
       resultado,
       async (config) => {
+        // Verificação explícita para legenda
+        if (config.usarLegenda === true) {
+          this.registrador.debug(`Modo legenda detectado para ${chatId}, configurando modoDescricao='legenda'`);
+          config.modoDescricao = 'legenda';
+        }
+        
+        // Resto do código original
         if (config.activePrompt) {
           const promptAtivo = await this.obterPromptSistema(chatId, config.activePrompt);
           if (promptAtivo) {
@@ -61,11 +68,11 @@ class ConfigManager {
         } else {
           config.botName = process.env.BOT_NAME || 'Amélie';
         }
-
+  
         if (config.systemInstructions && typeof config.systemInstructions !== 'string') {
           config.systemInstructions = String(config.systemInstructions);
         }
-
+  
         return config;
       },
       (erro) => {

@@ -135,6 +135,8 @@ Comandos:
 
 .curto - Usa audiodescrição curta e concisa
 
+.legenda - Ativa transcrição verbatim com timecode para vídeos (ideal para pessoas surdas)
+
 .reset - Restaura todas as configurações originais e desativa o modo cego
 
 .ajuda - Mostra esta mensagem de ajuda

@@ -14,6 +14,7 @@ const INSTRUCAO_BASE = `Amélie – Assistente de IA Multimídia no WhatsApp
 - Funcionalidades Específicas:
   - Transcrição de Áudios: Quando ativada, realizo transcrição "verbatim" – palavra por palavra.
   - Audiodescrição de Imagens: Ofereço descrições profissionais seguindo as melhores práticas.
+  - Legendagem de Vídeos: Ofereço transcrição verbatim com timecodes para pessoas surdas.
 - Comandos (use sempre o ponto antes da palavra):
   - .cego – Ativa configurações para usuários com deficiência visual.
   - .audio – Liga/desliga a transcrição de áudio.
@@ -21,10 +22,11 @@ const INSTRUCAO_BASE = `Amélie – Assistente de IA Multimídia no WhatsApp
   - .imagem – Liga/desliga a audiodescrição de imagem.
   - .longo – Utiliza audiodescrição longa e detalhada para imagens e vídeos.
   - .curto – Utiliza audiodescrição curta e concisa para imagens e vídeos.
+  - .legenda – Utiliza transcrição verbatim com timecode para vídeos, ideal para pessoas surdas.
   - .reset – Restaura as configurações originais e desativa o modo cego.
   - .ajuda – Exibe esta mensagem de ajuda.
 - Orientações Adicionais:
-  - Não aceito comandos sem o ponto. Se alguém disser “cego” sem o ponto, oriento: digite ponto cego sem espaço entre as palavras.
+  - Não aceito comandos sem o ponto. Se alguém disser "cego" sem o ponto, oriento: digite ponto cego sem espaço entre as palavras.
   - Caso peçam para ligar/desligar a transcrição de áudio, oriento o uso do comando ponto audio sem acento em audio, tudo minúsculo, sem espaço entre o ponto e o audio.
   - Se precisar de mais detalhes sobre audiodescrição ou transcrição, solicite que a mídia seja reenviada acompanhada de um comentário indicando o foco desejado.
 - Outras Informações:
@@ -112,6 +114,23 @@ Diretrizes para a Descrição de Vídeo:
 - Nunca exceda o limite de 200 caracteres
 - Não inclua emojis ou formatação especial`;
 
+// NOVO: Adicionar prompt específico para legendagem de vídeos 
+const PROMPT_ESPECIFICO_VIDEO_LEGENDA = `Transcreva verbatim e em português o conteúdo deste vídeo, criando uma legenda acessível para pessoas surdas.
+Siga estas diretrizes:
+1. Use timecodes precisos no formato [MM:SS] para cada fala ou mudança de som
+2. Identifique quem está falando quando possível (Ex: João: texto da fala)
+3. Indique entre colchetes sons ambientais importantes, música e efeitos sonoros
+4. Descreva o tom emocional das falas (Ex: [voz triste], [gritando])
+5. Transcreva TUDO que é dito, palavra por palavra, incluindo hesitações
+6. Indique mudanças na música de fundo
+
+Formato exemplo:
+[00:01] Locutor (animado): Texto exato da fala!
+[00:05] [Som de explosão ao fundo]
+[00:08] Maria (sussurrando): O que foi isso?
+
+Mantenha o foco absoluto na transcrição precisa, com timecodes e indicações sonoras. Esta é uma ferramenta de acessibilidade essencial para pessoas surdas.`;
+
 // Funções para obter as instruções completas
 const obterInstrucaoPadrao = () => INSTRUCAO_BASE;
 
@@ -134,11 +153,17 @@ const obterInstrucaoVideo = () =>
 const obterInstrucaoVideoCurta = () => 
   `${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO_CURTO}`;
 
+// NOVA FUNÇÃO para obter instrução de legendagem
+const obterInstrucaoVideoLegenda = () => 
+  `${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO_LEGENDA}`;
+
 // Funções para obter apenas os prompts específicos
 const obterPromptImagem = () => PROMPT_ESPECIFICO_IMAGEM;
 const obterPromptImagemCurto = () => PROMPT_ESPECIFICO_IMAGEM_CURTO;
 const obterPromptVideo = () => PROMPT_ESPECIFICO_VIDEO;
 const obterPromptVideoCurto = () => PROMPT_ESPECIFICO_VIDEO_CURTO;
+// NOVA FUNÇÃO para obter apenas o prompt de legenda
+const obterPromptVideoLegenda = () => PROMPT_ESPECIFICO_VIDEO_LEGENDA;
 
 module.exports = {
   INSTRUCAO_BASE,
@@ -146,14 +171,17 @@ module.exports = {
   PROMPT_ESPECIFICO_IMAGEM_CURTO,
   PROMPT_ESPECIFICO_VIDEO,
   PROMPT_ESPECIFICO_VIDEO_CURTO,
+  PROMPT_ESPECIFICO_VIDEO_LEGENDA, // Exportar nova constante
   obterInstrucaoPadrao,
   obterInstrucaoAudio,
   obterInstrucaoImagem,
   obterInstrucaoImagemCurta,
   obterInstrucaoVideo,
   obterInstrucaoVideoCurta,
+  obterInstrucaoVideoLegenda, // Exportar nova função
   obterPromptImagem,
   obterPromptImagemCurto,
   obterPromptVideo,
-  obterPromptVideoCurto
+  obterPromptVideoCurto,
+  obterPromptVideoLegenda // Exportar nova função
 };
