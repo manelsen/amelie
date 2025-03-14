@@ -1450,7 +1450,7 @@ const criarGerenciadorMensagens = (dependencias) => {
       registrador.error(`Erro ao processar mensagem ${mensagemId}: ${erro.message}`);
 
       // Para erros inesperados, tentar enviar feedback ao usuário
-      try {
+      /*try {
         if (mensagem && servicoMensagem) {
           await servicoMensagem.enviarResposta(
             mensagem,
@@ -1460,7 +1460,7 @@ const criarGerenciadorMensagens = (dependencias) => {
       } catch (erroResposta) {
         // Apenas registrar este erro, sem tentar mais ações
         registrador.error(`Erro ao enviar resposta de erro: ${erroResposta.message}`);
-      }
+      }*/
 
       return false;
     }

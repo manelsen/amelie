@@ -1406,6 +1406,16 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
   if (!resultadoFilas.sucesso) {
     throw resultadoFilas.erro;
   }
+
+  // Jest - Adicionar os componentes internos como propriedades da função
+
+inicializarFilasMidia.Resultado = Resultado;
+inicializarFilasMidia.Utilitarios = Utilitarios;
+inicializarFilasMidia.Configuracao = Configuracao;
+inicializarFilasMidia.CriadoresFilas = CriadoresFilas;
+inicializarFilasMidia.ProcessadoresMidia = ProcessadoresMidia;
+inicializarFilasMidia.ProcessadoresFilas = ProcessadoresFilas;
+inicializarFilasMidia.MonitoradorFilas = MonitoradorFilas;
   
   // Configurar todas as filas com eventos
   const filas = CriadoresFilas.configurarTodasFilas(registrador, resultadoFilas.dados);

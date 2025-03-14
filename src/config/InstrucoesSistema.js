@@ -138,7 +138,7 @@ const obterInstrucaoAudio = () =>
   `${INSTRUCAO_BASE}\nSeu destinatário é uma pessoa cega. Foque apenas no áudio mais recente. Transcreva palavra a palavra o que foi dito e nada mais.
 
 [TRANSCRIÇÃO DO AUDIO]
-(sempre transcreva palavra por palavra)
+(sempre transcreva palavra por palavra, em português)
 `
 
 const obterInstrucaoImagem = () => 
@@ -153,7 +153,6 @@ const obterInstrucaoVideo = () =>
 const obterInstrucaoVideoCurta = () => 
   `${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO_CURTO}`;
 
-// NOVA FUNÇÃO para obter instrução de legendagem
 const obterInstrucaoVideoLegenda = () => 
   `${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO_LEGENDA}`;
 
@@ -162,7 +161,6 @@ const obterPromptImagem = () => PROMPT_ESPECIFICO_IMAGEM;
 const obterPromptImagemCurto = () => PROMPT_ESPECIFICO_IMAGEM_CURTO;
 const obterPromptVideo = () => PROMPT_ESPECIFICO_VIDEO;
 const obterPromptVideoCurto = () => PROMPT_ESPECIFICO_VIDEO_CURTO;
-// NOVA FUNÇÃO para obter apenas o prompt de legenda
 const obterPromptVideoLegenda = () => PROMPT_ESPECIFICO_VIDEO_LEGENDA;
 
 module.exports = {
@@ -171,17 +169,17 @@ module.exports = {
   PROMPT_ESPECIFICO_IMAGEM_CURTO,
   PROMPT_ESPECIFICO_VIDEO,
   PROMPT_ESPECIFICO_VIDEO_CURTO,
-  PROMPT_ESPECIFICO_VIDEO_LEGENDA, // Exportar nova constante
+  PROMPT_ESPECIFICO_VIDEO_LEGENDA,
   obterInstrucaoPadrao,
   obterInstrucaoAudio,
   obterInstrucaoImagem,
   obterInstrucaoImagemCurta,
   obterInstrucaoVideo,
   obterInstrucaoVideoCurta,
-  obterInstrucaoVideoLegenda, // Exportar nova função
+  obterInstrucaoVideoLegenda,
   obterPromptImagem,
   obterPromptImagemCurto,
   obterPromptVideo,
   obterPromptVideoCurto,
-  obterPromptVideoLegenda // Exportar nova função
+  obterPromptVideoLegenda
 };

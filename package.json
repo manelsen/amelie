@@ -9,12 +9,12 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:ci": "jest --ci --coverage --reporters=default --reporters=jest-junit",
-    "test:avancado": "jest GerenciadorMensagens.avancado.test.js"
-  },
+    "test:avancado": "jest GerenciadorMensagens.avancado.test.js",
+    "jasmine": "jasmine"
 
+  },
   "dependencies": {
     "@google/generative-ai": "^0.19.0",
-    "folktale": "^2.3.2",
     "blocked-at": "^1.2.0",
     "bull": "^4.16.5",
     "chokidar": "^4.0.0",
@@ -32,6 +32,7 @@
     "nvm": "^0.0.4",
     "puppeteer": "^24.4.0",
     "qrcode-terminal": "^0.12.0",
+    "sanctuary": "^3.1.0",
     "toobusy-js": "^0.5.1",
     "whatsapp-web.js": "^1.23.0",
     "winston": "^3.17.0",
