@@ -512,21 +512,11 @@ async processarAudio(audioData, audioId, config) {
     if (!texto || typeof texto !== 'string') {
       return "Não foi possível gerar uma resposta válida.";
     }
-    
-    // Remover emojis
-    // texto = texto.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1F018}-\u{1F0FF}\u{1F100}-\u{1F2FF}]/gu, '');
-    
-    // Remover prefixos comuns de assistente
-    texto = texto.replace(/^(?:amélie:[\s]*)+/i, '');
-    texto = texto.replace(/^(?:amelie:[\s]*)+/i, '');
-
-    // Remover asteriscos de formatação Markdown
-    texto = texto.replace(/\*+/g, '');
-    
-    // Normalizar quebras de linha
-    texto = texto.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
-    
-    return texto.trim();
+    let textoLimpo = texto
+      .replace(/^(?:amélie|amelie):[\s]*/gi, '')
+      .replace(/\r\n|\r|\n{2,}/g, '\n\n')
+      .trim();
+    return textoLimpo;
   }
 }
 

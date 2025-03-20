@@ -24,11 +24,12 @@ const limparTextoResposta = (texto) => {
   if (!texto || typeof texto !== 'string') {
     return "Não foi possível gerar uma resposta válida.";
   }
-    let textoLimpo = texto
-      .replace(/^(?:amélie|amelie):[\s]*/gi, '')
-      .replace(/\r\n?|\n{3,}|\*/g, '\n')
-      .trim();
-    return textoLimpo;
+  let textoLimpo = texto
+    .replace(/^(?:amélie|amelie):[\s]*/gi, '')
+    .replace(/\r\n|\r|\n{2,}/g, '\n\n')
+    .replace(/\*+/g, '')
+    .trim();
+  return textoLimpo;
 };
 
 /**
@@ -369,6 +370,7 @@ const criarServicoMensagem = (registrador, clienteWhatsApp, gerenciadorTransacoe
    * @returns {Promise<Resultado>} Resultado do envio
    */
   const enviarResposta = async (mensagemOriginal, texto, transacaoId = null) => {
+    console.log(`[[[ServicoMensagem.enviarResposta]]]`);
     // Obter texto seguro
     const resultadoTexto = obterRespostaSegura(texto);
     

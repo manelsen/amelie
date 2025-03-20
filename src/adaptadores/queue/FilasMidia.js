@@ -35,12 +35,6 @@ const {
   obterPromptVideoLegenda
 } = require('../../config/InstrucoesSistema');
 
-// Passei por aqui
-
-console.log('🔍 Carregando FilasMidia.js');
-console.log('📁 Diretório atual:', __dirname);
-console.log('📄 Arquivo atual:', __filename);
-
 // ===== PATTERN MATCHING PARA TRATAMENTO DE ERROS (Railway Pattern) =====
 
 /**

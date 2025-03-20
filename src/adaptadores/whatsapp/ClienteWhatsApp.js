@@ -11,6 +11,7 @@ const EventEmitter = require('events');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const S = require('sanctuary');
 
 
 class ClienteWhatsApp extends EventEmitter {
@@ -215,6 +216,7 @@ class ClienteWhatsApp extends EventEmitter {
    * @returns {Promise<boolean>} Sucesso do envio
    */
   async enviarMensagem(para, conteudo, opcoes = null) {
+    console.log(`[[[GerenciadorAI.enviarMensagem]]]`);
     // Verificação básica de prontidão
     const clientePronto = await this.estaProntoRealmente();
 
@@ -707,11 +709,11 @@ class ClienteWhatsApp extends EventEmitter {
   }
 
   /**
-   * Obtém histórico de mensagens do chat
-   * @param {string} chatId - ID do chat
-   * @param {number} limite - Número máximo de mensagens
-   * @returns {Promise<Array>} Lista de mensagens formatada
-   */
+* Obtém histórico de mensagens do chat
+* @param {string} chatId - ID do chat
+* @param {number} limite - Número máximo de mensagens
+* @returns {Promise<Array>} Lista de mensagens formatada
+*/
   async obterHistoricoMensagens(chatId, limite = 50) {
     try {
       // Obter o objeto de chat pelo ID
@@ -725,27 +727,49 @@ class ClienteWhatsApp extends EventEmitter {
         return [];
       }
 
-      // Filtrar e mapear as mensagens
-      const mensagens = mensagensObtidas
-        .filter(msg => msg.body && !msg.body.startsWith('.')) // Filtra comandos
-        .slice(-limite * 2) // Limita ao número de mensagens
-        .map(msg => {
-          const remetente = msg.fromMe ?
-            (process.env.BOT_NAME || 'Amélie') :
-            (msg._data.notifyName || msg.author || 'Usuário');
+      // Encontrar o índice do último comando .reset, se existir
+      const idxUltimoReset = mensagensObtidas.findLastIndex(msg => msg.body === '.reset');
 
-          let conteudo = msg.body || '';
+      // Filtrar mensagens a partir do último reset (ou todas, se não encontrou reset)
+      const mensagensFiltradas = idxUltimoReset >= 0
+        ? mensagensObtidas.slice(idxUltimoReset + 1)
+        : mensagensObtidas;
 
-          // Adiciona informação sobre mídia
-          if (msg.hasMedia) {
-            if (msg.type === 'image') conteudo = `[Imagem] ${conteudo}`;
-            else if (msg.type === 'audio' || msg.type === 'ptt') conteudo = `[Áudio] ${conteudo}`;
-            else if (msg.type === 'video') conteudo = `[Vídeo] ${conteudo}`;
-            else conteudo = `[Mídia] ${conteudo}`;
-          }
+      // Mapeamento de tipos de mídia para seus prefixos
+      const tiposMidia = {
+        'image': '[Imagem]',
+        'audio': '[Áudio]',
+        'ptt': '[Áudio]',
+        'video': '[Vídeo]'
+      };
 
-          return `${remetente}: ${conteudo}`;
-        });
+      // Função para formatar uma mensagem individual
+      const formatarMensagem = msg => {
+        // Identificar remetente
+        const remetente = msg.fromMe
+          ? (process.env.BOT_NAME || 'Amélie')
+          : (msg._data.notifyName || msg.author || 'Usuário');
+
+        // Processar conteúdo base
+        let conteudo = msg.body || '';
+
+        // Adicionar prefixo de mídia, se aplicável
+        if (msg.hasMedia) {
+          const prefixoMidia = tiposMidia[msg.type] || '[Mídia]';
+          conteudo = `${prefixoMidia} ${conteudo}`;
+        }
+
+        return `${remetente}: ${conteudo}`;
+      };
+
+      // Filtrar, limitar e formatar as mensagens - sem usar o S.filter problemático
+      const mensagens = mensagensFiltradas
+        // Filtro normal do JavaScript
+        .filter(msg => msg.body && typeof msg.body === 'string' && !msg.body.startsWith('.'))
+        // Limitar ao número máximo desejado
+        .slice(-limite)
+        // Mapear usando a função de formatação
+        .map(formatarMensagem);
 
       return mensagens;
     } catch (erro) {
@@ -754,42 +778,42 @@ class ClienteWhatsApp extends EventEmitter {
     }
   }
 
-/**
- * Verifica se devemos responder a uma mensagem em grupo
- */
-async deveResponderNoGrupo(msg, chat) {
-  // Se for uma mensagem com comando
-  if (msg.body && msg.body.startsWith('.')) {
-    this.registrador.debug("Respondendo porque é um comando");
-    return true;
-  }
-
-  if (msg.hasMedia) {
-    this.registrador.debug(`Respondendo porque é mídia do tipo ${msg.type} em grupo`);
-    return true;
-  }
-
-  const mencoes = await msg.getMentions();
-  const botMencionado = mencoes.some(mencao => 
-    mencao.id._serialized === this.cliente.info.wid._serialized
-  );
-  
-  if (botMencionado) {
-    this.registrador.debug("Respondendo porque o bot foi mencionado");
-    return true;
-  }
-
-  if (msg.hasQuotedMsg) {
-    const msgCitada = await msg.getQuotedMessage();
-    if (msgCitada.fromMe) {
-      this.registrador.debug("Respondendo porque é uma resposta ao bot");
+  /**
+   * Verifica se devemos responder a uma mensagem em grupo
+   */
+  async deveResponderNoGrupo(msg, chat) {
+    // Se for uma mensagem com comando
+    if (msg.body && msg.body.startsWith('.')) {
+      this.registrador.debug("Respondendo porque é um comando");
       return true;
     }
-  }
 
-  this.registrador.debug("Não é nenhum caso especial e não vou responder");
-  return false;
-}
+    if (msg.hasMedia) {
+      this.registrador.debug(`Respondendo porque é mídia do tipo ${msg.type} em grupo`);
+      return true;
+    }
+
+    const mencoes = await msg.getMentions();
+    const botMencionado = mencoes.some(mencao =>
+      mencao.id._serialized === this.cliente.info.wid._serialized
+    );
+
+    if (botMencionado) {
+      this.registrador.debug("Respondendo porque o bot foi mencionado");
+      return true;
+    }
+
+    if (msg.hasQuotedMsg) {
+      const msgCitada = await msg.getQuotedMessage();
+      if (msgCitada.fromMe) {
+        this.registrador.debug("Respondendo porque é uma resposta ao bot");
+        return true;
+      }
+    }
+
+    this.registrador.debug("Não é nenhum caso especial e não vou responder");
+    return false;
+  }
 }
 
 module.exports = ClienteWhatsApp;
