@@ -1,8 +1,11 @@
 /**
  * ClienteWhatsApp - Módulo para gerenciamento da conexão com WhatsApp
  * 
- * Este módulo encapsula toda a lógica de conexão, autenticação e sessão do WhatsApp,
- * incluindo reconexões, verificação de estado e envio de mensagens.
+ * Refatorado para adotar apenas responsabilidades de baixo nível,
+ * mantendo o foco na comunicação direta com a API do WhatsApp.
+ * 
+ * @author Manel
+ * @version 3.0.0
  */
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
@@ -11,8 +14,15 @@ const EventEmitter = require('events');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const S = require('sanctuary');
 
+// Padrão Railway para operações funcionais
+const Resultado = {
+  sucesso: dados => ({ sucesso: true, dados, erro: null }),
+  falha: erro => ({ sucesso: false, dados: null, erro }),
+  
+  dobrar: (resultado, aoSucesso, aoFalhar) => 
+    resultado.sucesso ? aoSucesso(resultado.dados) : aoFalhar(resultado.erro)
+};
 
 class ClienteWhatsApp extends EventEmitter {
   /**
@@ -29,20 +39,28 @@ class ClienteWhatsApp extends EventEmitter {
     this.cliente = null;
     this.ultimoEnvio = Date.now();
     this.clienteId = opcoes.clienteId || 'principal';
-    this.diretorioTemp = opcoes.diretorioTemp || '../temp';
-    this.mensagensPendentes = [];
+    this.diretorioTemp = opcoes.diretorioTemp || './temp';
 
     // Garantir que o diretório de arquivos temporários exista
-    if (!fs.existsSync(this.diretorioTemp)) {
-      try {
-        fs.mkdirSync(this.diretorioTemp, { recursive: true });
-        this.debug('Diretório de arquivos temporários criado');
-      } catch (erro) {
-        this.registrador.error(`Erro ao criar diretório temporário: ${erro.message}`);
-      }
-    }
+    this._garantirDiretorioExiste(this.diretorioTemp);
 
     this.inicializarCliente();
+  }
+
+  /**
+   * Garantir que um diretório exista
+   * @param {string} diretorio - Caminho do diretório
+   * @private
+   */
+  _garantirDiretorioExiste(diretorio) {
+    if (!fs.existsSync(diretorio)) {
+      try {
+        fs.mkdirSync(diretorio, { recursive: true });
+        this.registrador.debug(`Diretório criado: ${diretorio}`);
+      } catch (erro) {
+        this.registrador.error(`Erro ao criar diretório: ${erro.message}`);
+      }
+    }
   }
 
   /**
@@ -104,16 +122,6 @@ class ClienteWhatsApp extends EventEmitter {
       this.tentativasReconexao = 0;
       this.registrador.info('Cliente WhatsApp pronto para uso');
       this.emit('pronto');
-
-      // Processar mensagens pendentes com um pequeno atraso
-      setTimeout(async () => {
-        const mensagensEnviadas = await this.processarMensagensPendentes();
-        if (mensagensEnviadas > 0) {
-          this.registrador.info(`Enviadas ${mensagensEnviadas} mensagens pendentes após inicialização`);
-        }
-        // Depois processa notificações em arquivo
-        await this.processarNotificacoesPendentes();
-      }, 5000);
     });
 
     // Evento de desconexão
@@ -127,10 +135,6 @@ class ClienteWhatsApp extends EventEmitter {
     // Evento para novas mensagens
     this.cliente.on('message_create', async (msg) => {
       if (!msg.fromMe) {
-        /*console.log('Mensagem completa:', 
-          JSON.stringify(msg, (key, value) => 
-            typeof value === 'object' && value !== null ? {...value} : value, 2)
-        );*/
         this.emit('mensagem', msg);
       }
     });
@@ -209,265 +213,64 @@ class ClienteWhatsApp extends EventEmitter {
   }
 
   /**
-   * Envia uma mensagem como resposta à mensagem original
+   * Envia uma mensagem (versão simplificada - apenas comunicação básica)
    * @param {string} para - ID do destinatário 
    * @param {string} conteudo - Texto da mensagem
-   * @param {Object|null} opcoes - Objeto de mensagem original OU objeto com opções
+   * @param {Object|null} opcoes - Opções de envio como quotedMessageId
    * @returns {Promise<boolean>} Sucesso do envio
    */
   async enviarMensagem(para, conteudo, opcoes = null) {
-    console.log(`[[[GerenciadorAI.enviarMensagem]]]`);
-    // Verificação básica de prontidão
-    const clientePronto = await this.estaProntoRealmente();
-
-    // Extrair o ID do destinatário
-    const destinatarioReal = para.includes('@') ? para : `${para}@c.us`;
-
-    // Salvar dados da mensagem original imediatamente para recuperação
-    let mensagemOriginalId = null;
-    let mensagemOriginal = null;
-
-    // Tentar extrair identificadores da mensagem original
-    if (opcoes) {
-      if (opcoes.id && opcoes.id._serialized) {
-        mensagemOriginalId = opcoes.id._serialized;
-      } else if (opcoes.quotedMessageId) {
-        mensagemOriginalId = opcoes.quotedMessageId;
-      }
-
-      if (typeof opcoes.reply === 'function') {
-        mensagemOriginal = opcoes;
-      }
-    }
-
-    // Armazenar dados para recuperação imediatamente
-    const dadosRecuperacao = {
-      para: destinatarioReal,
-      conteudo,
-      mensagemOriginalId,
-      timestamp: Date.now()
-    };
-
-    // Salvar em disco para persistência
-    await this.salvarDadosRecuperacao(dadosRecuperacao);
-
-    // Estratégia de envio em camadas
     try {
-      // Primeira tentativa: envio direto sem citação (mais confiável)
-      this.registrador.info(`Tentando envio direto para ${destinatarioReal}`);
-
-      await this.cliente.sendMessage(destinatarioReal, conteudo);
-      this.ultimoEnvio = Date.now();
-
-      // Marcar como sucesso e limpar dados de recuperação
-      await this.limparDadosRecuperacao(dadosRecuperacao.id);
-      return true;
-    } catch (erroEnvioSimples) {
-      this.registrador.warn(`Falha no envio direto: ${erroEnvioSimples.message}`);
-
-      // Segunda tentativa: tentar com reply se disponível
-      if (mensagemOriginal && typeof mensagemOriginal.reply === 'function') {
-        try {
-          this.registrador.info(`Tentando envio com reply para ${destinatarioReal}`);
-
-          await mensagemOriginal.reply(conteudo);
-          this.ultimoEnvio = Date.now();
-
-          // Marcar como sucesso e limpar dados de recuperação
-          await this.limparDadosRecuperacao(dadosRecuperacao.id);
-          return true;
-        } catch (erroReply) {
-          this.registrador.error(`Falha no envio com reply: ${erroReply.message}`);
-
-          // Terceira tentativa: tentar com citação via ID
-          if (mensagemOriginalId) {
-            try {
-              await this.cliente.sendMessage(destinatarioReal, conteudo, {
-                quotedMessageId: mensagemOriginalId
-              });
-              this.ultimoEnvio = Date.now();
-
-              // Marcar como sucesso e limpar dados de recuperação
-              await this.limparDadosRecuperacao(dadosRecuperacao.id);
-              return true;
-            } catch (erroCitacao) {
-              this.registrador.error(`Todas as tentativas falharam: ${erroCitacao.message}`);
-            }
-          }
-        }
+      // Transformar o ID para o formato esperado caso necessário
+      const destinatarioReal = para.includes('@') ? para : `${para}@c.us`;
+      
+      if (opcoes && opcoes.quotedMessageId) {
+        // Envio com citação
+        await this.cliente.sendMessage(destinatarioReal, conteudo, { quotedMessageId: opcoes.quotedMessageId });
+      } else {
+        // Envio direto
+        await this.cliente.sendMessage(destinatarioReal, conteudo);
       }
-
-      // Fallback: adicionar à fila de pendentes
-      this.registrador.warn(`Adicionando mensagem à fila de pendentes para ${destinatarioReal}`);
-
-      this.mensagensPendentes.push({
-        para: destinatarioReal,
-        conteudo,
-        mensagemOriginalId,
-        timestamp: Date.now()
-      });
-
-      // Os dados já foram salvos no início, não precisamos salvar novamente
+      
+      this.ultimoEnvio = Date.now();
+      return true;
+    } catch (erro) {
+      this.registrador.error(`Erro ao enviar mensagem: ${erro.message}`);
       return false;
     }
   }
 
-  // Funções auxiliares para persistência
-  async salvarDadosRecuperacao(dados) {
-    try {
-      const id = crypto.randomBytes(8).toString('hex');
-      dados.id = id;
-
-      const caminhoArquivo = path.join(this.diretorioTemp, `mensagem_${id}.json`);
-      await fs.promises.writeFile(caminhoArquivo, JSON.stringify(dados), 'utf8');
-
-      return id;
-    } catch (erro) {
-      this.registrador.error(`Erro ao salvar dados de recuperação: ${erro.message}`);
-    }
-  }
-
-  async limparDadosRecuperacao(id) {
-    try {
-      const caminhoArquivo = path.join(this.diretorioTemp, `mensagem_${id}.json`);
-      if (fs.existsSync(caminhoArquivo)) {
-        await fs.promises.unlink(caminhoArquivo);
-      }
-    } catch (erro) {
-      this.registrador.error(`Erro ao limpar dados de recuperação: ${erro.message}`);
-    }
-  }
-
-  async processarMensagensPendentes() {
-    if (!await this.estaProntoRealmente() || this.mensagensPendentes.length === 0) {
-      return 0;
-    }
-
-    this.registrador.info(`Processando ${this.mensagensPendentes.length} mensagens pendentes...`);
-    let enviadas = 0;
-    const novasPendentes = [];
-
-    for (const msg of this.mensagensPendentes) {
-      try {
-        if (msg.mensagemOriginalId) {
-          try {
-            // Tentativa de recuperar a mensagem original pelo ID
-            const msgOriginal = await this.cliente.getMessageById(msg.mensagemOriginalId);
-            if (msgOriginal) {
-              await msgOriginal.reply(msg.conteudo);
-              this.ultimoEnvio = Date.now();
-              this.registrador.info(`Mensagem pendente enviada como resposta à mensagem original`);
-              enviadas++;
-              continue;
-            }
-          } catch (erroMsg) {
-            this.registrador.warn(`Não foi possível recuperar a mensagem original: ${erroMsg.message}`);
-            // Continuamos para tentar enviar normalmente
-          }
-        }
-
-        await this.cliente.sendMessage(msg.para, msg.conteudo);
-        this.ultimoEnvio = Date.now();
-        this.registrador.info(`Mensagem pendente enviada com sucesso para ${msg.para}`);
-        enviadas++;
-      } catch (erro) {
-        this.registrador.error(`Erro ao enviar mensagem pendente: ${erro.message}`);
-
-        // Retentar apenas mensagens recentes (menos de 30 minutos)
-        if (Date.now() - msg.timestamp < 30 * 60 * 1000) {
-          novasPendentes.push(msg);
-        } else {
-          // Para mensagens antigas, só mantém a notificação em arquivo
-          await this.salvarNotificacaoPendente(msg.para, msg.conteudo, null);
-        }
-      }
-    }
-
-    this.mensagensPendentes = novasPendentes;
-    return enviadas;
-  }
-
-  async recuperarMensagensPendentes() {
-    try {
-      const arquivos = await fs.promises.readdir(this.diretorioTemp);
-      const arquivosMensagens = arquivos.filter(f => f.startsWith('mensagem_') && f.endsWith('.json'));
-
-      let recuperadas = 0;
-
-      for (const arquivo of arquivosMensagens) {
-        try {
-          const caminhoCompleto = path.join(this.diretorioTemp, arquivo);
-          const conteudo = await fs.promises.readFile(caminhoCompleto, 'utf8');
-          const dados = JSON.parse(conteudo);
-
-          // Tentar enviar a mensagem pendente
-          await this.cliente.sendMessage(dados.para, dados.conteudo);
-
-          // Remover o arquivo após envio bem-sucedido
-          await fs.promises.unlink(caminhoCompleto);
-          recuperadas++;
-        } catch (erro) {
-          this.registrador.error(`Erro ao recuperar mensagem pendente ${arquivo}: ${erro.message}`);
-        }
-      }
-
-      if (recuperadas > 0) {
-        this.registrador.info(`${recuperadas} mensagens recuperadas após reinicialização`);
-      }
-
-      return recuperadas;
-    } catch (erro) {
-      this.registrador.error(`Erro ao recuperar mensagens pendentes: ${erro.message}`);
-      return 0;
-    }
-  }
-
   /**
-   * Salva uma notificação para envio posterior
-   * @param {string} para - ID do destinatário
+   * Salva uma notificação para ser entregue posteriormente
+   * @param {string} destinatario - ID do destinatário
    * @param {string} conteudo - Texto da mensagem
-   * @param {Object} opcoes - Objeto de mensagem original ou opções
+   * @param {Object} opcoes - Opções adicionais
    * @returns {Promise<string>} Caminho do arquivo de notificação
    */
-  async salvarNotificacaoPendente(para, conteudo, opcoes = null) {
+  async salvarNotificacaoPendente(destinatario, conteudo, opcoes = {}) {
     try {
       // Diretório para salvar as notificações pendentes
-      const diretorioTemp = path.join(process.cwd(), 'temp');
-      if (!fs.existsSync(diretorioTemp)) {
-        fs.mkdirSync(diretorioTemp, { recursive: true });
-      }
-
-      // Extrair o ID da mensagem original, se disponível
-      let mensagemOriginalId = null;
-
-      if (opcoes) {
-        if (opcoes.quotedMessageId) {
-          // Novo formato com ID
-          mensagemOriginalId = opcoes.quotedMessageId;
-        } else if (opcoes.id && opcoes.id._serialized) {
-          // Formato antigo com objeto de mensagem
-          mensagemOriginalId = opcoes.id._serialized;
-        }
-      }
+      const diretorioTemp = this.diretorioTemp;
+      this._garantirDiretorioExiste(diretorioTemp);
 
       // Criar dados da notificação
       const notificacao = {
-        para,
+        para: destinatario,
         conteudo,
         timestamp: Date.now(),
         tentativas: 0,
         criadoEm: new Date().toISOString(),
         ultimaTentativa: null,
         statusEntrega: 'pendente',
-        mensagemOriginalId
+        ...opcoes
       };
 
       // Nome do arquivo baseado no destinatário e timestamp
-      const nomeArquivo = `notificacao_${para.replace('@c.us', '')}_${Date.now()}.json`;
+      const nomeArquivo = `notificacao_${destinatario.replace('@c.us', '')}_${Date.now()}.json`;
       const caminhoArquivo = path.join(diretorioTemp, nomeArquivo);
 
       // Salvar no arquivo
-      fs.writeFileSync(caminhoArquivo, JSON.stringify(notificacao, null, 2), 'utf8');
+      await fs.promises.writeFile(caminhoArquivo, JSON.stringify(notificacao, null, 2), 'utf8');
       this.registrador.info(`Notificação salva para envio posterior: ${caminhoArquivo}`);
 
       return caminhoArquivo;
@@ -478,27 +281,27 @@ class ClienteWhatsApp extends EventEmitter {
   }
 
   /**
-   * Processa notificações pendentes incluindo transações
+   * Processa notificações pendentes
    * @returns {Promise<number>} Número de notificações processadas
    */
   async processarNotificacoesPendentes() {
     try {
-      const diretorioTemp = path.join(process.cwd(), 'temp');
+      const diretorioTemp = this.diretorioTemp;
       if (!fs.existsSync(diretorioTemp)) return 0;
 
       // Obter todos os arquivos de notificação
-      const arquivos = fs.readdirSync(diretorioTemp)
-        .filter(file => file.startsWith('notificacao_') && file.endsWith('.json'));
+      const arquivos = await fs.promises.readdir(diretorioTemp);
+      const notificacoes = arquivos.filter(file => file.startsWith('notificacao_') && file.endsWith('.json'));
 
-      if (arquivos.length === 0) return 0;
+      if (notificacoes.length === 0) return 0;
 
-      this.registrador.info(`Encontradas ${arquivos.length} notificações pendentes para processar`);
-      let processados = 0;
+      this.registrador.info(`Encontradas ${notificacoes.length} notificações pendentes para processar`);
+      let processadas = 0;
 
-      for (const arquivo of arquivos) {
+      for (const arquivo of notificacoes) {
         try {
           const caminhoArquivo = path.join(diretorioTemp, arquivo);
-          const conteudo = fs.readFileSync(caminhoArquivo, 'utf8');
+          const conteudo = await fs.promises.readFile(caminhoArquivo, 'utf8');
           const notificacao = JSON.parse(conteudo);
 
           // Verificar se o cliente está pronto
@@ -521,103 +324,34 @@ class ClienteWhatsApp extends EventEmitter {
 
           // Tentar enviar a mensagem
           try {
-            if (notificacao.naoUsarReply) {
-              // Enviar mensagem sem tentar responder à mensagem original
-              this.registrador.info(`Enviando notificação diretamente (sem reply) para ${notificacao.para}`);
-              await this.cliente.sendMessage(notificacao.para, notificacao.conteudo);
-            } else {
-              // Tentar enviar normalmente (pode tentar usar reply)
-              this.registrador.info(`Processando notificação pendente para ${notificacao.para}`);
-              await this.enviarMensagem(
-                notificacao.para,
-                notificacao.conteudo,
-                {
-                  isRecoveredNotification: true,
-                  transacaoId: notificacao.transacaoId
-                }
-              );
-            }
-
+            await this.cliente.sendMessage(notificacao.para, notificacao.conteudo);
+            
             // Remover o arquivo após envio bem-sucedido
-            fs.unlinkSync(caminhoArquivo);
+            await fs.promises.unlink(caminhoArquivo);
             this.registrador.info(`✅ Notificação pendente enviada para ${notificacao.para}`);
 
-            // Se a notificação tem transação associada, atualizar status
-            if (notificacao.transacaoId && this.gerenciadorTransacoes) {
-              try {
-                await this.gerenciadorTransacoes.marcarComoEntregue(notificacao.transacaoId);
-                this.registrador.info(`✅ Transação ${notificacao.transacaoId} atualizada após recuperação`);
-              } catch (erroTransacao) {
-                this.registrador.warn(`Não foi possível atualizar transação ${notificacao.transacaoId}: ${erroTransacao.message}`);
-              }
-            }
-
-            processados++;
+            processadas++;
           } catch (erroEnvio) {
             // Atualizar contadores de tentativas na notificação
             notificacao.tentativas = (notificacao.tentativas || 0) + 1;
             notificacao.ultimaTentativa = Date.now();
 
-            // Se falhar por problema de mensagem citada, ou após várias tentativas, marcar para não usar reply
-            if (erroEnvio.message.includes('quoted message') ||
-              erroEnvio.message.includes('Could not get') ||
-              notificacao.tentativas >= 3) {
-
-              notificacao.naoUsarReply = true;
-              this.registrador.info(`Notificação ${arquivo} marcada para envio sem reply nas próximas tentativas`);
-            }
-
             // Salvar notificação atualizada
-            fs.writeFileSync(caminhoArquivo, JSON.stringify(notificacao, null, 2), 'utf8');
+            await fs.promises.writeFile(caminhoArquivo, JSON.stringify(notificacao, null, 2), 'utf8');
             this.registrador.warn(`❌ Falha ao processar notificação (${notificacao.tentativas} tentativas): ${erroEnvio.message}`);
-
-            // Se já tentou muitas vezes, tenta um método diferente
-            if (notificacao.tentativas >= 5) {
-              try {
-                this.registrador.info(`Tentando método alternativo para notificação problemática...`);
-                // Método desespero: envio direto via API
-                await this.cliente.sendMessage(notificacao.para, notificacao.conteudo);
-
-                // Se conseguiu, remover arquivo
-                fs.unlinkSync(caminhoArquivo);
-                this.registrador.info(`✅ Notificação problemática resolvida via método alternativo!`);
-                processados++;
-              } catch (erroFinal) {
-                this.registrador.error(`💔 Todos os métodos falharam para notificação: ${erroFinal.message}`);
-              }
-            }
           }
         } catch (erroProcessamento) {
           this.registrador.error(`Erro ao processar arquivo de notificação ${arquivo}: ${erroProcessamento.message}`);
-
-          // Se o arquivo estiver corrompido, tentar mover para outra pasta
-          try {
-            const diretorioErros = path.join(process.cwd(), 'temp', 'erros');
-            if (!fs.existsSync(diretorioErros)) {
-              fs.mkdirSync(diretorioErros, { recursive: true });
-            }
-
-            const caminhoOriginal = path.join(diretorioTemp, arquivo);
-            const caminhoDestino = path.join(diretorioErros, `${arquivo}.corrupto`);
-
-            fs.renameSync(caminhoOriginal, caminhoDestino);
-            this.registrador.info(`Arquivo corrompido movido para: ${caminhoDestino}`);
-          } catch (erroMover) {
-            this.registrador.error(`Não foi possível mover arquivo corrompido: ${erroMover.message}`);
-          }
         }
-
-        // Pequena pausa entre processamentos para não sobrecarregar
-        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
-      if (processados > 0) {
-        this.registrador.info(`✨ Processadas ${processados} notificações pendentes com sucesso!`);
+      if (processadas > 0) {
+        this.registrador.info(`Processadas ${processadas} notificações pendentes`);
       }
 
-      return processados;
+      return processadas;
     } catch (erro) {
-      this.registrador.error(`Erro ao processar notificações pendentes: ${erro.message}`);
+      this.registrador.error(`Erro ao verificar diretório de notificações: ${erro.message}`);
       return 0;
     }
   }
@@ -709,11 +443,11 @@ class ClienteWhatsApp extends EventEmitter {
   }
 
   /**
-* Obtém histórico de mensagens do chat
-* @param {string} chatId - ID do chat
-* @param {number} limite - Número máximo de mensagens
-* @returns {Promise<Array>} Lista de mensagens formatada
-*/
+   * Obtém histórico de mensagens do chat
+   * @param {string} chatId - ID do chat
+   * @param {number} limite - Número máximo de mensagens
+   * @returns {Promise<Array>} Lista de mensagens formatada
+   */
   async obterHistoricoMensagens(chatId, limite = 50) {
     try {
       // Obter o objeto de chat pelo ID
@@ -727,59 +461,40 @@ class ClienteWhatsApp extends EventEmitter {
         return [];
       }
 
-      // Encontrar o índice do último comando .reset, se existir
-      const idxUltimoReset = mensagensObtidas.findLastIndex(msg => msg.body === '.reset');
+      // Filtrar e mapear as mensagens
+      const mensagens = mensagensObtidas
+        .filter(msg => msg.body && !msg.body.startsWith('.')) // Filtra comandos
+        .slice(-limite * 2) // Limita ao número de mensagens
+        .map(msg => {
+          const remetente = msg.fromMe ?
+            (process.env.BOT_NAME || 'Amélie') :
+            (msg._data.notifyName || msg.author || 'Usuário');
 
-      // Filtrar mensagens a partir do último reset (ou todas, se não encontrou reset)
-      const mensagensFiltradas = idxUltimoReset >= 0
-        ? mensagensObtidas.slice(idxUltimoReset + 1)
-        : mensagensObtidas;
+          let conteudo = msg.body || '';
 
-      // Mapeamento de tipos de mídia para seus prefixos
-      const tiposMidia = {
-        'image': '[Imagem]',
-        'audio': '[Áudio]',
-        'ptt': '[Áudio]',
-        'video': '[Vídeo]'
-      };
+          // Adiciona informação sobre mídia
+          if (msg.hasMedia) {
+            if (msg.type === 'image') conteudo = `[Imagem] ${conteudo}`;
+            else if (msg.type === 'audio' || msg.type === 'ptt') conteudo = `[Áudio] ${conteudo}`;
+            else if (msg.type === 'video') conteudo = `[Vídeo] ${conteudo}`;
+            else conteudo = `[Mídia] ${conteudo}`;
+          }
 
-      // Função para formatar uma mensagem individual
-      const formatarMensagem = msg => {
-        // Identificar remetente
-        const remetente = msg.fromMe
-          ? (process.env.BOT_NAME || 'Amélie')
-          : (msg._data.notifyName || msg.author || 'Usuário');
-
-        // Processar conteúdo base
-        let conteudo = msg.body || '';
-
-        // Adicionar prefixo de mídia, se aplicável
-        if (msg.hasMedia) {
-          const prefixoMidia = tiposMidia[msg.type] || '[Mídia]';
-          conteudo = `${prefixoMidia} ${conteudo}`;
-        }
-
-        return `${remetente}: ${conteudo}`;
-      };
-
-      // Filtrar, limitar e formatar as mensagens - sem usar o S.filter problemático
-      const mensagens = mensagensFiltradas
-        // Filtro normal do JavaScript
-        .filter(msg => msg.body && typeof msg.body === 'string' && !msg.body.startsWith('.'))
-        // Limitar ao número máximo desejado
-        .slice(-limite)
-        // Mapear usando a função de formatação
-        .map(formatarMensagem);
+          return `${remetente}: ${conteudo}`;
+        });
 
       return mensagens;
     } catch (erro) {
-      this.registrador.error(`Erro ao obter histórico de mensagens: ${erro.message}`, { erro });
+      this.registrador.error(`Erro ao obter histórico de mensagens: ${erro.message}`);
       return []; // Retorna array vazio em caso de erro
     }
   }
 
   /**
    * Verifica se devemos responder a uma mensagem em grupo
+   * @param {Object} msg - Objeto da mensagem
+   * @param {Object} chat - Objeto do chat
+   * @returns {Promise<boolean>} Verdadeiro se deve responder
    */
   async deveResponderNoGrupo(msg, chat) {
     // Se for uma mensagem com comando
@@ -794,10 +509,10 @@ class ClienteWhatsApp extends EventEmitter {
     }
 
     const mencoes = await msg.getMentions();
-    const botMencionado = mencoes.some(mencao =>
+    const botMencionado = mencoes.some(mencao => 
       mencao.id._serialized === this.cliente.info.wid._serialized
     );
-
+    
     if (botMencionado) {
       this.registrador.debug("Respondendo porque o bot foi mencionado");
       return true;

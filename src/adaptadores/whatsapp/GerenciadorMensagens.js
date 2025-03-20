@@ -1475,46 +1475,37 @@ const criarGerenciadorMensagens = (dependencias) => {
       });
 
       // Configurar o callback unificado para todas as mídias
-      filasMidia.setCallbackRespostaUnificado(async (resultado) => {
-        try {
-          // Verificação básica do resultado recebido
-          if (!resultado || !resultado.senderNumber) {
-            registrador.warn("Resultado de fila inválido ou incompleto");
-            return;
-          }
+      // No arquivo FilasMidia.js, vamos ajustar o método setCallbackRespostaUnificado
 
-          const { resposta, senderNumber, transacaoId, remetenteName } = resultado;
+// Configurar o callback unificado para todas as mídias
+filasMidia.setCallbackRespostaUnificado(async (resultado) => {
+  try {
+    // Verificação básica do resultado recebido
+    if (!resultado || !resultado.senderNumber) {
+      registrador.warn("Resultado de fila inválido ou incompleto");
+      return;
+    }
 
-          // Enviar mensagem com tratamento de erro simplificado
-          try {
-            await clienteWhatsApp.enviarMensagem(senderNumber, resposta);
+    const { resposta, senderNumber, transacaoId, remetenteName } = resultado;
 
-            // Se chegou aqui, deu certo! Vamos atualizar a transação
-            if (transacaoId) {
-              await gerenciadorTransacoes.adicionarRespostaTransacao(transacaoId, resposta);
-              await gerenciadorTransacoes.marcarComoEntregue(transacaoId);
-              registrador.debug(`✅ Transação ${transacaoId} atualizada com sucesso (${remetenteName || senderNumber})`);
-            }
-          } catch (erroEnvio) {
-            // Usamos String() para garantir conversão segura
-            registrador.error(`Erro ao enviar mensagem: ${String(erroEnvio)}`);
+    // Agora usamos o ServicoMensagem para enviar
+    const resultadoEnvio = await servicoMensagem.enviarMensagemDireta(
+      senderNumber, 
+      resposta, 
+      { 
+        transacaoId,
+        remetenteName,
+        tipoMidia: resultado.tipo || 'desconhecido'
+      }
+    );
 
-            // Registrar falha na transação
-            if (transacaoId) {
-              try {
-                await gerenciadorTransacoes.registrarFalhaEntrega(
-                  transacaoId,
-                  `Erro ao enviar: ${String(erroEnvio)}`
-                );
-              } catch (erroTransacao) {
-                registrador.error(`Erro adicional ao registrar falha: ${String(erroTransacao)}`);
-              }
-            }
-          }
-        } catch (erro) {
-          registrador.error(`Erro ao processar resultado de fila: ${String(erro)}`);
-        }
-      });
+    if (!resultadoEnvio.sucesso) {
+      registrador.error(`Erro ao enviar resultado de mídia: ${resultadoEnvio.erro.message}`);
+    }
+  } catch (erro) {
+    registrador.error(`Erro ao processar resultado de fila: ${erro.message}`);
+  }
+});
 
       registrador.info('📬 Callback unificado de filas de mídia configurado com sucesso');
 
