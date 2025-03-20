@@ -139,7 +139,6 @@ const verificarTipoMensagem = (registrador) => (dados) => {
   // Verificar se é realmente um comando (começa com ponto e tem pelo menos um caractere após)
   if (mensagem.body && mensagem.body.startsWith('.') && mensagem.body.length > 1) {
     const comando = mensagem.body.substring(1).split(' ')[0];
-    // Lista de comandos válidos para verificação adicional
     const comandosValidos = ['reset', 'ajuda', 'prompt', 'config', 'users', 'cego',
       'audio', 'video', 'imagem', 'longo', 'curto', 'filas', 'legenda']; // Adicionado 'legenda'
 
@@ -377,7 +376,7 @@ const processarComando = (dependencias) => async (dados) => {
       'cego': () => tratarComandoCego(dependencias)(mensagem, chatId),
       'audio': () => tratarComandoAlternarMidia(dependencias)('mediaAudio', 'transcrição de áudio')(mensagem, chatId),
       'video': () => tratarComandoAlternarMidia(dependencias)('mediaVideo', 'interpretação de vídeo')(mensagem, chatId),
-      'imagem': () => tratarComandoAlternarMidia(dependencias)('mediaImage', 'audiodescrição de imagem')(mensagem, chatId),
+      'imagem': () => tratarComandoAlternarMidia(dependencias)('mediaImage', 'descrição de imagem')(mensagem, chatId),
       'longo': () => tratarComandoLongo(dependencias)(mensagem, chatId),
       'curto': () => tratarComandoCurto(dependencias)(mensagem, chatId),
       'legenda': () => tratarComandoLegenda(dependencias)(mensagem, chatId), // Adicionado novo comando
@@ -439,7 +438,7 @@ const tratarComandoLegenda = (dependencias) => async (mensagem, chatId) => {
       await servicoMensagem.enviarResposta(mensagem, 
         'Modo de legendagem desativado! ✅\n\n' +
         'Os vídeos agora voltarão a ser processados nos modos normal, curto ou longo.\n\n' +
-        'Use .curto ou .longo para escolher o nível de detalhamento da audiodescrição.');
+        'Use .curto ou .longo para escolher o nível de detalhamento da descrição.');
       
     } else {
       // ATIVAR o modo legenda
@@ -509,11 +508,11 @@ Comandos:
 
 .video - Liga/desliga a interpretação de vídeo
 
-.imagem - Liga/desliga a audiodescrição de imagem
+.imagem - Liga/desliga a descrição de imagem
 
-.longo - Usa audiodescrição longa e detalhada
+.longo - Usa descrição longa e detalhada
 
-.curto - Usa audiodescrição curta e concisa
+.curto - Usa descrição curta e concisa
 
 .reset - Restaura todas as configurações originais e desativa o modo cego
 
@@ -718,7 +717,7 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
     await gerenciadorConfig.definirConfig(chatId, 'mediaImage', true);
     await gerenciadorConfig.definirConfig(chatId, 'mediaAudio', false);
 
-    const promptAudiomar = `Seu nome é ${BOT_NAME}. Você é uma assistente de AI multimídia acessível integrada ao WhatsApp, criada e idealizada pela equipe da Belle Utsch e é dessa forma que você responde quando lhe pedem pra falar sobre si. Seu propósito é auxiliar as pessoas trazendo acessibilidade ao Whatsapp. Você é capaz de processar texto, audio, imagem e video, mas, por enquanto, somente responde em texto. Seus comandos podem ser encontrados digitando .ajuda. Se alguém perguntar, aqui está sua lista de comandos: .cego - Aplica configurações para usuários com deficiência visual; .audio - Liga/desliga a transcrição de áudio; .video - Liga/desliga a interpretação de vídeo; .imagem - Liga/desliga a audiodescrição de imagem; .reset - Limpa o histórico de conversa, restaura todas as configurações originais e desativa o modo cego; .ajuda - Mostra esta mensagem de ajuda. Você não tem outros comandos e não aceita comandos sem o ponto, então se alguém disser 'cego' por exemplo, você orienta que deve digitar !cego. Se as pessoas desejarem ligar ou desligar a transcrição de audio, oriente a usar !audio. Isso é muito importante, porque há pessoas cegas nos grupos e podem ter dificuldade de usar comandos assim - mas você as orientará. Por isso, não invente nenhum comando que não esteja na lista acima. Sua criadora e idealizadora foi a Belle Utsch. Você é baseada no Google Gemini Flash 2.0. Para te acrescentar em um grupo, a pessoa pode adicionar seu contato diretamente no grupo. Você lida com as pessoas com tato e bom humor. Se alguém perguntar seu git, github, repositório ou código, direcione para https://github.com/manelsen/amelie. Se alguém pedir o contato da Belle Utsch, direcione para https://beacons.ai/belleutsch.
+    const promptAudiomar = `Seu nome é ${BOT_NAME}. Você é uma assistente de AI multimídia acessível integrada ao WhatsApp, criada e idealizada pela equipe da Belle Utsch e é dessa forma que você responde quando lhe pedem pra falar sobre si. Seu propósito é auxiliar as pessoas trazendo acessibilidade ao Whatsapp. Você é capaz de processar texto, audio, imagem e video, mas, por enquanto, somente responde em texto. Seus comandos podem ser encontrados digitando .ajuda. Se alguém perguntar, aqui está sua lista de comandos: .cego - Aplica configurações para usuários com deficiência visual; .audio - Liga/desliga a transcrição de áudio; .video - Liga/desliga a interpretação de vídeo; .imagem - Liga/desliga a descrição de imagem; .reset - Limpa o histórico de conversa, restaura todas as configurações originais e desativa o modo cego; .ajuda - Mostra esta mensagem de ajuda. Você não tem outros comandos e não aceita comandos sem o ponto, então se alguém disser 'cego' por exemplo, você orienta que deve digitar !cego. Se as pessoas desejarem ligar ou desligar a transcrição de audio, oriente a usar !audio. Isso é muito importante, porque há pessoas cegas nos grupos e podem ter dificuldade de usar comandos assim - mas você as orientará. Por isso, não invente nenhum comando que não esteja na lista acima. Sua criadora e idealizadora foi a Belle Utsch. Você é baseada no Google Gemini Flash 2.0. Para te acrescentar em um grupo, a pessoa pode adicionar seu contato diretamente no grupo. Você lida com as pessoas com tato e bom humor. Se alguém perguntar seu git, github, repositório ou código, direcione para https://github.com/manelsen/amelie. Se alguém pedir o contato da Belle Utsch, direcione para https://beacons.ai/belleutsch.
     
          Diretrizes Gerais:
          
@@ -726,7 +725,7 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
          
          Estrutura da Resposta: Para cada imagem ou sticker, sua resposta deve seguir este formato:
          
-         [Audiodescrição]
+         [Descrição da Imagem]
          (Forneça uma descrição objetiva e detalhada da imagem) 
          
          Diretrizes para a Descrição Profissional:
@@ -753,7 +752,7 @@ const tratarComandoCego = (dependencias) => async (mensagem, chatId) => {
     await servicoMensagem.enviarResposta(mensagem, 'Configurações para usuários com deficiência visual aplicadas com sucesso:\n' +
       '- Descrição de imagens habilitada\n' +
       '- Transcrição de áudio desabilitada\n' +
-      '- Prompt de audiodescrição ativado');
+      '- Prompt de descrição ativado');
 
     registrador.info(`Configurações para usuários com deficiência visual aplicadas no chat ${chatId}`);
     return Resultado.sucesso(true);
@@ -1296,11 +1295,11 @@ const processarEntradaGrupo = (dependencias) => async (notificacao) => {
     
     .video - Liga/desliga a interpretação de vídeo
     
-    .imagem - Liga/desliga a audiodescrição de imagem
+    .imagem - Liga/desliga a descrição de imagem
     
-    .longo - Usa audiodescrição longa e detalhada
+    .longo - Usa descrição longa e detalhada
     
-    .curto - Usa audiodescrição curta e concisa
+    .curto - Usa descrição curta e concisa
     
     .reset - Restaura todas as configurações originais e desativa o modo cego
     

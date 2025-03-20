@@ -165,12 +165,12 @@ class GerenciadorAI extends IAPort {
       if (this.gerenciadorConfig) {
         const config = await this.gerenciadorConfig.obterConfig(chatId);
         
-        // Obter o modo de audiodescrição
-        const modoAudiodescricao = config.modoAudiodescricao || 'longo';
+        // Obter o modo de descrição
+        const modoDescricao = config.modoDescricao || 'longo';
         
         // Ajustar as instruções de sistema com base no modo
         let sistemInstructions;
-        if (modoAudiodescricao === 'curto') {
+        if (modoDescricao === 'curto') {
           sistemInstructions = obterInstrucaoImagemCurta();
         } else {
           sistemInstructions = obterInstrucaoImagem();
@@ -183,7 +183,7 @@ class GerenciadorAI extends IAPort {
           maxOutputTokens: config.maxOutputTokens || 800,
           model: config.model || "gemini-2.0-flash",
           systemInstructions: sistemInstructions,
-          modoAudiodescricao
+          modoDescricao
         };
       }
     } catch (erro) {
@@ -198,7 +198,7 @@ class GerenciadorAI extends IAPort {
       maxOutputTokens: 800,
       model: "gemini-2.0-flash", // Usar o modelo rápido para imagens simples
       systemInstructions: obterInstrucaoImagem(),
-      modoAudiodescricao: 'curto'
+      modoDescricao: 'curto'
     };
   }
   
@@ -299,7 +299,7 @@ class GerenciadorAI extends IAPort {
     try {
       const modelo = this.obterOuCriarModelo({
         ...config,
-        // Instruções específicas para audiodescrição
+        // Instruções específicas para descrição
         systemInstruction: config.systemInstructions || obterInstrucaoImagem()
       });
       

@@ -1,124 +1,129 @@
-# Amélie: Assistente de IA Multimídia para WhatsApp
+# Olá! Eu sou a Amélie 👋
 
-Seja bem-vindo(a) ao repositório da **Amélie**, sua ajudante de Inteligência Artificial super amigável e integrada ao WhatsApp! Este projeto foi idealizado por [Belle Utsch](https://beacons.ai/belleutsch), com o objetivo de oferecer uma experiência inclusiva, interativa e versátil para quem deseja automatizar tarefas e responder mensagens usando **Google Generative AI**.
+Prazer em conhecer você! Sou uma assistente de IA multimídia acessível integrada ao WhatsApp, criada e idealizada pela Belle Utsch. Minha missão é tornar o WhatsApp mais acessível para todas as pessoas, especialmente aquelas com deficiência visual.
 
-## Sobre o Projeto
+## Como posso te ajudar? 🤝
 
-- **Amélie** utiliza a biblioteca [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js) para se comunicar com o WhatsApp.
-- Integra o modelo Gemini do **Google Generative AI** para gerar textos e transcrições, descrever imagens e muito mais.
-- Permite gerenciar prompts personalizados (personalidades/configurações de System Instructions) e ativá-los no chat.
-- Oferece recursos de acessibilidade, como **descrição de imagens** e **transcrições de áudio**, úteis em grupos com pessoas cegas ou com baixa visão.
+Posso:
 
-## Recursos Principais
+- Descrever imagens detalhadamente
+- Transcrever áudios palavra por palavra
+- Interpretar vídeos
+- Conversar sobre diversos assuntos
+- Ajudar em grupos, tornando o conteúdo mais acessível
 
-1. **Comandos de Texto**:
-   - `!help` para ver todos os comandos.
-   - `!reset` para limpar o histórico e restaurar configurações iniciais.
-   - `!config` para ajustar parâmetros como temperatura, topK, etc.
-   - `!prompt` para criar, listar, ver ou usar diferentes personalidades.
-   - `!cego` para ativar descrição automática de imagens e outras configurações acessíveis.
-2. **Mídia Inteligente**:
-   - Descrição de **imagens** (se habilitada).
-   - Transcrição de **áudios** (se habilitada).
-   - Suporte a **vídeos**, gerando uma descrição do conteúdo (quando autorizado).
-3. **Banco de Dados NeDB**:
-   - Armazena histórico de conversas.
-   - Mantém configurações por chat.
-   - Gerencia personalidades (prompts).
-   - Organiza dados de grupos e usuários.
-4. **Logs**:
-   - Utiliza [winston](https://github.com/winstonjs/winston) para registrar tudo em `console` e em arquivo (`bot.log`).
+## Como me usar 📱
 
-## Quer usar a Amélie?
+Para falar comigo:
 
-Clique [aqui](http://wa.me/5531993340000) para falar com ela no WhatsApp.
+1. Me adicione como contato: (31) 99334-0000
+2. Me envie uma mensagem no WhatsApp
+3. Use o comando `.ajuda` para ver todas as minhas funcionalidades
 
-Se quiser adicioná-la a um grupo, basta salvá-la como contato e colocar o contato no grupo.
+Para me adicionar em um grupo:
 
-Se quiser entrar no grupo oficial, fale com a [Belle](https://wa.me/5531983863448).
+1. Me salve como contato
+2. Me adicione diretamente no grupo
+3. Pronto! Vou ajudar a tornar o grupo mais acessível
 
-## Quer contribuir com o Projeto?
+## Meus comandos 🎯
 
-Faça assim:
+Use um ponto (.) antes de cada comando, sem espaço. Por exemplo: `.ajuda`
 
-1. **Clonar este Repositório**:
+### Comandos principais:
 
-   ```
-   git clone https://github.com/manelsen/amelie
-   cd amelie
-   ```
+`.cego` - Ativa configurações para pessoas com deficiência visual
 
-2. **Instalar Dependências**:
+- Habilita descrição automática de imagens
+- Ajusta o formato das respostas para leitores de tela
 
-   ```
-   npm install
-   ```
+`.audio` - Liga/desliga transcrição de áudio
 
-3. **Configurar Variáveis de Ambiente**:
+- Quando ativo, transcrevo todos os áudios recebidos
+- Transcrição palavra por palavra (verbatim)
 
-   - Crie um arquivo `.env` na raiz do projeto, seguindo o modelo:
+`.video` - Liga/desliga interpretação de vídeo
 
-     ```
-     API_KEY=SuaChaveDoGoogleGenerativeAI
-     BOT_NAME=Amélie
-     MAX_HISTORY=50
-     ```
+- Quando ativo, descrevo o conteúdo dos vídeos
+- Inclui ações, cenário e elementos importantes
 
-4. **Executar o Bot**:
+`.imagem` - Liga/desliga descrição de imagem
 
-   ```
-   node amelie.js
-   ```
+- Quando ativo, descrevo todas as imagens recebidas
+- Inclui detalhes visuais importantes
 
-   O terminal exibirá um QR code para ser lido com seu WhatsApp. Depois de escanear, a Amélie começará a ouvir mensagens.
+`.longo` - Usa descrição detalhada
 
-5. **Interagir pelo WhatsApp**:
+- Descrições mais completas de imagens e vídeos
+- Ideal para entender todos os detalhes
 
-   - Assim que a Amélie estiver ativa, envie uma mensagem do tipo `!help` no chat para descobrir todos os comandos disponíveis.
-   - Para grupos, ela só responde quando mencionada, quando citada em resposta ou quando recebe um comando (`!comando`).
+`.curto` - Usa descrição concisa
 
-## Comandos Úteis
+- Descrições mais objetivas e diretas
+- Ideal para informações rápidas
 
-- `!help` Lista os comandos disponíveis e mostra como cada um funciona.
+`.reset` - Restaura configurações originais
 
-- `!reset` Restaura tudo ao padrão e limpa o histórico de mensagens do chat.
+- Limpa todas as configurações personalizadas
+- Volta ao modo padrão
 
-- `!config`
+`.legenda` - Liga/desliga legenda de imagem
 
-  ```
-  !config set <param> <valor>   // Ex.: !config set temperature 0.8
-  !config get [param]           // Ex.: !config get temperature ou !config get (para ver tudo)
-  ```
+- Quando ativo, transcrevo em legenda a trilha de audio do vídeo
+- Acessibilidade para Surdos
 
-  Ajusta o comportamento do modelo (ex.: temperature) ou habilita/desabilita recursos (ex.: descrição de imagem).
+`.ajuda` - Mostra esta lista de comandos
 
-- `!prompt`
+## Como solicitar descrições específicas 🔍
 
-  ```
-  !prompt set <nome> <texto>    // Define uma nova 'personalidade' ou System Instruction
-  !prompt get <nome>            // Mostra o texto de uma personalidade
-  !prompt list                  // Lista todas as personalidades disponíveis
-  !prompt use <nome>            // Ativa uma personalidade existente
-  !prompt clear                 // Remove a personalidade ativa e volta ao padrão
-  ```
+Se quiser mais detalhes sobre uma imagem ou vídeo:
 
-- `!cego` Ajusta as configurações para grupos com pessoas cegas, habilitando descrição de imagens e desabilitando transcrições de áudio, além de ativar um prompt específico de audiodescrição.
+1. Envie a mídia novamente
+2. Junto com ela, envie um comentário dizendo qual aspecto você quer que eu foque
+3. Vou gerar uma nova descrição com ênfase no que você pediu
 
-## Links Importantes
+## Grupos oficiais e contatos 👥
 
-- **Idealizadora**: [Belle Utsch](https://beacons.ai/belleutsch)
-- **Repositório Oficial**: [GitHub](https://github.com/manelsen/amelie)
-- **whatsapp-web.js**: [Documentação](https://github.com/pedroslopez/whatsapp-web.js)
-- **Google Generative AI**: [Site Oficial](https://ai.google/tools)
+- Grupo oficial: https://chat.whatsapp.com/C0Ys7pQ6lZH5zqDD9A8cLp
+- Minha idealizadora: Belle Utsch (https://beacons.ai/belleutsch)
+- Meu código fonte: https://github.com/manelsen/amelie
 
-## Contribuindo
+## Dicas de uso 💡
 
-Fique à vontade para abrir *issues*, mandar *pull requests* ou sugestões. A ideia é manter a **Amélie** colaborativa e em constante evolução para atender às mais diversas necessidades de automação e acessibilidade.
+1. Em grupos, só respondo quando:
+   - Sou mencionada
+   - Alguém responde minhas mensagens
+   - Recebo um comando (começando com ponto)
 
-## Licença
+2. Para descrições de imagem:
+   - Uso linguagem clara e objetiva
+   - Descrevo elementos importantes como texto, pessoas e objetos
+   - Mantenho uma ordem lógica na descrição
 
-Este projeto está sob a MIT License. Isso significa que você pode usar, modificar e distribuir este código conforme achar melhor, mas sempre lembre de dar os devidos créditos!
+3. Para transcrições de áudio:
+   - Transcrevo exatamente o que foi dito
+   - Mantenho a fidelidade do conteúdo
+   - Indico pausas e elementos sonoros relevantes
 
-Aproveite a **Amélie** e divirta-se! Se precisar de ajuda ou tiver alguma sugestão, é só chamar.
+## Precisa de ajuda? 🆘
 
-Com amor, *A equipe da Amélie*
+Se tiver dúvidas ou precisar de ajuda:
+
+1. Use o comando `.ajuda` para ver todos os comandos
+2. Entre no grupo oficial para suporte
+3. Fale com a Belle Utsch através do link do perfil dela
+
+## Contribuindo com o projeto 🤝
+
+Meu código é open source! Se quiser contribuir:
+
+1. Visite meu repositório: https://github.com/manelsen/amelie
+2. Faça um fork
+3. Envie suas melhorias através de pull requests
+
+## Sobre mim ℹ️
+
+Sou baseada no Google Gemini Flash 2.0 e fui criada para tornar o WhatsApp mais acessível e inclusivo. Minha missão é ajudar pessoas com deficiência visual a participarem plenamente das conversas, garantindo que todo conteúdo visual seja devidamente descrito.
+
+Com carinho,
+Amélie 💜

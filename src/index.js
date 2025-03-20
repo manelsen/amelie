@@ -129,11 +129,11 @@ Comandos:
 
 .video - Liga/desliga a interpretação de vídeo
 
-.imagem - Liga/desliga a audiodescrição de imagem
+.imagem - Liga/desliga a descrição de imagem
 
-.longo - Usa audiodescrição longa e detalhada
+.longo - Usa descrição longa e detalhada
 
-.curto - Usa audiodescrição curta e concisa
+.curto - Usa descrição curta e concisa
 
 .legenda - Ativa transcrição verbatim com timecode para vídeos (ideal para pessoas surdas)
 

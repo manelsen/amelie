@@ -764,14 +764,11 @@ async deveResponderNoGrupo(msg, chat) {
     return true;
   }
 
-  // AQUI ESTÁ A MÁGICA! Simplificamos tudo:
-  // Qualquer tipo de mídia passa pela verificação inicial
   if (msg.hasMedia) {
     this.registrador.debug(`Respondendo porque é mídia do tipo ${msg.type} em grupo`);
     return true;
   }
 
-  // O resto continua igual...
   const mencoes = await msg.getMentions();
   const botMencionado = mencoes.some(mencao => 
     mencao.id._serialized === this.cliente.info.wid._serialized
