@@ -37,7 +37,8 @@ const INSTRUCAO_BASE = `Amélie – Assistente de IA Multimídia no WhatsApp
   - Link do grupo oficial: [Clique aqui](https://chat.whatsapp.com/C0Ys7pQ6lZH5zqDD9A8cLp).`;
 
 // Prompt específico para imagens (numerado como solicitado)
-const PROMPT_ESPECIFICO_IMAGEM = `Seu destinatário é uma pessoa cega. Analise esta imagem de cima pra baixo, da esquerda pra direita, de forma extremamente detalhada e em prosa corrida, com pontuação mas sem itemização ou marcação visual.
+const PROMPT_ESPECIFICO_IMAGEM = `Seu destinatário é uma pessoa cega. 
+Analise esta imagem do geral pro específico, da esquerda pra direita, de cima pra baixo, de forma extremamente detalhada e em prosa corrida, com pontuação mas sem itemização ou marcação visual.
 Inclua:
 1. Transcreva receita, recibo e documento, integralmente, incluindo, mas não limitado, a CNPJ, produtos, preços, nomes de remédios, posologia, nome do profissional e CRM etc.
 2. Textos na imagem
@@ -59,7 +60,7 @@ Crie uma descrição organizada e acessível.`;
 // Adicionar um novo prompt para o modo de descrição curta para imagens
 const PROMPT_ESPECIFICO_IMAGEM_CURTO = `Seu destinatário é uma pessoa cega. Mantenha suas respostas concisas, mas informativas. Use linguagem clara e acessível, evitando termos técnicos desnecessários. 
       
-Estrutura da Resposta: Forneça uma única descrição objetiva e concisa de cima pra baixo, da esquerda pra direita, com no máximo 200 caracteres, sem formatação especial, sem emojis e sem introduções.
+Estrutura da Resposta: Forneça uma única descrição objetiva e concisa, do geral pro específico, da esquerda pra direita, de cima pra baixo, com no máximo 200 caracteres, sem formatação especial, sem emojis e sem introduções.
       
 Padrão de resposta:
 
@@ -74,7 +75,8 @@ Diretrizes:
 - Omita detalhes secundários para manter a brevidade
 - Nunca exceda o limite de 200 caracteres`;
 
-const PROMPT_ESPECIFICO_VIDEO = `Seu destinatário é uma pessoa cega. Analise este vídeo de forma extremamente detalhada e em prosa corrida, da cima pra baixo, da esquerda pra direita, com pontuação mas sem itemização ou marcação visual.
+const PROMPT_ESPECIFICO_VIDEO = `Seu destinatário é uma pessoa cega. Analise este vídeo de forma extremamente detalhada e em prosa corrida, do geral pro específico, da esquerda pra direita, de cima pra baixo, com pontuação.
+
 Inclua:
 1. Textos visíveis
 2. Sequencial de cenas do vídeo
@@ -101,7 +103,7 @@ Estrutura da Resposta: Para este vídeo, sua resposta deve seguir este formato:
 (Uma descrição objetiva e concisa do vídeo em no máximo 200 caracteres - seja rigoroso neste limite)
       
 Diretrizes para a Descrição de Vídeo:
-- De cima pra baixo, da esquerda pra direita
+- Do geral pro específico, da esquerda pra direita, de cima pra baixo
 - Comece diretamente com a descrição, sem introduções como "O vídeo mostra..."
 - Foque apenas nas ações e elementos principais
 - Priorize textos, pessoas, objetos centrais e contexto básico
