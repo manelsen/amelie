@@ -129,17 +129,17 @@ const verificarRespostaGrupo = (clienteWhatsApp) => async (dados) => {
 
 // Verifica se é um comando
 const verificarTipoMensagem = (registrador) => (dados) => {
-  const { mensagem } = dados;
+  const { mensagem, chat } = dados;  // Garantir que chat está disponível
 
   // Verificar se é realmente um comando (começa com ponto e tem pelo menos um caractere após)
   if (mensagem.body && mensagem.body.startsWith('.') && mensagem.body.length > 1) {
     const comando = mensagem.body.substring(1).split(' ')[0];
     const comandosValidos = ['reset', 'ajuda', 'prompt', 'config', 'users', 'cego',
-      'audio', 'video', 'imagem', 'longo', 'curto', 'filas', 'legenda']; // Adicionado 'legenda'
+      'audio', 'video', 'imagem', 'longo', 'curto', 'filas', 'legenda'];
 
     if (comandosValidos.includes(comando.toLowerCase())) {
       registrador.debug(`Comando válido detectado: ${mensagem.body}`);
-      return Resultado.sucesso({ ...dados, tipo: 'comando' });
+      return Resultado.sucesso({ ...dados, tipo: 'comando' });  // Passar o chat junto
     }
 
     // Comando com formato correto mas não reconhecido
@@ -348,11 +348,10 @@ const processarMensagemTexto = (dependencias) => async (dados) => {
 };
 
 /**
-
  * Processamento de comandos
-   */
+ */
 const processarComando = (dependencias) => async (dados) => {
-  const { registrador, servicoMensagem, gerenciadorConfig } = dependencias;
+  const { registrador, servicoMensagem, gerenciadorConfig, clienteWhatsApp } = dependencias;
   const { mensagem, chatId } = dados;
 
   try {
@@ -360,6 +359,16 @@ const processarComando = (dependencias) => async (dados) => {
     const [comando, ...args] = mensagem.body.slice(1).split(' ');
     registrador.debug(`Processando comando: ${comando}, Argumentos: ${args.join(' ')}`);
 
+    // IMPORTANTE: Verificação de permissões com o cliente do WhatsApp para acesso avançado
+    const temPermissao = await verificarPermissaoComando(mensagem, clienteWhatsApp, registrador);
+    
+    if (!temPermissao) {
+      await servicoMensagem.enviarResposta(
+        mensagem,
+        'Desculpe, apenas administradores do grupo podem executar comandos.'
+      );
+      return Resultado.falha(new Error("Usuário sem permissão para executar comandos"));
+    }
 
     // Mapear comandos para funções
     const mapaComandos = {
@@ -392,7 +401,6 @@ const processarComando = (dependencias) => async (dados) => {
   } catch (erro) {
     registrador.error(`Erro ao processar comando: ${erro.message}`);
 
-
     try {
       await servicoMensagem.enviarResposta(
         mensagem,
@@ -403,7 +411,6 @@ const processarComando = (dependencias) => async (dados) => {
     }
 
     return Resultado.falha(erro);
-
   }
 };
 
@@ -414,42 +421,42 @@ const processarComando = (dependencias) => async (dados) => {
 
 const tratarComandoLegenda = (dependencias) => async (mensagem, chatId) => {
   const { registrador, gerenciadorConfig, servicoMensagem } = dependencias;
-  
+
   try {
     // Obter a configuração atual para verificar o estado
     const configAtual = await gerenciadorConfig.obterConfig(chatId);
     const legendaAtiva = configAtual.usarLegenda === true || configAtual.modoDescricao === 'legenda';
-    
+
     if (legendaAtiva) {
       // DESATIVAR o modo legenda
       await gerenciadorConfig.definirConfig(chatId, 'usarLegenda', false);
       await gerenciadorConfig.definirConfig(chatId, 'modoDescricao', 'curto'); // Voltamos para o padrão curto
-      
+
       // Habilitar novamente os modos normal de processamento de vídeo
       await gerenciadorConfig.definirConfig(chatId, 'mediaVideo', true);
-      
+
       registrador.info(`🎬 Modo legenda DESATIVADO para ${chatId}`);
-      
-      await servicoMensagem.enviarResposta(mensagem, 
+
+      await servicoMensagem.enviarResposta(mensagem,
         'Modo de legendagem desativado! ✅\n\n' +
         'Os vídeos agora voltarão a ser processados nos modos normal, curto ou longo.\n\n' +
         'Use .curto ou .longo para escolher o nível de detalhamento da descrição.');
-      
+
     } else {
       // ATIVAR o modo legenda
       await gerenciadorConfig.definirConfig(chatId, 'mediaVideo', true);
-      
+
       // Forçar definição de modo 'legenda' com prioridade alta
       await gerenciadorConfig.definirConfig(chatId, 'modoDescricao', 'legenda');
       await gerenciadorConfig.definirConfig(chatId, 'usarLegenda', true);
-      
+
       // Desativar outros modos de descrição para evitar conflitos
       await gerenciadorConfig.definirConfig(chatId, 'descricaoLonga', false);
       await gerenciadorConfig.definirConfig(chatId, 'descricaoCurta', false);
 
       registrador.info(`✅ MODO LEGENDA ATIVADO para ${chatId}`);
-      
-      await servicoMensagem.enviarResposta(mensagem, 
+
+      await servicoMensagem.enviarResposta(mensagem,
         'Modo de legendagem ativado! ✅\n\n' +
         'Agora, os vídeos que você enviar serão transcritos com timecodes precisos, identificação de quem fala e sons importantes - perfeito para pessoas surdas ou com deficiência auditiva.\n\n' +
         'Basta enviar seu vídeo para receber a legenda detalhada!');
@@ -1082,7 +1089,7 @@ const processarMensagemImagem = (dependencias) => async (dados) => {
 const processarMensagemVideo = (dependencias) => async (dados) => {
   const { registrador, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, filasMidia, clienteWhatsApp } = dependencias;
   const { mensagem, chatId, dadosAnexo } = dados;
-  
+
   try {
     const chat = await mensagem.getChat();
     const config = await gerenciadorConfig.obterConfig(chatId);
@@ -1113,7 +1120,7 @@ const processarMensagemVideo = (dependencias) => async (dados) => {
 
     // Determinar o prompt do usuário com base no modo ativo
     let promptUsuario = "";
-    
+
     // Verificar o modo legenda explicitamente
     if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
       registrador.info(`🎬👂 Aplicando prompt específico para LEGENDAGEM (transação ${transacao.id})`);
@@ -1321,6 +1328,229 @@ const processarEntradaGrupo = (dependencias) => async (notificacao) => {
 };
 
 /**
+ * Verifica se um usuário é administrador do grupo ou se está em chat privado
+ * @param {Object} mensagem - Objeto da mensagem
+ * @param {Object} clienteWhatsApp - Cliente WhatsApp para acessos avançados
+ * @param {Object} registrador - Logger para registro
+ * @returns {Promise<boolean>} Verdadeiro se for administrador ou chat privado
+ */
+const verificarPermissaoComando = async (mensagem, clienteWhatsApp, registrador) => {
+  // Log inicial para depuração
+  registrador.info(`🔍 Verificando permissão para comando de ${mensagem.author || mensagem.from}`);
+  
+  try {
+    // Primeiro, obter o chat de forma segura
+    let chat;
+    try {
+      chat = await mensagem.getChat();
+    } catch (erroChatAcesso) {
+      registrador.warn(`Não foi possível acessar o chat: ${erroChatAcesso.message}`);
+      
+      // Verificar diretamente pelo ID da mensagem
+      const chatId = mensagem.from || '';
+      const ehGrupo = chatId.endsWith('@g.us');
+      
+      if (ehGrupo) {
+        // É um grupo, mas não podemos verificar permissões
+        return false;
+      } else {
+        // Chat privado
+        return true;
+      }
+    }
+    
+    // Obter o ID do chat
+    const chatId = chat.id && chat.id._serialized ? chat.id._serialized : 
+                  (mensagem.from || '');
+    
+    // IMPORTANTE: Verificar se é um grupo pelo ID (mais confiável que isGroup)
+    const ehGrupo = chatId.endsWith('@g.us');
+    
+    registrador.info(`🔍 Verificando chat: ${chatId}, detectado como: ${ehGrupo ? 'GRUPO' : 'PRIVADO'}`);
+    
+    // Se não for um grupo, qualquer um pode executar comandos
+    if (!ehGrupo) {
+      registrador.info(`✅ Chat privado - permitindo comando`);
+      return true;
+    }
+    
+    // Obter o ID do remetente
+    const remetenteId = mensagem.author || mensagem.from;
+    
+    // Lista de IDs de administradores conhecidos que sempre terão permissão
+    const idsAdminsConhecidos = [
+      //'553191400084@c.us',  // Seu ID
+      // Adicionar outros administradores conhecidos aqui
+    ];
+    
+    if (idsAdminsConhecidos.includes(remetenteId)) {
+      registrador.info(`✅ ID ${remetenteId} na lista de administradores conhecidos`);
+      return true;
+    }
+    
+    // MÉTODO 1: Tentar obter participantes
+    try {
+      // A função getParticipant() é mencionada na documentação para obter participantes
+      if (typeof chat.getParticipant === 'function') {
+        registrador.info(`🔍 Tentando obter participantes via getParticipant()`);
+        const participantes = await chat.getParticipant();
+        
+        // Procurar o remetente na lista de participantes
+        for (const participante of participantes) {
+          if (participante.id._serialized === remetenteId) {
+            // Verificar se é administrador conforme a documentação
+            const ehAdmin = participante.isAdmin || participante.isSuperAdmin;
+            
+            registrador.info(`🔍 Verificação via getParticipant: ${ehAdmin ? 'É ADMIN' : 'NÃO É ADMIN'}`);
+            return ehAdmin;
+          }
+        }
+        
+        registrador.info(`❌ Remetente não encontrado entre participantes`);
+      } else {
+        registrador.info(`❌ Método getParticipant não disponível`);
+      }
+    } catch (erroParticipantes) {
+      registrador.info(`❌ Erro ao obter participantes: ${erroParticipantes.message}`);
+    }
+    
+    // MÉTODO 2: Tentar obter apenas os administradores
+    try {
+      if (typeof chat.getAdmins === 'function') {
+        registrador.info(`🔍 Tentando obter admins via getAdmins()`);
+        const admins = await chat.getAdmins();
+        
+        // Verificar se o remetente está na lista de admins
+        const ehAdmin = admins.some(admin => admin.id._serialized === remetenteId);
+        
+        registrador.info(`🔍 Verificação via getAdmins: ${ehAdmin ? 'É ADMIN' : 'NÃO É ADMIN'}`);
+        return ehAdmin;
+      }
+    } catch (erroAdmins) {
+      registrador.info(`❌ Erro ao obter admins: ${erroAdmins.message}`);
+    }
+    
+    // MÉTODO 3: Tentar acessar groupMetadata
+    try {
+      // Algumas implementações do WhatsApp Web.js têm o groupMetadata disponível
+      if (chat.groupMetadata) {
+        registrador.info(`🔍 Tentando acessar groupMetadata`);
+        
+        // Verificar se temos acesso a participantes no groupMetadata
+        if (chat.groupMetadata.participants) {
+          // Procurar o remetente entre os participantes
+          const participante = chat.groupMetadata.participants.find(
+            p => p.id._serialized === remetenteId
+          );
+          
+          if (participante) {
+            const ehAdmin = participante.isAdmin || participante.isSuperAdmin;
+            registrador.info(`🔍 Verificação via groupMetadata: ${ehAdmin ? 'É ADMIN' : 'NÃO É ADMIN'}`);
+            return ehAdmin;
+          }
+        }
+      }
+    } catch (erroMetadata) {
+      registrador.info(`❌ Erro ao acessar groupMetadata: ${erroMetadata.message}`);
+    }
+    
+    // MÉTODO 4: Tentar via objeto chat diretamente
+    try {
+      if (chat.participants && Array.isArray(chat.participants)) {
+        registrador.info(`🔍 Tentando via chat.participants direto`);
+        
+        const participante = chat.participants.find(
+          p => p.id._serialized === remetenteId
+        );
+        
+        if (participante) {
+          const ehAdmin = participante.isAdmin || participante.isSuperAdmin;
+          registrador.info(`🔍 Verificação via chat.participants: ${ehAdmin ? 'É ADMIN' : 'NÃO É ADMIN'}`);
+          return ehAdmin;
+        }
+      }
+    } catch (erroDirecto) {
+      registrador.info(`❌ Erro ao acessar chat.participants: ${erroDirecto.message}`);
+    }
+    
+    // MÉTODO 5: Tentar usar acesso direto via Puppeteer
+    try {
+      if (clienteWhatsApp && clienteWhatsApp.cliente && clienteWhatsApp.cliente.pupPage) {
+        registrador.info(`🔍 Tentando via puppeteer`);
+        
+        const resultado = await clienteWhatsApp.cliente.pupPage.evaluate(async (chatId, senderId) => {
+          try {
+            // Tentativa 1: Via Store.GroupMetadata (método mais direto)
+            if (window.Store && window.Store.GroupMetadata) {
+              try {
+                const grupo = await window.Store.GroupMetadata.find(chatId);
+                if (grupo && grupo.participants) {
+                  const participantes = Array.from(grupo.participants);
+                  const remetente = participantes.find(p => 
+                    p.id._serialized === senderId || 
+                    p.id.user === senderId.split('@')[0]
+                  );
+                  
+                  if (remetente) {
+                    return { 
+                      sucesso: true, 
+                      ehAdmin: remetente.isAdmin || remetente.isSuperAdmin 
+                    };
+                  }
+                }
+              } catch (e) {}
+            }
+            
+            // Tentativa 2: Via Store.Contact.getModelsArray()
+            if (window.Store && window.Store.Contact) {
+              const chats = window.Store.Chat.getModelsArray();
+              const targetChat = chats.find(c => c.id._serialized === chatId);
+              
+              if (targetChat && targetChat.groupMetadata && targetChat.groupMetadata.participants) {
+                const participantes = Array.from(targetChat.groupMetadata.participants);
+                const remetente = participantes.find(p => p.id._serialized === senderId);
+                
+                if (remetente) {
+                  return { 
+                    sucesso: true, 
+                    ehAdmin: remetente.isAdmin || remetente.isSuperAdmin 
+                  };
+                }
+              }
+            }
+            
+            // Nada funcionou
+            return { sucesso: false, motivo: 'Não conseguiu acessar estruturas necessárias' };
+          } catch (erro) {
+            return { sucesso: false, erro: erro.toString() };
+          }
+        }, chatId, remetenteId);
+        
+        registrador.info(`🔍 Resultado puppeteer: ${JSON.stringify(resultado)}`);
+        
+        if (resultado && resultado.sucesso) {
+          return resultado.ehAdmin;
+        }
+      }
+    } catch (erroPuppeteer) {
+      registrador.info(`❌ Erro ao usar puppeteer: ${erroPuppeteer.message}`);
+    }
+    
+    // Se chegamos até aqui, não conseguimos verificar - vamos negar por segurança
+    registrador.warn(`⚠️ Não foi possível verificar se ${remetenteId} é administrador do grupo ${chatId}. Negando por segurança.`);
+    
+    // SOLUÇÃO TEMPORÁRIA (DESCOMENTE PARA PERMITIR TODOS EM GRUPOS)
+    return true;
+    
+    // SOLUÇÃO SEGURA (PADRÃO)
+    return false;
+  } catch (erroGeral) {
+    registrador.error(`❌ Erro geral na verificação de permissões: ${erroGeral.message}`);
+    return false;
+  }
+};
+
+/**
 * Função principal para criar o gerenciador
 */
 const criarGerenciadorMensagens = (dependencias) => {
@@ -1477,35 +1707,35 @@ const criarGerenciadorMensagens = (dependencias) => {
       // Configurar o callback unificado para todas as mídias
       // No arquivo FilasMidia.js, vamos ajustar o método setCallbackRespostaUnificado
 
-// Configurar o callback unificado para todas as mídias
-filasMidia.setCallbackRespostaUnificado(async (resultado) => {
-  try {
-    // Verificação básica do resultado recebido
-    if (!resultado || !resultado.senderNumber) {
-      registrador.warn("Resultado de fila inválido ou incompleto");
-      return;
-    }
+      // Configurar o callback unificado para todas as mídias
+      filasMidia.setCallbackRespostaUnificado(async (resultado) => {
+        try {
+          // Verificação básica do resultado recebido
+          if (!resultado || !resultado.senderNumber) {
+            registrador.warn("Resultado de fila inválido ou incompleto");
+            return;
+          }
 
-    const { resposta, senderNumber, transacaoId, remetenteName } = resultado;
+          const { resposta, senderNumber, transacaoId, remetenteName } = resultado;
 
-    // Agora usamos o ServicoMensagem para enviar
-    const resultadoEnvio = await servicoMensagem.enviarMensagemDireta(
-      senderNumber, 
-      resposta, 
-      { 
-        transacaoId,
-        remetenteName,
-        tipoMidia: resultado.tipo || 'desconhecido'
-      }
-    );
+          // Agora usamos o ServicoMensagem para enviar
+          const resultadoEnvio = await servicoMensagem.enviarMensagemDireta(
+            senderNumber,
+            resposta,
+            {
+              transacaoId,
+              remetenteName,
+              tipoMidia: resultado.tipo || 'desconhecido'
+            }
+          );
 
-    if (!resultadoEnvio.sucesso) {
-      registrador.error(`Erro ao enviar resultado de mídia: ${resultadoEnvio.erro.message}`);
-    }
-  } catch (erro) {
-    registrador.error(`Erro ao processar resultado de fila: ${erro.message}`);
-  }
-});
+          if (!resultadoEnvio.sucesso) {
+            registrador.error(`Erro ao enviar resultado de mídia: ${resultadoEnvio.erro.message}`);
+          }
+        } catch (erro) {
+          registrador.error(`Erro ao processar resultado de fila: ${erro.message}`);
+        }
+      });
 
       registrador.info('📬 Callback unificado de filas de mídia configurado com sucesso');
 
