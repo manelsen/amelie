@@ -39,7 +39,7 @@ const limparTextoResposta = (texto) => {
   }
   let textoLimpo = texto
     .replace(/^(?:amélie|amelie):[\s]*/gi, '')
-    .replace(/\r\n?|\n{3,}|\*/g, '\n')
+    .replace(/\r\n?|\n{2,}|\*/g, '\n')
     .trim();
   return textoLimpo;
 };
