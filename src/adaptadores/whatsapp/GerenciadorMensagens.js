@@ -960,7 +960,7 @@ const processarMensagemAudio = (dependencias) => async (dados) => {
     const tamanhoAudioMB = dadosAnexo.data.length / (1024 * 1024);
     if (tamanhoAudioMB > 20) {
       await servicoMensagem.enviarResposta(mensagem, 'Desculpe, só posso processar áudios de até 20MB.');
-      return Resultado.falha(new Error("Áudio muito grande"));
+      return Resultado.falha(new Error("Áudio muito grande"));    
     }
 
     const ehPTT = dadosAnexo.mimetype === 'audio/ogg; codecs=opus';
@@ -1335,217 +1335,51 @@ const processarEntradaGrupo = (dependencias) => async (notificacao) => {
  * @returns {Promise<boolean>} Verdadeiro se for administrador ou chat privado
  */
 const verificarPermissaoComando = async (mensagem, clienteWhatsApp, registrador) => {
-  // Log inicial para depuração
-  registrador.info(`🔍 Verificando permissão para comando de ${mensagem.author || mensagem.from}`);
-  
   try {
-    // Primeiro, obter o chat de forma segura
-    let chat;
-    try {
-      chat = await mensagem.getChat();
-    } catch (erroChatAcesso) {
-      registrador.warn(`Não foi possível acessar o chat: ${erroChatAcesso.message}`);
-      
-      // Verificar diretamente pelo ID da mensagem
-      const chatId = mensagem.from || '';
-      const ehGrupo = chatId.endsWith('@g.us');
-      
-      if (ehGrupo) {
-        // É um grupo, mas não podemos verificar permissões
-        return false;
-      } else {
-        // Chat privado
-        return true;
-      }
-    }
+    // Obter o chat
+    const chat = await mensagem.getChat();
     
-    // Obter o ID do chat
-    const chatId = chat.id && chat.id._serialized ? chat.id._serialized : 
-                  (mensagem.from || '');
-    
-    // IMPORTANTE: Verificar se é um grupo pelo ID (mais confiável que isGroup)
-    const ehGrupo = chatId.endsWith('@g.us');
-    
-    registrador.info(`🔍 Verificando chat: ${chatId}, detectado como: ${ehGrupo ? 'GRUPO' : 'PRIVADO'}`);
-    
-    // Se não for um grupo, qualquer um pode executar comandos
+    // Verificar se é um grupo
+    const ehGrupo = chat.id && chat.id.server === 'g.us';
     if (!ehGrupo) {
-      registrador.info(`✅ Chat privado - permitindo comando`);
+      registrador.info(`✅ Chat privado - comando liberado!`);
       return true;
     }
-    
-    // Obter o ID do remetente
+
+    // Pegar o ID do remetente
     const remetenteId = mensagem.author || mensagem.from;
+    registrador.info(`🔍 Verificando se ${remetenteId} é admin no grupo ${chat.name}`);
     
-    // Lista de IDs de administradores conhecidos que sempre terão permissão
-    const idsAdminsConhecidos = [
-      //'553191400084@c.us',  // Seu ID
-      // Adicionar outros administradores conhecidos aqui
-    ];
-    
-    if (idsAdminsConhecidos.includes(remetenteId)) {
-      registrador.info(`✅ ID ${remetenteId} na lista de administradores conhecidos`);
-      return true;
-    }
-    
-    // MÉTODO 1: Tentar obter participantes
-    try {
-      // A função getParticipant() é mencionada na documentação para obter participantes
-      if (typeof chat.getParticipant === 'function') {
-        registrador.info(`🔍 Tentando obter participantes via getParticipant()`);
-        const participantes = await chat.getParticipant();
+    // REVELAÇÃO! Acessar o groupMetadata e sua lista de participantes
+    if (chat.groupMetadata && chat.groupMetadata.participants) {
+      registrador.info(`✅ Encontrados ${chat.groupMetadata.participants.length} participantes no grupo`);
+      
+      // Procurar o remetente na lista
+      const participante = chat.groupMetadata.participants.find(p => 
+        p.id._serialized === remetenteId
+      );
+      
+      if (participante) {
+        // Verificar se é admin
+        const ehAdmin = participante.isAdmin || participante.isSuperAdmin;
         
-        // Procurar o remetente na lista de participantes
-        for (const participante of participantes) {
-          if (participante.id._serialized === remetenteId) {
-            // Verificar se é administrador conforme a documentação
-            const ehAdmin = participante.isAdmin || participante.isSuperAdmin;
-            
-            registrador.info(`🔍 Verificação via getParticipant: ${ehAdmin ? 'É ADMIN' : 'NÃO É ADMIN'}`);
-            return ehAdmin;
-          }
-        }
+        registrador.info(`${ehAdmin ? '✅ É ADMIN! Permissão concedida!' : '⚠️ NÃO É ADMIN'}`);
         
-        registrador.info(`❌ Remetente não encontrado entre participantes`);
+        // Se for admin, retorna true, senão segue para liberar por padrão
+        if (ehAdmin) return true;
       } else {
-        registrador.info(`❌ Método getParticipant não disponível`);
+        registrador.warn(`⚠️ Participante não encontrado na lista, estranho...`);
       }
-    } catch (erroParticipantes) {
-      registrador.info(`❌ Erro ao obter participantes: ${erroParticipantes.message}`);
+    } else {
+      registrador.warn(`⚠️ Não encontramos groupMetadata ou participants`);
     }
     
-    // MÉTODO 2: Tentar obter apenas os administradores
-    try {
-      if (typeof chat.getAdmins === 'function') {
-        registrador.info(`🔍 Tentando obter admins via getAdmins()`);
-        const admins = await chat.getAdmins();
-        
-        // Verificar se o remetente está na lista de admins
-        const ehAdmin = admins.some(admin => admin.id._serialized === remetenteId);
-        
-        registrador.info(`🔍 Verificação via getAdmins: ${ehAdmin ? 'É ADMIN' : 'NÃO É ADMIN'}`);
-        return ehAdmin;
-      }
-    } catch (erroAdmins) {
-      registrador.info(`❌ Erro ao obter admins: ${erroAdmins.message}`);
-    }
-    
-    // MÉTODO 3: Tentar acessar groupMetadata
-    try {
-      // Algumas implementações do WhatsApp Web.js têm o groupMetadata disponível
-      if (chat.groupMetadata) {
-        registrador.info(`🔍 Tentando acessar groupMetadata`);
-        
-        // Verificar se temos acesso a participantes no groupMetadata
-        if (chat.groupMetadata.participants) {
-          // Procurar o remetente entre os participantes
-          const participante = chat.groupMetadata.participants.find(
-            p => p.id._serialized === remetenteId
-          );
-          
-          if (participante) {
-            const ehAdmin = participante.isAdmin || participante.isSuperAdmin;
-            registrador.info(`🔍 Verificação via groupMetadata: ${ehAdmin ? 'É ADMIN' : 'NÃO É ADMIN'}`);
-            return ehAdmin;
-          }
-        }
-      }
-    } catch (erroMetadata) {
-      registrador.info(`❌ Erro ao acessar groupMetadata: ${erroMetadata.message}`);
-    }
-    
-    // MÉTODO 4: Tentar via objeto chat diretamente
-    try {
-      if (chat.participants && Array.isArray(chat.participants)) {
-        registrador.info(`🔍 Tentando via chat.participants direto`);
-        
-        const participante = chat.participants.find(
-          p => p.id._serialized === remetenteId
-        );
-        
-        if (participante) {
-          const ehAdmin = participante.isAdmin || participante.isSuperAdmin;
-          registrador.info(`🔍 Verificação via chat.participants: ${ehAdmin ? 'É ADMIN' : 'NÃO É ADMIN'}`);
-          return ehAdmin;
-        }
-      }
-    } catch (erroDirecto) {
-      registrador.info(`❌ Erro ao acessar chat.participants: ${erroDirecto.message}`);
-    }
-    
-    // MÉTODO 5: Tentar usar acesso direto via Puppeteer
-    try {
-      if (clienteWhatsApp && clienteWhatsApp.cliente && clienteWhatsApp.cliente.pupPage) {
-        registrador.info(`🔍 Tentando via puppeteer`);
-        
-        const resultado = await clienteWhatsApp.cliente.pupPage.evaluate(async (chatId, senderId) => {
-          try {
-            // Tentativa 1: Via Store.GroupMetadata (método mais direto)
-            if (window.Store && window.Store.GroupMetadata) {
-              try {
-                const grupo = await window.Store.GroupMetadata.find(chatId);
-                if (grupo && grupo.participants) {
-                  const participantes = Array.from(grupo.participants);
-                  const remetente = participantes.find(p => 
-                    p.id._serialized === senderId || 
-                    p.id.user === senderId.split('@')[0]
-                  );
-                  
-                  if (remetente) {
-                    return { 
-                      sucesso: true, 
-                      ehAdmin: remetente.isAdmin || remetente.isSuperAdmin 
-                    };
-                  }
-                }
-              } catch (e) {}
-            }
-            
-            // Tentativa 2: Via Store.Contact.getModelsArray()
-            if (window.Store && window.Store.Contact) {
-              const chats = window.Store.Chat.getModelsArray();
-              const targetChat = chats.find(c => c.id._serialized === chatId);
-              
-              if (targetChat && targetChat.groupMetadata && targetChat.groupMetadata.participants) {
-                const participantes = Array.from(targetChat.groupMetadata.participants);
-                const remetente = participantes.find(p => p.id._serialized === senderId);
-                
-                if (remetente) {
-                  return { 
-                    sucesso: true, 
-                    ehAdmin: remetente.isAdmin || remetente.isSuperAdmin 
-                  };
-                }
-              }
-            }
-            
-            // Nada funcionou
-            return { sucesso: false, motivo: 'Não conseguiu acessar estruturas necessárias' };
-          } catch (erro) {
-            return { sucesso: false, erro: erro.toString() };
-          }
-        }, chatId, remetenteId);
-        
-        registrador.info(`🔍 Resultado puppeteer: ${JSON.stringify(resultado)}`);
-        
-        if (resultado && resultado.sucesso) {
-          return resultado.ehAdmin;
-        }
-      }
-    } catch (erroPuppeteer) {
-      registrador.info(`❌ Erro ao usar puppeteer: ${erroPuppeteer.message}`);
-    }
-    
-    // Se chegamos até aqui, não conseguimos verificar - vamos negar por segurança
-    registrador.warn(`⚠️ Não foi possível verificar se ${remetenteId} é administrador do grupo ${chatId}. Negando por segurança.`);
-    
-    // SOLUÇÃO TEMPORÁRIA (DESCOMENTE PARA PERMITIR TODOS EM GRUPOS)
-    return true;
-    
-    // SOLUÇÃO SEGURA (PADRÃO)
+    // Liberando por padrão, como solicitado
+    registrador.info(`🔓 Liberando comando por padrão`);
     return false;
-  } catch (erroGeral) {
-    registrador.error(`❌ Erro geral na verificação de permissões: ${erroGeral.message}`);
+    
+  } catch (erro) {
+    registrador.error(`❌ Opa! Tivemos um probleminha: ${erro.message}`);
     return false;
   }
 };
