@@ -221,7 +221,8 @@ const Configuracao = {
     },
     limiter: {
       max: 10,
-      duration: 60000
+      duration: 60000,
+      bounceback: true
     }
   })),
   
