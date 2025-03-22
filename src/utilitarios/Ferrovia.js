@@ -89,7 +89,7 @@ const Resultado = {
 /**
  * Utilitários para trabalhar com funções assíncronas seguindo o padrão Ferrovia
  */
-const Assync = {
+const Trilho = {
   /**
    * Converte uma Promise em um Resultado
    * @param {Promise} promessa - Promise a ser convertida
@@ -106,7 +106,7 @@ const Assync = {
    * @returns {Function} Função que retorna Promise<Resultado>
    */
   envolver: (fn) => (...args) => 
-    Assync.dePromise(fn(...args)),
+    Trilho.dePromise(fn(...args)),
     
   /**
    * Encadeia operações assíncronas que retornam Resultado
@@ -138,7 +138,7 @@ const Operacoes = {
     try {
       const resultado = fn(...args);
       return resultado instanceof Promise
-        ? Assync.dePromise(resultado)
+        ? Trilho.dePromise(resultado)
         : Resultado.sucesso(resultado);
     } catch (erro) {
       return Resultado.falha(erro);
@@ -168,7 +168,7 @@ const Operacoes = {
       try {
         const resultado = op(...args);
         if (resultado instanceof Promise) {
-          const resultadoResolvido = await Assync.dePromise(resultado);
+          const resultadoResolvido = await Trilho.dePromise(resultado);
           if (resultadoResolvido.sucesso) return resultadoResolvido;
           ultimoErro = resultadoResolvido.erro;
         } else if (resultado.sucesso) {
@@ -354,7 +354,7 @@ const ArquivoUtils = {
 
 module.exports = {
   Resultado,
-  Assync,
+  Trilho,
   Operacoes,
   ArquivoUtils
 };

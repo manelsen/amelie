@@ -4,20 +4,18 @@
  * Implementa arquitetura funcional pura com composição, padrão Railway e imutabilidade.
  * Sem classes, apenas funções e composição.
  * 
- * @author Belle Utsch
+ * @author Belle Utsch (adaptado por Manel)
  */
 
 const Queue = require('bull');
 const fs = require('fs');
 const crypto = require('crypto');
 const _ = require('lodash/fp');
-const { promisify } = require('util');
+const path = require('path');
+const { Resultado, ArquivoUtils, Trilho, Operacoes } = require('../../utilitarios/Ferrovia');
+const { verificarArquivoExiste, removerArquivo } = ArquivoUtils;
 
-// Promisificar operações do fs para abordagem funcional
-const existsAsync = promisify(fs.exists);
-const unlinkAsync = promisify(fs.unlink);
-
-// Importação corrigida - caminho correto!
+// Importação corrigida - caminho correto
 const {
   obterInstrucaoPadrao,
   obterInstrucaoImagem,
@@ -31,24 +29,6 @@ const {
   obterPromptVideoCurto,
   obterPromptVideoLegenda
 } = require('../../config/InstrucoesSistema');
-
-// ===== PATTERN MATCHING PARA TRATAMENTO DE ERROS (Railway Pattern) =====
-
-/**
- * Resultado - Pattern Matching para tratamento funcional de erros
- */
-const Resultado = {
-  sucesso: (dados) => ({ sucesso: true, dados, erro: null }),
-  falha: (erro) => ({ sucesso: false, dados: null, erro }),
-
-  // Funções utilitárias para encadeamento
-  mapear: (resultado, fn) => resultado.sucesso ? Resultado.sucesso(fn(resultado.dados)) : resultado,
-  encadear: (resultado, fn) => resultado.sucesso ? fn(resultado.dados) : resultado,
-
-  // Manipuladores de resultado
-  dobrar: (resultado, aoSucesso, aoFalhar) =>
-    resultado.sucesso ? aoSucesso(resultado.dados) : aoFalhar(resultado.erro)
-};
 
 // ===== UTILITÁRIOS FUNCIONAIS =====
 
@@ -67,19 +47,21 @@ const Utilitarios = {
    * @param {string} caminhoArquivo - Caminho para o arquivo
    * @returns {Promise<Resultado>} Resultado da operação
    */
-  limparArquivo: async (caminhoArquivo) => {
-    try {
-      const existe = await existsAsync(caminhoArquivo);
-
-      if (!existe) {
-        return Resultado.sucesso(false);
-      }
-
-      await unlinkAsync(caminhoArquivo);
-      return Resultado.sucesso(true);
-    } catch (erro) {
-      return Resultado.falha(erro);
-    }
+  limparArquivo: (caminhoArquivo) => {
+    return verificarArquivoExiste(caminhoArquivo)
+      .then(resultado => {
+        if (!resultado.sucesso) {
+          return Resultado.sucesso(false);
+        }
+        
+        // Se arquivo não existe, não é um erro
+        if (!resultado.dados) {
+          return Resultado.sucesso(false);
+        }
+        
+        // Remover o arquivo
+        return removerArquivo(caminhoArquivo);
+      });
   },
 
   /**
@@ -144,44 +126,6 @@ const Utilitarios = {
       [msg => msg.includes('format') || msg.includes('mime'), _.constant('format')],
       [_.stubTrue, _.constant('general')]
     ])(mensagemErro);
-  },
-
-  /**
-   * Tenta executar uma operação com tratamento de erro
-   * @param {Function} operacao - Função assíncrona a executar
-   * @param {Function} tratarErro - Função para tratar erros
-   * @returns {Promise<Resultado>} Resultado da operação
-   */
-  tentarOperacao: function () {
-    // Se for chamada com estilo curry (apenas primeiro argumento)
-    if (arguments.length === 1 && typeof arguments[0] === 'function') {
-      const operacao = arguments[0];
-      // Retorna uma função que aceita o tratador de erro
-      return async function (tratarErro) {
-        try {
-          const resultado = await operacao();
-          return Resultado.sucesso(resultado);
-        } catch (erro) {
-          return tratarErro ? Resultado.falha(tratarErro(erro)) : Resultado.falha(erro);
-        }
-      };
-    }
-    // Chamada direta sem curry
-    else if (arguments.length >= 1) {
-      const operacao = arguments[0];
-      const tratarErro = arguments[1];
-      return (async () => {
-        try {
-          const resultado = await operacao();
-          return Resultado.sucesso(resultado);
-        } catch (erro) {
-          return tratarErro ? Resultado.falha(tratarErro(erro)) : Resultado.falha(erro);
-        }
-      })();
-    }
-    else {
-      throw new Error("tentarOperacao precisa de pelo menos um argumento");
-    }
   }
 };
 
@@ -215,12 +159,7 @@ const Configuracao = {
       },
       removeOnComplete: true,
       removeOnFail: false
-    }/*,
-    limiter: {
-      max: 100,
-      duration: 60000, //minuto
-      bounceback: true
-    }*/
+    }
   })),
 
   /**
@@ -231,7 +170,6 @@ const Configuracao = {
    * @param {string} tipoMidia - Tipo de mídia
    * @returns {Promise<Resultado>} Configurações
    */
-
   obterConfig: _.curry(async (gerenciadorConfig, registrador, chatId, tipoMidia) => {
     try {
       const config = await gerenciadorConfig.obterConfig(chatId);
@@ -472,54 +410,54 @@ const ProcessadoresMidia = {
    * @param {Object} config - Configurações de processamento
    * @returns {Promise<Resultado>} Resultado do processamento
    */
-  processarImagem: _.curry(async (gerenciadorAI, registrador, imageData, prompt, config) => {
-    return Utilitarios.tentarOperacao(async () => {
-      registrador.debug(`Processando imagem com modo ${config.modoDescricao}`);
-
-      if (!imageData || !imageData.data) {
-        throw new Error("Dados de imagem inválidos ou ausentes");
-      }
-
-      // Obter modelo com as configurações apropriadas
-      const modelo = gerenciadorAI.obterOuCriarModelo({
-        ...config,
-        systemInstruction: config.systemInstructions
-      });
-
-      // Preparar componentes da requisição
-      const parteImagem = {
-        inlineData: {
-          data: imageData.data,
-          mimeType: imageData.mimetype
-        }
-      };
-
-      const partesConteudo = [
-        parteImagem,
-        { text: prompt }
-      ];
-
-      // Adicionar timeout de 45 segundos
-      const promessaResultado = modelo.generateContent(partesConteudo);
-      const promessaTimeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Tempo esgotado na análise da imagem")), 90000)
-      );
-
-      // Aguardar o primeiro resultado (modelo ou timeout)
-      const resultado = await Promise.race([promessaResultado, promessaTimeout]);
-      let textoResposta = resultado.response.text();
-
-      // Validar resposta
-      if (!textoResposta) {
-        throw new Error('Resposta vazia gerada pelo modelo');
-      }
-
-      // Limpar e retornar resposta
-      return gerenciadorAI.limparResposta(textoResposta);
-    }, erro => {
-      registrador.error(`Erro ao processar imagem: ${erro.message}`);
-      return erro;
+  processarImagem: _.curry((gerenciadorAI, registrador, imageData, prompt, config) => {
+    // Validar dados de entrada
+    if (!imageData || !imageData.data) {
+      return Promise.resolve(Resultado.falha(new Error("Dados de imagem inválidos ou ausentes")));
+    }
+    
+    registrador.debug(`Processando imagem com modo ${config.modoDescricao}`);
+    
+    // Obter modelo com as configurações apropriadas
+    const modelo = gerenciadorAI.obterOuCriarModelo({
+      ...config,
+      systemInstruction: config.systemInstructions
     });
+    
+    // Preparar componentes da requisição
+    const parteImagem = {
+      inlineData: {
+        data: imageData.data,
+        mimeType: imageData.mimetype
+      }
+    };
+    
+    const partesConteudo = [
+      parteImagem,
+      { text: prompt }
+    ];
+    
+    // Adicionar timeout de 90 segundos
+    const promessaResultado = modelo.generateContent(partesConteudo);
+    const promessaTimeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Tempo esgotado na análise da imagem")), 90000)
+    );
+    
+    // Usar Trilho para transformar a Promise em Resultado
+    return Trilho.dePromise(Promise.race([promessaResultado, promessaTimeout]))
+      .then(resultado => {
+        if (!resultado.sucesso) {
+          return Resultado.falha(resultado.erro);
+        }
+        
+        const textoResposta = resultado.dados.response.text();
+        
+        if (!textoResposta) {
+          return Resultado.falha(new Error('Resposta vazia gerada pelo modelo'));
+        }
+        
+        return Resultado.sucesso(gerenciadorAI.limparResposta(textoResposta));
+      });
   }),
 
   /**
@@ -531,107 +469,114 @@ const ProcessadoresMidia = {
    * @param {Object} config - Configurações de processamento
    * @returns {Promise<Resultado>} Resultado do processamento
    */
-  processarVideo: _.curry(async (gerenciadorAI, registrador, caminhoArquivo, prompt, config) => {
+  processarVideo: _.curry((gerenciadorAI, registrador, caminhoArquivo, prompt, config) => {
     // 1. Verificar arquivo
-    const verificarArquivo = async () => {
-      const existe = await existsAsync(caminhoArquivo);
-      if (!existe) {
-        throw new Error("Arquivo de vídeo não encontrado");
-      }
-      return caminhoArquivo;
-    };
-
-    // 2. Fazer upload para o Google AI
-    const fazerUpload = async (caminhoVerificado) => {
-      return await gerenciadorAI.gerenciadorArquivos.uploadFile(caminhoVerificado, {
-        mimeType: config.mimeType || 'video/mp4',
-        displayName: "Vídeo Enviado"
-      });
-    };
-
-    // 3. Aguardar processamento
-    const aguardarProcessamento = async (respostaUpload) => {
-      let arquivo;
-      let tentativas = 0;
-      const maxTentativas = 10;
-
-      while (tentativas < maxTentativas) {
-        arquivo = await gerenciadorAI.gerenciadorArquivos.getFile(respostaUpload.file.name);
-
-        if (arquivo.state === "SUCCEEDED" || arquivo.state === "ACTIVE") {
-          return { arquivo, respostaUpload };
-        }
-
-        if (arquivo.state === "FAILED") {
-          throw new Error("Falha no processamento do vídeo pelo Google AI");
-        }
-
-        // Ainda em processamento, aguardar
-        registrador.info(`Vídeo ainda em processamento, aguardando... (tentativa ${tentativas + 1}/${maxTentativas})`);
-        await new Promise(resolve => setTimeout(resolve, 10000)); // 10 segundos
-        tentativas++;
-      }
-
-      throw new Error("Tempo máximo de processamento excedido");
-    };
-
-    // 4. Analisar o vídeo
-    const analisarVideo = async ({ arquivo, respostaUpload }) => {
-      // Obter modelo
-      const modelo = gerenciadorAI.obterOuCriarModelo(config);
-
-      // Preparar partes de conteúdo
-      const partesConteudo = [
-        {
-          fileData: {
-            mimeType: arquivo.mimeType,
-            fileUri: arquivo.uri
+    return Trilho.encadear(
+      // Verificar se o arquivo existe
+      () => ArquivoUtils.verificarArquivoExiste(caminhoArquivo)
+        .then(resultado => {
+          if (!resultado.sucesso || !resultado.dados) {
+            return Resultado.falha(new Error("Arquivo de vídeo não encontrado"));
           }
-        },
-        {
-          text: prompt
-        }
-      ];
-
-      // Adicionar timeout para a chamada à IA
-      const promessaRespostaIA = modelo.generateContent(partesConteudo);
-      const promessaTimeoutIA = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 60000)
-      );
-
-      // Processar o resultado
-      const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
-      let resposta = resultado.response.text();
-
-      if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
-        resposta = "Não consegui gerar uma descrição clara para este vídeo.";
+          return Resultado.sucesso(caminhoArquivo);
+        }),
+      
+      // 2. Fazer upload para o Google AI
+      (caminhoValido) => {
+        return Trilho.dePromise(
+          gerenciadorAI.gerenciadorArquivos.uploadFile(caminhoValido, {
+            mimeType: config.mimeType || 'video/mp4',
+            displayName: "Vídeo Enviado"
+          })
+        );
+      },
+      
+      // 3. Aguardar processamento
+      (respostaUpload) => {
+        return Trilho.encadear(
+          async () => {
+            let arquivo;
+            let tentativas = 0;
+            const maxTentativas = 10;
+            
+            while (tentativas < maxTentativas) {
+              arquivo = await gerenciadorAI.gerenciadorArquivos.getFile(respostaUpload.file.name);
+              
+              if (arquivo.state === "SUCCEEDED" || arquivo.state === "ACTIVE") {
+                return Resultado.sucesso({ arquivo, respostaUpload });
+              }
+              
+              if (arquivo.state === "FAILED") {
+                return Resultado.falha(new Error("Falha no processamento do vídeo pelo Google AI"));
+              }
+              
+              // Ainda em processamento, aguardar
+              registrador.info(`Vídeo ainda em processamento, aguardando... (tentativa ${tentativas + 1}/${maxTentativas})`);
+              await new Promise(resolve => setTimeout(resolve, 10000)); // 10 segundos
+              tentativas++;
+            }
+            
+            return Resultado.falha(new Error("Tempo máximo de processamento excedido"));
+          }
+        )();
+      },
+      
+      // 4. Analisar o vídeo
+      (dadosProcessados) => {
+        const { arquivo, respostaUpload } = dadosProcessados;
+        
+        // Obter modelo
+        const modelo = gerenciadorAI.obterOuCriarModelo(config);
+        
+        // Preparar partes de conteúdo
+        const partesConteudo = [
+          {
+            fileData: {
+              mimeType: arquivo.mimeType,
+              fileUri: arquivo.uri
+            }
+          },
+          {
+            text: prompt
+          }
+        ];
+        
+        // Adicionar timeout para a chamada à IA
+        const promessaRespostaIA = modelo.generateContent(partesConteudo);
+        const promessaTimeoutIA = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 120000)
+        );
+        
+        return Trilho.dePromise(Promise.race([promessaRespostaIA, promessaTimeoutIA]))
+          .then(resultado => {
+            if (!resultado.sucesso) {
+              return Resultado.falha(resultado.erro);
+            }
+            
+            let resposta = resultado.dados.response.text();
+            
+            if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
+              resposta = "Não consegui gerar uma descrição clara para este vídeo.";
+            }
+            
+            // Limpar arquivo remoto e retornar resposta
+            return Trilho.dePromise(gerenciadorAI.gerenciadorArquivos.deleteFile(respostaUpload.file.name))
+              .then(() => Resultado.sucesso(resposta))
+              .catch(() => {
+                // Se falhar ao limpar, ainda retornamos a resposta
+                registrador.warn(`Não foi possível limpar arquivo remoto após processamento`);
+                return Resultado.sucesso(resposta);
+              });
+          });
       }
-
-      // Limpar arquivo remoto
-      try {
-        await gerenciadorAI.gerenciadorArquivos.deleteFile(respostaUpload.file.name);
-      } catch (erroLimpeza) {
-        registrador.warn(`Erro ao limpar arquivo remoto: ${erroLimpeza.message}`);
-      }
-
-      return resposta;
-    };
-
-    // Compor as operações usando pipe e tratar erros
-    return Utilitarios.tentarOperacao(async () => {
-      return _.pipe(
-        verificarArquivo,
-        valor => fazerUpload(valor),
-        valor => aguardarProcessamento(valor),
-        valor => analisarVideo(valor)
-      )();
-    }, erro => {
+    )()
+    .catch(erro => {
       registrador.error(`Erro ao processar vídeo: ${erro.message}`);
-
+      
       // Limpar arquivo local em caso de erro
       Utilitarios.limparArquivo(caminhoArquivo);
-
-      return erro;
+      
+      return Resultado.falha(erro);
     });
   })
 };
@@ -674,11 +619,11 @@ const ProcessadoresFilas = {
   }),
 
   /**
- * Cria processador para enviar resultados
- * @param {Object} registrador - Objeto de log
- * @param {Object} callbacks - Mapa de callbacks por tipo de mídia
- * @returns {Function} Processador de resultado
- */
+   * Cria processador para enviar resultados
+   * @param {Object} registrador - Objeto de log
+   * @param {Object} callbacks - Mapa de callbacks por tipo de mídia
+   * @returns {Function} Processador de resultado
+   */
   criarProcessadorResultado: _.curry((registrador, callbacks, resultado) => {
     // Validar entrada e converter para padrão ferrovia
     const validarResultado = (resultado) => {
@@ -693,9 +638,6 @@ const ProcessadoresFilas = {
     const registrarConclusao = (resultado) => {
       // Verificar se o transacaoId já começa com tx_
       const idTx = resultado.transacaoId || 'sem_id';
-      //const idTxFormatado = idTx.startsWith('tx_') ? idTx : `tx_${idTx}`;
-
-      //registrador.info(`Resposta de ${resultado.tipo} pronta - ${idTxFormatado}`);
       registrador.info(`Resposta de ${resultado.tipo} pronta - ${idTx}`);
       return Resultado.sucesso(resultado);
     };
@@ -715,17 +657,13 @@ const ProcessadoresFilas = {
 
     // Executar callback usando o utilitário já existente no código
     const executarCallback = ({ resultado, callback }) => {
-      // Usamos o utilitário de tentativa de operação que já existe no código
-      return Utilitarios.tentarOperacao(
-        () => {
-          const valorRetorno = callback(resultado);
-          return valorRetorno;
-        },
-        (erro) => {
-          registrador.error(`Erro ao executar callback para ${resultado.tipo}: ${erro.message}`);
-          return erro;
+      // Usando Operacoes.tentar
+      return Operacoes.tentar(() => callback(resultado))().then(resultadoCallback => {
+        if (!resultadoCallback.sucesso) {
+          registrador.error(`Erro ao executar callback para ${resultado.tipo}: ${resultadoCallback.erro.message}`);
         }
-      );
+        return resultadoCallback;
+      });
     };
 
     // Compor o fluxo usando o padrão ferrovia
@@ -747,37 +685,44 @@ const ProcessadoresFilas = {
   criarProcessadorUploadImagem: _.curry((registrador, filas, notificarErro) => async (job) => {
     const { imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
 
-    try {
-      registrador.debug(`[Imagem] Iniciando preparo da imagem para análise (Job ${job.id})`);
-
-      // Verificar se temos dados da imagem válidos
-      if (!imageData || !imageData.data) {
-        throw new Error("Dados da imagem inválidos ou ausentes");
-      }
-
+    return Trilho.encadear(
+      // Verificar dados da imagem
+      () => {
+        registrador.debug(`[Imagem] Iniciando preparo da imagem para análise (Job ${job.id})`);
+        
+        if (!imageData || !imageData.data) {
+          return Resultado.falha(new Error("Dados da imagem inválidos ou ausentes"));
+        }
+        
+        return Resultado.sucesso(job.data);
+      },
+      
       // Adicionar à fila de análise
-      await filas.imagem.analise.add('analise-imagem', {
-        imageData,
-        chatId,
-        messageId,
-        mimeType,
-        userPrompt,
-        senderNumber,
-        transacaoId,
-        remetenteName,
-        uploadTimestamp: Date.now(),
-        tipo: 'imagem'
-      });
-
-      return { success: true };
-    } catch (erro) {
+      (dados) => {
+        return Trilho.dePromise(
+          filas.imagem.analise.add('analise-imagem', {
+            imageData,
+            chatId,
+            messageId,
+            mimeType,
+            userPrompt,
+            senderNumber,
+            transacaoId,
+            remetenteName,
+            uploadTimestamp: Date.now(),
+            tipo: 'imagem'
+          })
+        ).then(() => Resultado.sucesso({ success: true }));
+      }
+    )()
+    .catch(erro => {
       registrador.error(`[Imagem] Erro no preparo: ${erro.message}`, { erro, jobId: job.id });
-
+      
       // Notificar erro
       notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-
-      throw erro;
-    }
+      
+      throw erro; // Rejeitar promessa para que Bull considere o job como falha
+    });
   }),
 
   /**
@@ -799,95 +744,86 @@ const ProcessadoresFilas = {
     const prepararPrompt = Configuracao.prepararPrompt(registrador);
     const processarImagem = ProcessadoresMidia.processarImagem(gerenciadorAI, registrador);
 
-    try {
-      registrador.debug(`[Imagem] Iniciando análise da imagem (Job ${job.id})`);
-
+    return Trilho.encadear(
+      // Iniciar análise
+      () => {
+        registrador.debug(`[Imagem] Iniciando análise da imagem (Job ${job.id})`);
+        return Resultado.sucesso(true);
+      },
+      
       // Obter configuração
-      const resultadoConfig = await obterConfig(chatId, 'imagem');
-
-      // Extrair config ou usar padrão em caso de erro
-      const config = Resultado.dobrar(
-        resultadoConfig,
-        config => config,
-        erro => {
-          registrador.error(`Erro ao obter config: ${erro.message}, usando padrão`);
-          return {
-            temperature: 0.7,
-            topK: 1,
-            topP: 0.95,
-            maxOutputTokens: 800,
-            model: "gemini-2.0-flash",
-            modoDescricao: 'curto'
-          };
-        }
-      );
-
-      // Preparar prompt
-      const promptFinal = prepararPrompt('imagem', userPrompt, config.modoDescricao);
-
-      // Processar imagem
-      const resultadoProcessamento = await processarImagem(imageData, promptFinal, config);
-
-      // Processar resultado
-      return Resultado.dobrar(
-        resultadoProcessamento,
-        resposta => {
-          // Enviar resultado bem-sucedido
-          registrador.debug(`[Imagem] Análise concluída com sucesso (Job ${job.id})`);
-          processarResultado({
-            resposta,
-            chatId,
-            messageId,
-            senderNumber,
-            transacaoId,
-            remetenteName,
-            tipo: 'imagem'
-          });
-
-          return { success: true };
-        },
-        erro => {
-          // Processar erro
-          notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-          throw erro;
-        }
-      );
-    } catch (erro) {
+      async () => await obterConfig(chatId, 'imagem'),
+      
+      // Preparar e processar imagem
+      (config) => {
+        // Preparar prompt
+        const promptFinal = prepararPrompt('imagem', userPrompt, config.modoDescricao);
+        
+        // Processar imagem
+        return processarImagem(imageData, promptFinal, config);
+      },
+      
+      // Enviar resultado
+      (resposta) => {
+        // Enviar resultado bem-sucedido
+        registrador.debug(`[Imagem] Análise concluída com sucesso (Job ${job.id})`);
+        
+        processarResultado({
+          resposta,
+          chatId,
+          messageId,
+          senderNumber,
+          transacaoId,
+          remetenteName,
+          tipo: 'imagem'
+        });
+        
+        return Resultado.sucesso({ success: true });
+      }
+    )()
+    .catch(erro => {
       registrador.error(`[Imagem] Erro na análise: ${erro.message}`, { erro, jobId: job.id });
-
+      
       // Notificar erro
       notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-
-      throw erro;
-    }
+      
+      throw erro; // Rejeitar promessa para que Bull considere o job como falha
+    });
   }),
 
   /**
- * Criar processador principal de imagem (compatibilidade)
- */
+   * Criar processador principal de imagem (compatibilidade)
+   */
   criarProcessadorPrincipalImagem: _.curry((registrador, filas, notificarErro) => async (job) => {
     const { imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
 
-    try {
-      // Adicionamos esta linha para log mais informativo
-      registrador.info(`Imagem inserida na fila   - ${transacaoId || 'sem_id'}`);
-
+    return Trilho.encadear(
+      () => {
+        // Adicionamos esta linha para log mais informativo
+        registrador.info(`Imagem inserida na fila   - ${transacaoId || 'sem_id'}`);
+        return Resultado.sucesso(job.data);
+      },
+      
       // Redirecionar para a nova estrutura de fila
-      const uploadJob = await filas.imagem.upload.add('upload-imagem', {
-        imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName, tipo: 'imagem'
-      });
-
-      registrador.debug(`[Imagem] Redirecionada com sucesso, job ID: ${uploadJob.id}`);
-
-      return { success: true, redirectedJobId: uploadJob.id };
-    } catch (erro) {
+      () => Trilho.dePromise(
+        filas.imagem.upload.add('upload-imagem', {
+          imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName, tipo: 'imagem'
+        })
+      ),
+      
+      (uploadJob) => {
+        registrador.debug(`[Imagem] Redirecionada com sucesso, job ID: ${uploadJob.id}`);
+        return Resultado.sucesso({ success: true, redirectedJobId: uploadJob.id });
+      }
+    )()
+    .catch(erro => {
       registrador.error(`[Imagem] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
-
+      
       // Notificar erro
       notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-
-      throw erro;
-    }
+      
+      throw erro; // Rejeitar promessa para que Bull considere o job como falha
+    });
   }),
 
   /**
@@ -901,51 +837,67 @@ const ProcessadoresFilas = {
   criarProcessadorUploadVideo: _.curry((registrador, gerenciadorAI, filas, notificarErro) => async (job) => {
     const { tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
 
-    try {
-      registrador.debug(`[Vídeo] Iniciando upload: ${tempFilename} (Job ${job.id})`);
-
-      // Verificar se o arquivo existe
-      const existe = await existsAsync(tempFilename);
-      if (!existe) {
-        throw new Error("Arquivo temporário do vídeo não encontrado");
-      }
-
+    return Trilho.encadear(
+      // Verificar arquivo
+      () => {
+        registrador.debug(`[Vídeo] Iniciando upload: ${tempFilename} (Job ${job.id})`);
+        
+        return ArquivoUtils.verificarArquivoExiste(tempFilename)
+          .then(resultado => {
+            if (!resultado.sucesso || !resultado.dados) {
+              return Resultado.falha(new Error("Arquivo temporário do vídeo não encontrado"));
+            }
+            return Resultado.sucesso(job.data);
+          });
+      },
+      
       // Fazer upload para o Google AI
-      const respostaUpload = await gerenciadorAI.gerenciadorArquivos.uploadFile(tempFilename, {
-        mimeType: mimeType || 'video/mp4',
-        displayName: "Vídeo Enviado"
-      });
-
-      registrador.debug(`[Vídeo] Upload concluído, nome do arquivo: ${respostaUpload.file.name}`);
-
+      async (dados) => {
+        const respostaUpload = await gerenciadorAI.gerenciadorArquivos.uploadFile(tempFilename, {
+          mimeType: mimeType || 'video/mp4',
+          displayName: "Vídeo Enviado"
+        });
+        
+        registrador.debug(`[Vídeo] Upload concluído, nome do arquivo: ${respostaUpload.file.name}`);
+        
+        return Resultado.sucesso({
+          ...dados,
+          fileName: respostaUpload.file.name,
+          fileUri: respostaUpload.file.uri
+        });
+      },
+      
       // Adicionar à fila de processamento
-      await filas.video.processamento.add('processar-video', {
-        fileName: respostaUpload.file.name,
-        fileUri: respostaUpload.file.uri,
-        tempFilename,
-        chatId,
-        messageId,
-        mimeType,
-        userPrompt,
-        senderNumber,
-        transacaoId,
-        remetenteName,
-        uploadTimestamp: Date.now(),
-        tipo: 'video'
-      });
-
-      return { success: true, fileName: respostaUpload.file.name };
-    } catch (erro) {
+      (dados) => {
+        return Trilho.dePromise(
+          filas.video.processamento.add('processar-video', {
+            fileName: dados.fileName,
+            fileUri: dados.fileUri,
+            tempFilename,
+            chatId,
+            messageId,
+            mimeType,
+            userPrompt,
+            senderNumber,
+            transacaoId,
+            remetenteName,
+            uploadTimestamp: Date.now(),
+            tipo: 'video'
+          })
+        ).then(() => Resultado.sucesso({ success: true, fileName: dados.fileName }));
+      }
+    )()
+    .catch(erro => {
       registrador.error(`[Vídeo] Erro no upload: ${erro.message}`, { erro, jobId: job.id });
-
+      
       // Notificar erro
       notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-
+      
       // Limpar arquivo temporário em caso de erro
-      await Utilitarios.limparArquivo(tempFilename);
-
-      throw erro;
-    }
+      Utilitarios.limparArquivo(tempFilename);
+      
+      throw erro; // Rejeitar promessa para que Bull considere o job como falha
+    });
   }),
 
   /**
@@ -963,101 +915,111 @@ const ProcessadoresFilas = {
       uploadTimestamp, remetenteName, tentativas = 0
     } = job.data;
 
-    try {
-      registrador.debug(`[Vídeo] Verificando processamento: ${fileName} (Job ${job.id}), tentativa ${tentativas + 1}`);
-
-      // Verificar se já passou tempo demais desde o upload
-      const tempoDecorrido = Date.now() - uploadTimestamp;
-      if (tempoDecorrido > 120000 && tentativas > 3) { // 2 minutos e já tentou algumas vezes
-        throw new Error(`Arquivo provavelmente expirou após ${Math.round(tempoDecorrido / 1000)} segundos`);
-      }
-
+    return Trilho.encadear(
+      // Verificar processamento
+      () => {
+        registrador.debug(`[Vídeo] Verificando processamento: ${fileName} (Job ${job.id}), tentativa ${tentativas + 1}`);
+        
+        // Verificar se já passou tempo demais desde o upload
+        const tempoDecorrido = Date.now() - uploadTimestamp;
+        if (tempoDecorrido > 120000 && tentativas > 3) { // 2 minutos e já tentou algumas vezes
+          return Resultado.falha(new Error(`Arquivo provavelmente expirou após ${Math.round(tempoDecorrido / 1000)} segundos`));
+        }
+        
+        return Resultado.sucesso(job.data);
+      },
+      
       // Obter estado atual do arquivo
-      let arquivo;
-      try {
-        arquivo = await gerenciadorAI.gerenciadorArquivos.getFile(fileName);
-      } catch (erroAcesso) {
-        if (erroAcesso.message.includes('403 Forbidden')) {
-          throw new Error("Arquivo de vídeo inacessível (acesso negado)");
+      async (dados) => {
+        try {
+          const arquivo = await gerenciadorAI.gerenciadorArquivos.getFile(fileName);
+          return Resultado.sucesso({ ...dados, arquivo });
+        } catch (erroAcesso) {
+          if (erroAcesso.message.includes('403 Forbidden')) {
+            return Resultado.falha(new Error("Arquivo de vídeo inacessível (acesso negado)"));
+          }
+          return Resultado.falha(erroAcesso);
         }
-        throw erroAcesso;
-      }
-
-      const maxTentativas = 10;
-
-      // Verificar o estado do arquivo
-      if (arquivo.state === "PROCESSING") {
+      },
+      
+      // Verificar estado e agir conforme
+      (dados) => {
+        const { arquivo } = dados;
+        const maxTentativas = 10;
+        
         // Se ainda está processando e não excedeu o limite de tentativas, reagendar
-        if (tentativas < maxTentativas) {
-          registrador.debug(`[Vídeo] Ainda em processamento, reagendando... (tentativa ${tentativas + 1})`);
-
-          // Calcular delay com exponential backoff
-          const backoffDelay = Math.min(15000, 500 * Math.pow(2, tentativas));
-
-          // Reagendar
-          await filas.video.processamento.add('processar-video', {
-            ...job.data,
-            tentativas: tentativas + 1
-          }, { delay: backoffDelay });
-
-          return { success: true, status: "PROCESSING", tentativas: tentativas + 1 };
-        } else {
-          throw new Error("Tempo máximo de processamento excedido");
+        if (arquivo.state === "PROCESSING") {
+          if (tentativas < maxTentativas) {
+            registrador.debug(`[Vídeo] Ainda em processamento, reagendando... (tentativa ${tentativas + 1})`);
+            
+            // Calcular delay com exponential backoff
+            const backoffDelay = Math.min(15000, 500 * Math.pow(2, tentativas));
+            
+            // Reagendar
+            return Trilho.dePromise(
+              filas.video.processamento.add('processar-video', {
+                ...job.data,
+                tentativas: tentativas + 1
+              }, { delay: backoffDelay })
+            ).then(() => Resultado.sucesso({ success: true, status: "PROCESSING", tentativas: tentativas + 1 }));
+          } else {
+            return Resultado.falha(new Error("Tempo máximo de processamento excedido"));
+          }
+        } else if (arquivo.state === "FAILED") {
+          return Resultado.falha(new Error("Falha no processamento do vídeo pelo Google AI"));
         }
-      } else if (arquivo.state === "FAILED") {
-        throw new Error("Falha no processamento do vídeo pelo Google AI");
+        
+        // Estados válidos para prosseguir: SUCCEEDED ou ACTIVE
+        if (arquivo.state !== "SUCCEEDED" && arquivo.state !== "ACTIVE") {
+          return Resultado.falha(new Error(`Estado inesperado do arquivo: ${arquivo.state}`));
+        }
+        
+        registrador.debug(`[Vídeo] Processado com sucesso, estado: ${arquivo.state}`);
+        
+        // Adicionar à fila de análise
+        return Trilho.dePromise(
+          filas.video.analise.add('analise-video', {
+            fileName,
+            fileUri: arquivo.uri,
+            tempFilename,
+            chatId,
+            messageId,
+            mimeType,
+            userPrompt,
+            senderNumber,
+            transacaoId,
+            fileState: arquivo.state,
+            fileMimeType: arquivo.mimeType,
+            remetenteName,
+            tipo: 'video'
+          })
+        ).then(() => Resultado.sucesso({ success: true, status: arquivo.state }));
       }
-
-      // Estados válidos para prosseguir: SUCCEEDED ou ACTIVE
-      if (arquivo.state !== "SUCCEEDED" && arquivo.state !== "ACTIVE") {
-        throw new Error(`Estado inesperado do arquivo: ${arquivo.state}`);
-      }
-
-      registrador.debug(`[Vídeo] Processado com sucesso, estado: ${arquivo.state}`);
-
-      // Adicionar à fila de análise
-      await filas.video.analise.add('analise-video', {
-        fileName,
-        fileUri: arquivo.uri,
-        tempFilename,
-        chatId,
-        messageId,
-        mimeType,
-        userPrompt,
-        senderNumber,
-        transacaoId,
-        fileState: arquivo.state,
-        fileMimeType: arquivo.mimeType,
-        remetenteName,
-        tipo: 'video'
-      });
-
-      return { success: true, status: arquivo.state };
-    } catch (erro) {
+    )()
+    .catch(erro => {
       registrador.error(`[Vídeo] Erro no processamento: ${erro.message}`, { erro, jobId: job.id });
-
+      
       // Notificar erro
       notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-
+      
       // Limpar arquivo temporário
-      await Utilitarios.limparArquivo(tempFilename);
-
+      Utilitarios.limparArquivo(tempFilename);
+      
       // Tentar excluir o arquivo do Google AI
-      try {
-        if (fileName) {
-          await gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
-        }
-      } catch (errDelete) {
-        registrador.warn(`Não foi possível excluir o arquivo remoto: ${errDelete.message}`);
+      if (fileName) {
+        gerenciadorAI.gerenciadorArquivos.deleteFile(fileName)
+          .catch(errDelete => {
+            registrador.warn(`Não foi possível excluir o arquivo remoto: ${errDelete.message}`);
+          });
       }
-
-      throw erro;
-    }
+      
+      throw erro; // Rejeitar promessa para que Bull considere o job como falha
+    });
   }),
 
   /**
- * Criar processador de análise de vídeo
- */
+   * Criar processador de análise de vídeo
+   */
   criarProcessadorAnaliseVideo: _.curry((registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro) => async (job) => {
     const {
       fileName, tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber,
@@ -1067,124 +1029,164 @@ const ProcessadoresFilas = {
     const obterConfig = Configuracao.obterConfig(gerenciadorConfig, registrador);
     const prepararPrompt = Configuracao.prepararPrompt(registrador);
 
-    try {
-      registrador.debug(`[Vídeo] Iniciando análise: ${fileName} (Job ${job.id})`);
-
+    return Trilho.encadear(
+      // Iniciar análise
+      () => {
+        registrador.debug(`[Vídeo] Iniciando análise: ${fileName} (Job ${job.id})`);
+        return Resultado.sucesso(job.data);
+      },
+      
       // Obter configuração
-      const resultadoConfig = await obterConfig(chatId, 'video');
-
-      // Extrair config ou usar padrão em caso de erro
-      const config = Resultado.dobrar(
-        resultadoConfig,
-        config => config,
-        erro => {
-          registrador.error(`Erro ao obter config: ${erro.message}, usando padrão`);
-          return {
-            temperature: 0.9,
-            topK: 1,
-            topP: 0.95,
-            maxOutputTokens: 1024,
-            model: "gemini-2.0-flash",
-            modoDescricao: 'curto'
-          };
+      async () => {
+        const resultadoConfig = await obterConfig(chatId, 'video');
+        
+        if (!resultadoConfig.sucesso) {
+          registrador.error(`Erro ao obter config: ${resultadoConfig.erro.message}, usando padrão`);
+          return Resultado.sucesso({
+            dados: job.data,
+            config: {
+              temperature: 0.9,
+              topK: 1,
+              topP: 0.95,
+              maxOutputTokens: 1024,
+              model: "gemini-2.0-flash",
+              modoDescricao: 'curto'
+            }
+          });
         }
-      );
-
-      // Preparar prompt
-      const promptFinal = prepararPrompt('video', userPrompt, config.modoDescricao);
-
-      // Obter modelo
-      const modelo = gerenciadorAI.obterOuCriarModelo(config);
-
-      // Preparar partes de conteúdo
-      const partesConteudo = [
-        {
-          fileData: {
-            mimeType: fileMimeType,
-            fileUri: fileUri
+        
+        return Resultado.sucesso({
+          dados: job.data,
+          config: resultadoConfig.dados
+        });
+      },
+      
+      // Preparar prompt e analisar vídeo
+      (contexto) => {
+        const { dados, config } = contexto;
+        
+        // Preparar prompt
+        const promptFinal = prepararPrompt('video', userPrompt, config.modoDescricao);
+        
+        // Obter modelo
+        const modelo = gerenciadorAI.obterOuCriarModelo(config);
+        
+        // Preparar partes de conteúdo
+        const partesConteudo = [
+          {
+            fileData: {
+              mimeType: fileMimeType,
+              fileUri: fileUri
+            }
+          },
+          {
+            text: promptFinal
           }
-        },
-        {
-          text: promptFinal
-        }
-      ];
-
-      // Adicionar timeout para a chamada à IA
-      const promessaRespostaIA = modelo.generateContent(partesConteudo);
-      const promessaTimeoutIA = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 120000)
-      );
-
-      const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
-      let resposta = resultado.response.text();
-
-      if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
-        resposta = "Não consegui gerar uma descrição clara para este vídeo.";
+        ];
+        
+        // Adicionar timeout para a chamada à IA
+        const promessaRespostaIA = modelo.generateContent(partesConteudo);
+        const promessaTimeoutIA = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 120000)
+        );
+        
+        return Trilho.dePromise(Promise.race([promessaRespostaIA, promessaTimeoutIA]))
+          .then(resultado => {
+            if (!resultado.sucesso) {
+              return Resultado.falha(resultado.erro);
+            }
+            
+            let resposta = resultado.dados.response.text();
+            
+            if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
+              resposta = "Não consegui gerar uma descrição clara para este vídeo.";
+            }
+            
+            return Resultado.sucesso({
+              dados,
+              config,
+              resposta
+            });
+          });
+      },
+      
+      // Limpar recursos e enviar resposta
+      async (contexto) => {
+        const { resposta } = contexto;
+        
+        // Limpar o arquivo temporário
+        await Utilitarios.limparArquivo(tempFilename);
+        
+        // Limpar o arquivo do Google
+        await gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
+        
+        // Enviar resposta via callback
+        registrador.debug(`[Vídeo] Análise concluída com sucesso (Job ${job.id})`);
+        
+        processarResultado({
+          resposta,
+          chatId,
+          messageId,
+          senderNumber,
+          transacaoId,
+          remetenteName,
+          tipo: 'video'
+        });
+        
+        return Resultado.sucesso({ success: true });
       }
-
-      // Limpar o arquivo temporário
-      await Utilitarios.limparArquivo(tempFilename);
-
-      // Limpar o arquivo do Google
-      await gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
-
-      // Adicionamos esta linha para log mais informativo
-      registrador.debug(`[Vídeo] Análise concluída com sucesso (Job ${job.id})`);
-
-      // Enviar resposta via callback
-      processarResultado({
-        resposta,
-        chatId,
-        messageId,
-        senderNumber,
-        transacaoId,
-        remetenteName,
-        tipo: 'video'
-      });
-
-      return { success: true };
-    } catch (erro) {
+    )()
+    .catch(erro => {
       registrador.error(`[Vídeo] Erro na análise: ${erro.message}`, { erro, jobId: job.id });
-
+      
       // Notificar erro
       notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-
+      
       // Limpar arquivos
-      await Utilitarios.limparArquivo(tempFilename);
-
-      try {
-        await gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
-      } catch (errDelete) {
-        registrador.warn(`Não foi possível excluir o arquivo remoto: ${errDelete.message}`);
+      Utilitarios.limparArquivo(tempFilename);
+      
+      if (fileName) {
+        gerenciadorAI.gerenciadorArquivos.deleteFile(fileName)
+          .catch(errDelete => {
+            registrador.warn(`Não foi possível excluir o arquivo remoto: ${errDelete.message}`);
+          });
       }
-
-      throw erro;
-    }
+      
+      throw erro; // Rejeitar promessa para que Bull considere o job como falha
+    });
   }),
 
   /**
- * Criar processador principal de vídeo (compatibilidade)
- */
+   * Criar processador principal de vídeo (compatibilidade)
+   */
   criarProcessadorPrincipalVideo: _.curry((registrador, filas, notificarErro) => async (job) => {
     const { tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
 
-    try {
-      registrador.info(`Vídeo inserido na fila    - ${transacaoId || 'sem_id'}`);
-
-      const uploadJob = await filas.video.upload.add('upload-video', {
-        tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName, tipo: 'video'
-      });
-
-      registrador.debug(`[Vídeo] Redirecionado com sucesso, job ID: ${uploadJob.id}`);
-
-      return { success: true, redirectedJobId: uploadJob.id };
-    } catch (erro) {
+    return Trilho.encadear(
+      () => {
+        registrador.info(`Vídeo inserido na fila    - ${transacaoId || 'sem_id'}`);
+        return Resultado.sucesso(job.data);
+      },
+      
+      // Redirecionar para a nova estrutura de fila
+      () => Trilho.dePromise(
+        filas.video.upload.add('upload-video', {
+          tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName, tipo: 'video'
+        })
+      ),
+      
+      (uploadJob) => {
+        registrador.debug(`[Vídeo] Redirecionado com sucesso, job ID: ${uploadJob.id}`);
+        return Resultado.sucesso({ success: true, redirectedJobId: uploadJob.id });
+      }
+    )()
+    .catch(erro => {
       registrador.error(`[Vídeo] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
-
+      
       notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-
+      
       throw erro;
-    }
+    });
   })
 };
 
@@ -1266,76 +1268,82 @@ const MonitoradorFilas = {
   },
 
   /**
- * Limpa trabalhos pendentes que possam causar problemas
- * @param {Object} registrador - Logger
- * @param {Object} filas - Estrutura de filas
- * @returns {Promise<number>} Número de trabalhos limpos
- */
+   * Limpa trabalhos pendentes que possam causar problemas
+   * @param {Object} registrador - Logger
+   * @param {Object} filas - Estrutura de filas
+   * @returns {Promise<number>} Número de trabalhos limpos
+   */
   limparTrabalhosPendentes: _.curry(async (registrador, filas) => {
-    try {
-      registrador.info("🧹 Iniciando limpeza das filas de trabalhos antigos...");
-
+    return Trilho.encadear(
+      () => {
+        registrador.info("🧹 Iniciando limpeza das filas de trabalhos antigos...");
+        return Resultado.sucesso(filas);
+      },
+      
       // Mapear todas as filas para limpeza
-      const listaFilas = [
-        filas.imagem.upload,
-        filas.imagem.analise,
-        filas.imagem.principal,
-        filas.video.upload,
-        filas.video.processamento,
-        filas.video.analise,
-        filas.video.principal
-      ];
-
-      // Usar composição para processar cada fila
-      const processarFila = async (fila) => {
-        const trabalhos = await fila.getJobs(['waiting', 'active', 'delayed']);
-        let removidos = 0;
-
-        for (const trabalho of trabalhos) {
-          // Função para verificar e remover trabalho
-          const verificarTrabalho = async () => {
-            if (trabalho.data && trabalho.data.tempFilename) {
-              const { tempFilename } = trabalho.data;
-
-              // Verificar se o arquivo existe
-              const existe = await existsAsync(tempFilename);
-              if (!existe) {
-                registrador.warn(`⚠️ Removendo trabalho fantasma: ${trabalho.id} (arquivo ${tempFilename} não existe)`);
-                await trabalho.remove();
-                return 1;
+      (filas) => {
+        const listaFilas = [
+          filas.imagem.upload,
+          filas.imagem.analise,
+          filas.imagem.principal,
+          filas.video.upload,
+          filas.video.processamento,
+          filas.video.analise,
+          filas.video.principal
+        ];
+        
+        return Resultado.sucesso(listaFilas);
+      },
+      
+      // Processar cada fila
+      async (listaFilas) => {
+        // Função para processar cada fila
+        const processarFila = async (fila) => {
+          const trabalhos = await fila.getJobs(['waiting', 'active', 'delayed']);
+          let removidos = 0;
+          
+          for (const trabalho of trabalhos) {
+            try {
+              // Verificar se o arquivo existe (para trabalhos com tempFilename)
+              if (trabalho.data && trabalho.data.tempFilename) {
+                const { tempFilename } = trabalho.data;
+                
+                // Verificar se o arquivo existe
+                const resultado = await ArquivoUtils.verificarArquivoExiste(tempFilename);
+                if (resultado.sucesso && !resultado.dados) {
+                  registrador.warn(`⚠️ Removendo trabalho fantasma: ${trabalho.id} (arquivo ${tempFilename} não existe)`);
+                  await trabalho.remove();
+                  removidos++;
+                  continue;
+                }
               }
+              
+              // Verificar se está travado há muito tempo
+              if (trabalho.processedOn && Date.now() - trabalho.processedOn > 300000) { // 5 minutos
+                registrador.warn(`⚠️ Removendo trabalho travado: ${trabalho.id} (processando há ${Math.round((Date.now() - trabalho.processedOn) / 1000)}s)`);
+                await trabalho.remove();
+                removidos++;
+              }
+            } catch (erroTrabalho) {
+              registrador.error(`Erro ao processar trabalho ${trabalho.id}: ${erroTrabalho.message}`);
             }
-
-            // Verificar se está travado há muito tempo
-            if (trabalho.processedOn && Date.now() - trabalho.processedOn > 300000) { // 5 minutos
-              registrador.warn(`⚠️ Removendo trabalho travado: ${trabalho.id} (processando há ${Math.round((Date.now() - trabalho.processedOn) / 1000)}s)`);
-              await trabalho.remove();
-              return 1;
-            }
-
-            return 0;
-          };
-
-          try {
-            removidos += await verificarTrabalho();
-          } catch (erroTrabalho) {
-            registrador.error(`Erro ao processar trabalho ${trabalho.id}: ${erroTrabalho.message}`);
           }
-        }
-
-        return removidos;
-      };
-
-      // Executar para cada fila e somar os resultados
-      const resultados = await Promise.all(listaFilas.map(processarFila));
-      const totalRemovidos = resultados.reduce((a, b) => a + b, 0);
-
-      registrador.info(`✅ Limpeza concluída! ${totalRemovidos} trabalhos problemáticos removidos.`);
-      return totalRemovidos;
-    } catch (erro) {
+          
+          return removidos;
+        };
+        
+        // Executar para cada fila e somar os resultados
+        const resultados = await Promise.all(listaFilas.map(processarFila));
+        const totalRemovidos = resultados.reduce((a, b) => a + b, 0);
+        
+        registrador.info(`✅ Limpeza concluída! ${totalRemovidos} trabalhos problemáticos removidos.`);
+        return Resultado.sucesso(totalRemovidos);
+      }
+    )()
+    .catch(erro => {
       registrador.error(`❌ Erro ao limpar filas: ${erro.message}`);
-      return 0;
-    }
+      return Resultado.sucesso(0);
+    });
   }),
 
   /**
@@ -1346,67 +1354,76 @@ const MonitoradorFilas = {
    * @returns {Promise<Object>} Resultado da operação
    */
   limparFilas: _.curry(async (registrador, filas, apenasCompletos = true) => {
-    try {
-      registrador.info(`🧹 Iniciando limpeza ${apenasCompletos ? 'de trabalhos concluídos' : 'COMPLETA'} das filas...`);
-
+    return Trilho.encadear(
+      () => {
+        registrador.info(`🧹 Iniciando limpeza ${apenasCompletos ? 'de trabalhos concluídos' : 'COMPLETA'} das filas...`);
+        return Resultado.sucesso(filas);
+      },
+      
       // Mapear todas as filas para limpeza
-      const mapaFilas = [
-        { nome: 'Img-Upload', fila: filas.imagem.upload },
-        { nome: 'Img-Análise', fila: filas.imagem.analise },
-        { nome: 'Img-Principal', fila: filas.imagem.principal },
-        { nome: 'Vid-Upload', fila: filas.video.upload },
-        { nome: 'Vid-Process', fila: filas.video.processamento },
-        { nome: 'Vid-Análise', fila: filas.video.analise },
-        { nome: 'Vid-Principal', fila: filas.video.principal }
-      ];
-
-      // Usar composição para processar cada fila
-      const processarFila = async ({ nome, fila }) => {
-        if (apenasCompletos) {
-          const removidosCompletos = await fila.clean(30000, 'completed');
-          const removidosFalhas = await fila.clean(30000, 'failed');
-          return {
-            nome,
-            resultados: {
-              completos: removidosCompletos.length,
-              falhas: removidosFalhas.length
-            }
-          };
-        } else {
-          await fila.empty();
-          return {
-            nome,
-            resultados: 'Fila completamente esvaziada!'
-          };
-        }
-      };
-
-      // Executar para cada fila
-      const resultados = await Promise.all(mapaFilas.map(processarFila));
-
-      // Transformar resultados em um objeto
-      const resultadosObj = resultados.reduce((acc, { nome, resultados }) => {
-        acc[nome] = resultados;
-        return acc;
-      }, {});
-
-      const mensagem = apenasCompletos
-        ? `✅ Limpeza de filas concluída! Removidos trabalhos concluídos e com falha.`
-        : `⚠️ TODAS as filas foram completamente esvaziadas!`;
-
-      registrador.info(mensagem);
-
-      return resultadosObj;
-    } catch (erro) {
+      (filas) => {
+        const mapaFilas = [
+          { nome: 'Img-Upload', fila: filas.imagem.upload },
+          { nome: 'Img-Análise', fila: filas.imagem.analise },
+          { nome: 'Img-Principal', fila: filas.imagem.principal },
+          { nome: 'Vid-Upload', fila: filas.video.upload },
+          { nome: 'Vid-Process', fila: filas.video.processamento },
+          { nome: 'Vid-Análise', fila: filas.video.analise },
+          { nome: 'Vid-Principal', fila: filas.video.principal }
+        ];
+        
+        return Resultado.sucesso(mapaFilas);
+      },
+      
+      // Processar cada fila
+      async (mapaFilas) => {
+        // Função para processar cada fila
+        const processarFila = async ({ nome, fila }) => {
+          if (apenasCompletos) {
+            const removidosCompletos = await fila.clean(30000, 'completed');
+            const removidosFalhas = await fila.clean(30000, 'failed');
+            return {
+              nome,
+              resultados: {
+                completos: removidosCompletos.length,
+                falhas: removidosFalhas.length
+              }
+            };
+          } else {
+            await fila.empty();
+            return {
+              nome,
+              resultados: 'Fila completamente esvaziada!'
+            };
+          }
+        };
+        
+        // Executar para cada fila
+        const resultados = await Promise.all(mapaFilas.map(processarFila));
+        
+        // Transformar resultados em um objeto
+        const resultadosObj = resultados.reduce((acc, { nome, resultados }) => {
+          acc[nome] = resultados;
+          return acc;
+        }, {});
+        
+        const mensagem = apenasCompletos
+          ? `✅ Limpeza de filas concluída! Removidos trabalhos concluídos e com falha.`
+          : `⚠️ TODAS as filas foram completamente esvaziadas!`;
+        
+        registrador.info(mensagem);
+        
+        return Resultado.sucesso(resultadosObj);
+      }
+    )()
+    .catch(erro => {
       registrador.error(`❌ Erro ao limpar filas: ${erro.message}`);
-      throw erro;
-    }
+      return Resultado.falha(erro);
+    });
   })
 };
 
 // ===== INICIALIZAÇÃO FUNCIONAL =====
-
-// Modificar o inicializarFilasMidia para usar ServicoMensagem com paradigma funcional
 
 /**
  * Inicializa o sistema de filas de mídia
@@ -1432,8 +1449,7 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
     throw resultadoFilas.erro;
   }
 
-  // Jest - Adicionar os componentes internos como propriedades da função
-
+  // Expor componentes internos para testes
   inicializarFilasMidia.Resultado = Resultado;
   inicializarFilasMidia.Utilitarios = Utilitarios;
   inicializarFilasMidia.Configuracao = Configuracao;
@@ -1477,10 +1493,6 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
       }
     };
 
-    // Prepara texto contextualizado para mídias
-    // const textoContextualizado = `[Resposta para ${tipo === 'imagem' ? '📷 imagem' : '🎥 vídeo'} enviada por ${resultado.remetenteName || 'você'}]\n\n${resultado.resposta}`;    
-    // return servicoMensagem.enviarResposta(mensagemSimulada, textoContextualizado, resultado.transacaoId);
-
     return servicoMensagem.enviarResposta(mensagemSimulada, resultado.resposta, resultado.transacaoId);
   };
 
@@ -1514,67 +1526,67 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
   // 2. Processadores de Vídeo
   filas.video.upload.process('upload-video', 10,
     ProcessadoresFilas.criarProcessadorUploadVideo(registrador, gerenciadorAI, filas, notificarErro));
-
-  filas.video.processamento.process('processar-video', 10,
-    ProcessadoresFilas.criarProcessadorProcessamentoVideo(registrador, gerenciadorAI, filas, notificarErro));
-
-  filas.video.analise.process('analise-video', 10,
-    ProcessadoresFilas.criarProcessadorAnaliseVideo(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro));
-
-  filas.video.principal.process('processar-video', 10,
-    ProcessadoresFilas.criarProcessadorPrincipalVideo(registrador, filas, notificarErro));
-
-  // Limpar tarefas antigas ou problemáticas
-  MonitoradorFilas.limparTrabalhosPendentes(registrador, filas)
-    .catch(erro => registrador.error(`Erro ao limpar trabalhos pendentes: ${erro.message}`));
-
-  // Retornar API pública funcionalmente composta
-  return {
-    // Setters para callbacks
-    setCallbackRespostaImagem: (callback) => {
-      callbacks.imagem = callback;
-      registrador.info('✅ Callback de resposta para imagens configurado');
-    },
-
-    setCallbackRespostaVideo: (callback) => {
-      callbacks.video = callback;
-      registrador.info('✅ Callback de resposta para vídeos configurado');
-    },
-
-    setCallbackRespostaUnificado: (callback) => {
-      callbacks.imagem = callback;
-      callbacks.video = callback;
-      registrador.info('✅ Callback de resposta unificado configurado');
-    },
-
-    // Adição de trabalhos às filas
-    adicionarImagem: async (dados) => {
-      return filas.imagem.principal.add('processar-imagem', {
-        ...dados,
-        tipo: 'imagem'
-      });
-    },
-
-    adicionarVideo: async (dados) => {
-      return filas.video.principal.add('processar-video', {
-        ...dados,
-        tipo: 'video'
-      });
-    },
-
-    // Limpeza de filas
-    limparFilas: (apenasCompletos = true) =>
-      MonitoradorFilas.limparFilas(registrador, filas, apenasCompletos),
-
-    limparTrabalhosPendentes: () =>
-      MonitoradorFilas.limparTrabalhosPendentes(registrador, filas),
-
-    // Finalização e liberação de recursos
-    finalizar: () => {
-      registrador.info('Sistema de filas de mídia finalizado');
-    }
+  
+    filas.video.processamento.process('processar-video', 10,
+      ProcessadoresFilas.criarProcessadorProcessamentoVideo(registrador, gerenciadorAI, filas, notificarErro));
+  
+    filas.video.analise.process('analise-video', 10,
+      ProcessadoresFilas.criarProcessadorAnaliseVideo(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro));
+  
+    filas.video.principal.process('processar-video', 10,
+      ProcessadoresFilas.criarProcessadorPrincipalVideo(registrador, filas, notificarErro));
+  
+    // Limpar tarefas antigas ou problemáticas
+    MonitoradorFilas.limparTrabalhosPendentes(registrador, filas)
+      .catch(erro => registrador.error(`Erro ao limpar trabalhos pendentes: ${erro.message}`));
+  
+    // Retornar API pública funcionalmente composta
+    return {
+      // Setters para callbacks
+      setCallbackRespostaImagem: (callback) => {
+        callbacks.imagem = callback;
+        registrador.info('✅ Callback de resposta para imagens configurado');
+      },
+  
+      setCallbackRespostaVideo: (callback) => {
+        callbacks.video = callback;
+        registrador.info('✅ Callback de resposta para vídeos configurado');
+      },
+  
+      setCallbackRespostaUnificado: (callback) => {
+        callbacks.imagem = callback;
+        callbacks.video = callback;
+        registrador.info('✅ Callback de resposta unificado configurado');
+      },
+  
+      // Adição de trabalhos às filas
+      adicionarImagem: async (dados) => {
+        return filas.imagem.principal.add('processar-imagem', {
+          ...dados,
+          tipo: 'imagem'
+        });
+      },
+  
+      adicionarVideo: async (dados) => {
+        return filas.video.principal.add('processar-video', {
+          ...dados,
+          tipo: 'video'
+        });
+      },
+  
+      // Limpeza de filas
+      limparFilas: (apenasCompletos = true) =>
+        MonitoradorFilas.limparFilas(registrador, filas, apenasCompletos),
+  
+      limparTrabalhosPendentes: () =>
+        MonitoradorFilas.limparTrabalhosPendentes(registrador, filas),
+  
+      // Finalização e liberação de recursos
+      finalizar: () => {
+        registrador.info('Sistema de filas de mídia finalizado');
+      }
+    };
   };
-};
-
-// Exportar a função de inicialização
-module.exports = inicializarFilasMidia;
+  
+  // Exportar a função de inicialização
+  module.exports = inicializarFilasMidia;

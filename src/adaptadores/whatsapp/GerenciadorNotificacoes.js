@@ -7,7 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const _ = require('lodash/fp');
-const { Resultado, ArquivoUtils, Assync, Operacoes } = require('../../utilitarios/Ferrovia');
+const { Resultado, ArquivoUtils, Trilho, Operacoes } = require('../../utilitarios/Ferrovia');
 const { criarDiretorio, salvarArquivoJson, listarArquivos, lerArquivoJson, removerArquivo } = ArquivoUtils;
 
 class GerenciadorNotificacoes {
@@ -51,7 +51,7 @@ class GerenciadorNotificacoes {
     };
     
     // Composição funcional da operação usando o padrão Ferrovia
-    return Assync.encadear(
+    return Trilho.encadear(
       // Criar diretório se não existir
       () => criarDiretorio(this.diretorioTemp),
       
@@ -84,7 +84,7 @@ class GerenciadorNotificacoes {
     const diretorioTemp = this.diretorioTemp;
     
     // Pipeline de processamento utilizando lodash/fp e o padrão Ferrovia
-    return Assync.encadear(
+    return Trilho.encadear(
       // Listar arquivos no diretório
       () => listarArquivos(diretorioTemp),
       
@@ -134,7 +134,7 @@ class GerenciadorNotificacoes {
     const caminhoArquivo = path.join(this.diretorioTemp, nomeArquivo);
     const registrador = this.registrador;
     
-    return Assync.encadear(
+    return Trilho.encadear(
       // Verificar idade do arquivo (ignorar muito recentes)
       async () => {
         const stats = await fs.promises.stat(caminhoArquivo).catch(() => null);
@@ -188,7 +188,7 @@ class GerenciadorNotificacoes {
     const diretorioTemp = this.diretorioTemp;
     const limiteAntiguidade = Date.now() - (diasAntiguidade * 24 * 60 * 60 * 1000);
     
-    return Assync.encadear(
+    return Trilho.encadear(
       // Listar arquivos no diretório
       () => listarArquivos(diretorioTemp),
       
