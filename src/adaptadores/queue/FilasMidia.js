@@ -870,7 +870,7 @@ const ProcessadoresFilas = {
 
     try {
       // Adicionamos esta linha para log mais informativo
-      registrador.info(`Imagem inserida na fila principal - ${transacaoId || 'sem_id'}`);
+      registrador.info(`Imagem inserida na fila   - ${transacaoId || 'sem_id'}`);
 
       // Redirecionar para a nova estrutura de fila
       const uploadJob = await filas.imagem.upload.add('upload-imagem', {
@@ -1169,10 +1169,8 @@ const ProcessadoresFilas = {
     const { tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
 
     try {
-      // Adicionamos esta linha para log mais informativo
-      registrador.info(`Vídeo inserido na fila principal - ${transacaoId || 'sem_id'}`);
+      registrador.info(`Vídeo inserido na fila    - ${transacaoId || 'sem_id'}`);
 
-      // Redirecionar para a nova estrutura de fila
       const uploadJob = await filas.video.upload.add('upload-video', {
         tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName, tipo: 'video'
       });
@@ -1183,7 +1181,6 @@ const ProcessadoresFilas = {
     } catch (erro) {
       registrador.error(`[Vídeo] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
 
-      // Notificar erro
       notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
 
       throw erro;

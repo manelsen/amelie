@@ -334,7 +334,7 @@ const processarMensagemTexto = (dependencias) => async (dados) => {
     // Enviar a resposta
     try {
       await servicoMensagem.enviarResposta(mensagem, resposta, transacao.id);
-      registrador.info(`Resposta de mensagem de texto enviada - ${transacao.id}`);
+      registrador.info(`Resposta de texto enviada - ${transacao.id}`);
       return Resultado.sucesso({ transacao, resposta });
     } catch (erroEnvio) {
       registrador.error(`Erro ao enviar mensagem: ${erroEnvio.message}`);
