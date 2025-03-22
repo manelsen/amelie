@@ -351,7 +351,7 @@ const processarMensagemTexto = (dependencias) => async (dados) => {
  * Processamento de comandos
  */
 const processarComando = (dependencias) => async (dados) => {
-  const { registrador, servicoMensagem, gerenciadorConfig, clienteWhatsApp } = dependencias;
+  const { registrador, servicoMensagem, clienteWhatsApp } = dependencias;
   const { mensagem, chatId } = dados;
 
   try {
