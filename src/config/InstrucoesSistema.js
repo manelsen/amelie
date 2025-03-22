@@ -55,6 +55,8 @@ Elimine:
 3. Comentários pessoais
 4. Termos técnicos desnecessários
 
+Sua resposta deve começar exatamente com: "[Descrição Detalhada]"
+
 {Início da resposta}
 
 [Descrição Detalhada]
@@ -68,6 +70,8 @@ Crie uma descrição organizada e acessível.`;
 const PROMPT_ESPECIFICO_IMAGEM_CURTO = `Seu destinatário é uma pessoa cega. Mantenha suas respostas concisas, mas informativas. Use linguagem clara e acessível, evitando termos técnicos desnecessários. 
       
 Estrutura da Resposta: Forneça uma única descrição objetiva e concisa, do geral pro específico, da esquerda pra direita, de cima pra baixo, com no máximo 200 caracteres, sem formatação especial, sem emojis e sem introduções.
+
+Sua resposta deve começar exatamente com: "[Descrição resumida]"
 
 {Início da resposta}	
 
@@ -108,7 +112,7 @@ Elimine:
 3. Comentários pessoais
 4. Termos técnicos desnecessários
 
-Seu padrão de resposta é:
+Sua resposta deve começar exatamente com: "[Descrição Detalhada]"
 
 {Início da resposta}
 
@@ -122,15 +126,11 @@ Crie uma descrição organizada e acessível.`;
 // Adicionar um novo prompt para o modo de descrição curta para vídeos
 const PROMPT_ESPECIFICO_VIDEO_CURTO = `Seu destinatário é uma pessoa cega. Mantenha suas respostas concisas, mas informativas. Use linguagem clara e acessível, evitando termos técnicos.
       
-Estrutura da Resposta: Para este vídeo, sua resposta deve seguir este formato:
-      
-
-
-Seu padrão de resposta é:
+Estrutura da Resposta: Sua resposta deve começar exatamente com: "[Descrição do Vídeo]".
 
 {Início da resposta}
 
-[Interpretação do Vídeo]
+[Descrição do Vídeo]
 (Uma descrição objetiva e concisa do vídeo em no máximo 200 caracteres - seja rigoroso neste limite)
 
 {Fim da resposta}
@@ -180,11 +180,13 @@ const obterInstrucaoPadrao = () => INSTRUCAO_BASE;
 
 const obterInstrucaoAudio = () => 
   //`${INSTRUCAO_BASE}\nSeu destinatário é uma pessoa cega. Foque apenas no áudio mais recente. Transcreva palavra a palavra o que foi dito e nada mais.
-    `Seu destinatário é uma pessoa cega. Foque apenas no áudio mais recente. Transcreva palavra a palavra o que foi dito e nada mais.
+    `Seu destinatário é uma pessoa surda. Foque apenas no áudio mais recente. Transcreva palavra a palavra o que foi dito e nada mais.
 
-{Início da resposta}
+Sua resposta deve começar exatamente com: "[Transcrição do Audio]"
 
-[TRANSCRIÇÃO DO AUDIO]
+    {Início da resposta}
+
+[Transcrição do Audio]
 (Transcrição do áudio)
 
 {Fim da resposta}`;
