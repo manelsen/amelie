@@ -14,9 +14,9 @@ const path = require('path');
 const { 
   obterInstrucaoPadrao, 
   obterInstrucaoAudio,
-  obterInstrucaoImagem, 
-  obterInstrucaoVideo 
+  obterInstrucaoImagem,  
 } = require('../../config/InstrucoesSistema');
+const { salvarConteudoBloqueado } = require('../../utilitarios/ArquivoUtils');
 
 class GerenciadorAI extends IAPort {
   /**
@@ -289,90 +289,83 @@ class GerenciadorAI extends IAPort {
   }
 
   /**
-   * Implementação do método processarImagem da interface IAPort
-   * @param {Object} imagemData - Dados da imagem
-   * @param {string} prompt - Instruções para processamento
-   * @param {Object} config - Configurações de processamento
-   * @returns {Promise<string>} Resposta gerada
-   */
-  async processarImagem(imagemData, prompt, config) {
-    try {
-      const modelo = this.obterOuCriarModelo({
-        ...config,
-        // Instruções específicas para descrição
-        systemInstruction: config.systemInstructions || obterInstrucaoImagem()
+ * Implementação do método processarImagem da interface IAPort
+ * @param {Object} imagemData - Dados da imagem
+ * @param {string} prompt - Instruções para processamento
+ * @param {Object} config - Configurações de processamento
+ * @returns {Promise<string>} Resposta gerada
+ */
+async processarImagem(imagemData, prompt, config) {
+  try {
+    const modelo = this.obterOuCriarModelo({
+      ...config,
+      // Instruções específicas para descrição
+      systemInstruction: config.systemInstructions || obterInstrucaoImagem()
+    });
+    
+    const parteImagem = {
+      inlineData: {
+        data: imagemData.data,
+        mimeType: imagemData.mimetype
+      }
+    };
+    
+    const partesConteudo = [
+      parteImagem,
+      { text: prompt }
+    ];
+    
+    // Adicionar timeout de 45 segundos
+    const promessaResultado = modelo.generateContent(partesConteudo);
+    const promessaTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Timeout da API Gemini")), 90000)
+    );
+    
+    const resultado = await Promise.race([promessaResultado, promessaTimeout]);
+    let textoResposta = resultado.response.text();
+    
+    if (!textoResposta) {
+      throw new Error('Resposta vazia gerada pelo modelo');
+    }
+    
+    return this.limparResposta(textoResposta);
+  } catch (erro) {
+    // Aqui adicionamos informações do usuário/grupo no log
+    const origemInfo = config.dadosOrigem ? 
+      `[Origem: ${config.dadosOrigem.tipo === 'grupo' ? 'Grupo' : 'Usuário'} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : 
+      '[Origem desconhecida]';
+    
+    // Verificar se é erro de safety
+    if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
+        erro.message.includes('blocked') || erro.message.includes('Blocked')) {
+      
+      this.registrador.warn(`⚠️ Conteúdo de imagem bloqueado por políticas de segurança ${origemInfo}`);
+      
+      // NOVA PARTE: Salvar conteúdo bloqueado para auditoria
+      const diretorioBloqueados = path.join(process.cwd(), 'blocked');
+      const salvarImagemBloqueada = salvarConteudoBloqueado('imagem', diretorioBloqueados);
+      
+      // Executar salvamento, mas não aguardar para continuar o fluxo principal
+      salvarImagemBloqueada({
+        origemInfo: config.dadosOrigem,
+        prompt,
+        mimeType: imagemData.mimetype,
+        imagemData
+      }, erro).then(resultado => {
+        if (resultado.sucesso) {
+          this.registrador.info(`Conteúdo bloqueado salvo para auditoria: ${resultado.dados.caminhoJson}`);
+        }
+      }).catch(erroSalvar => {
+        this.registrador.error(`Erro ao salvar conteúdo bloqueado: ${erroSalvar.message}`);
       });
       
-      const parteImagem = {
-        inlineData: {
-          data: imagemData.data,
-          mimeType: imagemData.mimetype
-        }
-      };
-      
-      const partesConteudo = [
-        parteImagem,
-        { text: prompt }
-      ];
-      
-      // Adicionar timeout de 45 segundos
-      const promessaResultado = modelo.generateContent(partesConteudo);
-      const promessaTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout da API Gemini")), 90000)
-      );
-      
-      const resultado = await Promise.race([promessaResultado, promessaTimeout]);
-      let textoResposta = resultado.response.text();
-      
-      if (!textoResposta) {
-        throw new Error('Resposta vazia gerada pelo modelo');
-      }
-      
-      return this.limparResposta(textoResposta);
-    } catch (erro) {
-      // Aqui adicionamos informações do usuário/grupo no log
-      const origemInfo = config.dadosOrigem ? 
-        `[Origem: ${config.dadosOrigem.tipo === 'grupo' ? 'Grupo' : 'Usuário'} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : 
-        '[Origem desconhecida]';
-      
-      // Verificar se é erro de safety
-      if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
-          erro.message.includes('blocked') || erro.message.includes('Blocked')) {
-        
-        this.registrador.warn(`⚠️ Conteúdo de imagem bloqueado por políticas de segurança ${origemInfo}`);
-        
-        // NOVA PARTE: Salvar conteúdo bloqueado para diagnóstico
-        try {
-          const diretorioBloqueados = path.join(process.cwd(), 'blocked');
-          if (!fs.existsSync(diretorioBloqueados)) {
-            fs.mkdirSync(diretorioBloqueados, { recursive: true });
-          }
-          
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-          const nomeArquivo = `imagem_blocked_${timestamp}.json`;
-          const caminhoArquivo = path.join(diretorioBloqueados, nomeArquivo);
-          
-          const dadosSalvar = {
-            timestamp,
-            origemInfo: config.dadosOrigem || null,
-            erro: erro.message,
-            prompt,
-            mimeType: imagemData.mimetype
-          };
-          
-          fs.writeFileSync(caminhoArquivo, JSON.stringify(dadosSalvar, null, 2), 'utf8');
-          this.registrador.info(`Conteúdo bloqueado salvo para diagnóstico: ${caminhoArquivo}`);
-        } catch (erroSalvar) {
-          this.registrador.error(`Erro ao salvar conteúdo bloqueado: ${erroSalvar.message}`);
-        }
-        
-        return "Este conteúdo não pôde ser processado por questões de segurança.";
-      }
-      
-      this.registrador.error(`Erro ao processar imagem: ${erro.message} ${origemInfo}`);
-      return "Desculpe, ocorreu um erro ao analisar esta imagem. Por favor, tente novamente com outra imagem ou reformule seu pedido.";
+      return "Este conteúdo não pôde ser processado por questões de segurança.";
     }
+    
+    this.registrador.error(`Erro ao processar imagem: ${erro.message} ${origemInfo}`);
+    return "Desculpe, ocorreu um erro ao analisar esta imagem. Por favor, tente novamente com outra imagem ou reformule seu pedido.";
   }
+}
 
 /**
  * Implementação do método processarAudio da interface IAPort
@@ -431,142 +424,134 @@ async processarAudio(audioData, audioId, config) {
 }
 
   /**
-   * Implementação do método processarVideo da interface IAPort
-   * @param {string} caminhoVideo - Caminho para o arquivo de vídeo
-   * @param {string} prompt - Instruções para processamento
-   * @param {Object} config - Configurações de processamento
-   * @returns {Promise<string>} Resposta gerada
-   */
-  async processarVideo(caminhoVideo, prompt, config) {
-    try {
-      // Fazer upload para o Google AI
-      const respostaUpload = await this.gerenciadorArquivos.uploadFile(caminhoVideo, {
+ * Implementação do método processarVideo da interface IAPort
+ * @param {string} caminhoVideo - Caminho para o arquivo de vídeo
+ * @param {string} prompt - Instruções para processamento
+ * @param {Object} config - Configurações de processamento
+ * @returns {Promise<string>} Resposta gerada
+ */
+async processarVideo(caminhoVideo, prompt, config) {
+  try {
+    // Fazer upload para o Google AI
+    const respostaUpload = await this.gerenciadorArquivos.uploadFile(caminhoVideo, {
+      mimeType: config.mimeType || 'video/mp4',
+      displayName: "Vídeo Enviado"
+    });
+    
+    // Aguardar processamento
+    let arquivo = await this.gerenciadorArquivos.getFile(respostaUpload.file.name);
+    let tentativas = 0;
+    
+    while (arquivo.state === "PROCESSING" && tentativas < 12) {
+      this.registrador.info(`Vídeo ainda em processamento, aguardando... (tentativa ${tentativas + 1})`);
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      arquivo = await this.gerenciadorArquivos.getFile(respostaUpload.file.name);
+      tentativas++;
+    }
+    
+    if (arquivo.state === "FAILED") {
+      throw new Error("Falha no processamento do vídeo pelo Google AI");
+    }
+    
+    // Estados válidos para prosseguir: SUCCEEDED ou ACTIVE
+    if (arquivo.state !== "SUCCEEDED" && arquivo.state !== "ACTIVE") {
+      throw new Error(`Estado inesperado do arquivo: ${arquivo.state}`);
+    }
+    
+    // Registrar informação sobre o estado do arquivo
+    if (arquivo.state === "ACTIVE") {
+      this.registrador.info("Arquivo ainda está ativo, mas pronto para processamento");
+    }
+    
+    // Verificar modo legenda
+    if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
+      this.registrador.info('🎬👂 Processando vídeo no MODO LEGENDA para acessibilidade de surdos');
+      
+      // Se não tiver instruções específicas, usar o prompt de legenda
+      if (!prompt.includes("timecodes") && !prompt.includes("verbatim")) {
+        prompt = obterPromptVideoLegenda();
+        this.registrador.info('📝 Usando prompt específico de legendagem');
+      }
+    }
+    
+    // Obter modelo
+    const modelo = this.obterOuCriarModelo(config);
+    
+    // Preparar partes de conteúdo
+    const partesConteudo = [
+      {
+        fileData: {
+          mimeType: arquivo.mimeType,
+          fileUri: arquivo.uri
+        }
+      },
+      {
+        text: prompt
+      }
+    ];
+    
+    // Adicionar timeout para a chamada à IA
+    const promessaRespostaIA = modelo.generateContent(partesConteudo);
+    const promessaTimeoutIA = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 120000)
+    );
+    
+    const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
+    let resposta = resultado.response.text();
+    
+    if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
+      resposta = "Não consegui gerar uma descrição clara para este vídeo.";
+    }
+    
+    // Limpar o arquivo do Google
+    await this.gerenciadorArquivos.deleteFile(respostaUpload.file.name);
+    
+    // Formatar o início da resposta com base no modo
+    let prefixoResposta = "";
+    if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
+      prefixoResposta = "📋 *Transcrição com timecodes:*\n\n";
+    } else {
+      prefixoResposta = "✅ *Análise do seu vídeo:*\n\n";
+    }
+    
+    const respostaFinal = `${prefixoResposta}${resposta}`;
+    return respostaFinal;
+  } catch (erro) {
+    // NOVA PARTE: Verificar se é erro de safety
+    if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
+        erro.message.includes('blocked') || erro.message.includes('Blocked')) {
+      
+      const origemInfo = config.dadosOrigem ? 
+        `[Origem: ${config.dadosOrigem.tipo === 'grupo' ? 'Grupo' : 'Usuário'} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : 
+        '[Origem desconhecida]';
+        
+      this.registrador.warn(`⚠️ Conteúdo de vídeo bloqueado por políticas de segurança ${origemInfo}`);
+      
+      // NOVA PARTE: Salvar conteúdo bloqueado para auditoria
+      const diretorioBloqueados = path.join(process.cwd(), 'blocked');
+      const salvarVideoBloqueado = salvarConteudoBloqueado('video', diretorioBloqueados);
+      
+      // Executar salvamento, mas não aguardar para continuar o fluxo principal
+      salvarVideoBloqueado({
+        origemInfo: config.dadosOrigem,
+        prompt,
         mimeType: config.mimeType || 'video/mp4',
-        displayName: "Vídeo Enviado"
+        caminhoVideo
+      }, erro).then(resultado => {
+        if (resultado.sucesso) {
+          this.registrador.info(`Conteúdo de vídeo bloqueado salvo para auditoria: ${resultado.dados.caminhoJson}`);
+        }
+      }).catch(erroSalvar => {
+        this.registrador.error(`Erro ao salvar diagnóstico de vídeo bloqueado: ${erroSalvar.message}`);
       });
       
-      // Aguardar processamento
-      let arquivo = await this.gerenciadorArquivos.getFile(respostaUpload.file.name);
-      let tentativas = 0;
-      
-      while (arquivo.state === "PROCESSING" && tentativas < 12) {
-        this.registrador.info(`Vídeo ainda em processamento, aguardando... (tentativa ${tentativas + 1})`);
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        arquivo = await this.gerenciadorArquivos.getFile(respostaUpload.file.name);
-        tentativas++;
-      }
-      
-      if (arquivo.state === "FAILED") {
-        throw new Error("Falha no processamento do vídeo pelo Google AI");
-      }
-      
-      // Estados válidos para prosseguir: SUCCEEDED ou ACTIVE
-      if (arquivo.state !== "SUCCEEDED" && arquivo.state !== "ACTIVE") {
-        throw new Error(`Estado inesperado do arquivo: ${arquivo.state}`);
-      }
-      
-      // Registrar informação sobre o estado do arquivo
-      if (arquivo.state === "ACTIVE") {
-        this.registrador.info("Arquivo ainda está ativo, mas pronto para processamento");
-      }
-      
-      // Verificar modo legenda
-      if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
-        this.registrador.info('🎬👂 Processando vídeo no MODO LEGENDA para acessibilidade de surdos');
-        
-        // Se não tiver instruções específicas, usar o prompt de legenda
-        if (!prompt.includes("timecodes") && !prompt.includes("verbatim")) {
-          prompt = obterPromptVideoLegenda();
-          this.registrador.info('📝 Usando prompt específico de legendagem');
-        }
-      }
-      
-      // Obter modelo
-      const modelo = this.obterOuCriarModelo(config);
-      
-      // Preparar partes de conteúdo
-      const partesConteudo = [
-        {
-          fileData: {
-            mimeType: arquivo.mimeType,
-            fileUri: arquivo.uri
-          }
-        },
-        {
-          text: prompt
-        }
-      ];
-      
-      // Adicionar timeout para a chamada à IA
-      const promessaRespostaIA = modelo.generateContent(partesConteudo);
-      const promessaTimeoutIA = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 120000)
-      );
-      
-      const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
-      let resposta = resultado.response.text();
-      
-      if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
-        resposta = "Não consegui gerar uma descrição clara para este vídeo.";
-      }
-      
-      // Limpar o arquivo do Google
-      await this.gerenciadorArquivos.deleteFile(respostaUpload.file.name);
-      
-      // Formatar o início da resposta com base no modo
-      let prefixoResposta = "";
-      if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
-        prefixoResposta = "📋 *Transcrição com timecodes:*\n\n";
-      } else {
-        prefixoResposta = "✅ *Análise do seu vídeo:*\n\n";
-      }
-      
-      const respostaFinal = `${prefixoResposta}${resposta}`;
-      return respostaFinal;
-    } catch (erro) {
-      // NOVA PARTE: Verificar se é erro de safety
-      if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
-          erro.message.includes('blocked') || erro.message.includes('Blocked')) {
-        
-        const origemInfo = config.dadosOrigem ? 
-          `[Origem: ${config.dadosOrigem.tipo === 'grupo' ? 'Grupo' : 'Usuário'} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : 
-          '[Origem desconhecida]';
-          
-        this.registrador.warn(`⚠️ Conteúdo de vídeo bloqueado por políticas de segurança ${origemInfo}`);
-        
-        // Salvar conteúdo bloqueado para diagnóstico
-        try {
-          const diretorioBloqueados = path.join(process.cwd(), 'blocked');
-          if (!fs.existsSync(diretorioBloqueados)) {
-            fs.mkdirSync(diretorioBloqueados, { recursive: true });
-          }
-          
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-          const nomeArquivo = `video_blocked_${timestamp}.json`;
-          const caminhoArquivo = path.join(diretorioBloqueados, nomeArquivo);
-          
-          const dadosSalvar = {
-            timestamp,
-            origemInfo: config.dadosOrigem || null,
-            erro: erro.message,
-            prompt,
-            caminhoOriginal: caminhoVideo,
-            mimeType: config.mimeType || 'video/mp4'
-          };
-          
-          fs.writeFileSync(caminhoArquivo, JSON.stringify(dadosSalvar, null, 2), 'utf8');
-          this.registrador.info(`Conteúdo de vídeo bloqueado salvo para diagnóstico: ${caminhoArquivo}`);
-        } catch (erroSalvar) {
-          this.registrador.error(`Erro ao salvar diagnóstico de vídeo bloqueado: ${erroSalvar.message}`);
-        }
-        
-        return "Este conteúdo não pôde ser processado por questões de segurança.";
-      }
-      
-      this.registrador.error(`Erro ao processar vídeo: ${erro.message}`);
-      return "Desculpe, ocorreu um erro ao processar este vídeo. Por favor, tente novamente com outro vídeo ou reformule seu pedido.";
+      return "Este conteúdo não pôde ser processado por questões de segurança.";
     }
+    
+    this.registrador.error(`Erro ao processar vídeo: ${erro.message}`);
+    return "Desculpe, ocorreu um erro ao processar este vídeo. Por favor, tente novamente com outro vídeo ou reformule seu pedido.";
   }
+}
 
   /**
    * Limpa e formata a resposta da IA

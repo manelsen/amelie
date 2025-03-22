@@ -1,12 +1,14 @@
 /**
  * GerenciadorNotificacoes - Módulo para gerenciar notificações pendentes
  * 
- * Este módulo fornece funções para salvar e processar notificações
- * que não puderam ser entregues imediatamente.
+ * Implementação seguindo o padrão Ferrovia para tratamento funcional de erros.
  */
 
 const fs = require('fs');
 const path = require('path');
+const _ = require('lodash/fp');
+const { Resultado, ArquivoUtils, Assync, Operacoes } = require('../../utilitarios/Ferrovia');
+const { criarDiretorio, salvarArquivoJson, listarArquivos, lerArquivoJson, removerArquivo } = ArquivoUtils;
 
 class GerenciadorNotificacoes {
   /**
@@ -18,135 +20,214 @@ class GerenciadorNotificacoes {
     this.registrador = registrador;
     this.diretorioTemp = diretorioTemp;
 
-    // Garantir que o diretório exista
-    if (!fs.existsSync(this.diretorioTemp)) {
-      try {
-        fs.mkdirSync(this.diretorioTemp, { recursive: true });
-        this.registrador.info(`Diretório para notificações criado: ${this.diretorioTemp}`);
-      } catch (erro) {
-        this.registrador.error(`Erro ao criar diretório: ${erro.message}`);
-      }
-    }
+    // Garantir que o diretório exista ao inicializar
+    criarDiretorio(this.diretorioTemp)
+      .then(resultado => {
+        if (resultado.sucesso) {
+          this.registrador.info(`Diretório para notificações pronto: ${this.diretorioTemp}`);
+        } else {
+          this.registrador.error(`Erro ao criar diretório: ${resultado.erro.message}`);
+        }
+      });
   }
 
   /**
    * Salva uma notificação para ser entregue posteriormente
    * @param {string} destinatario - ID do destinatário
    * @param {string} mensagem - Texto da mensagem
-   * @returns {Promise<boolean>} Verdadeiro se salvo com sucesso
+   * @returns {Promise<Resultado>} Resultado da operação
    */
   async salvar(destinatario, mensagem) {
-    try {
-      const arquivoNotificacao = path.join(
-        this.diretorioTemp,
-        `notificacao_${destinatario.replace(/[^0-9]/g, '')}_${Date.now()}.json`
-      );
+    // Gerar nome de arquivo com base no destinatário e timestamp
+    const nomeArquivo = `notificacao_${destinatario.replace(/[^0-9]/g, '')}_${Date.now()}.json`;
+    const arquivoNotificacao = path.join(this.diretorioTemp, nomeArquivo);
+    const registrador = this.registrador;
 
-      await fs.promises.writeFile(arquivoNotificacao, JSON.stringify({
-        senderNumber: destinatario,
-        message: mensagem,
-        timestamp: Date.now()
-      }));
-
-      this.registrador.info(`Notificação salva: ${arquivoNotificacao}`);
-      return true;
-    } catch (erro) {
-      this.registrador.error(`Erro ao salvar notificação: ${erro.message}`);
-      return false;
-    }
+    // Dados da notificação
+    const dadosNotificacao = {
+      senderNumber: destinatario,
+      message: mensagem,
+      timestamp: Date.now()
+    };
+    
+    // Composição funcional da operação usando o padrão Ferrovia
+    return Assync.encadear(
+      // Criar diretório se não existir
+      () => criarDiretorio(this.diretorioTemp),
+      
+      // Salvar arquivo JSON
+      () => salvarArquivoJson(arquivoNotificacao, dadosNotificacao),
+      
+      // Registrar sucesso e retornar caminho
+      (caminho) => {
+        registrador.info(`Notificação salva: ${caminho}`);
+        return Resultado.sucesso(caminho);
+      }
+    )()
+    .catch(erro => {
+      registrador.error(`Erro ao salvar notificação: ${erro.message}`);
+      return Resultado.falha(erro);
+    });
   }
 
   /**
    * Processa notificações pendentes
    * @param {Object} cliente - Cliente WhatsApp
-   * @returns {Promise<number>} Número de notificações processadas
+   * @returns {Promise<Resultado>} Resultado da operação
    */
   async processar(cliente) {
     if (!cliente) {
-      throw new Error("Cliente não fornecido para processamento de notificações");
+      return Resultado.falha(new Error("Cliente não fornecido para processamento de notificações"));
     }
 
-    try {
-      const arquivos = await fs.promises.readdir(this.diretorioTemp);
-      const notificacoes = arquivos.filter(f => f.startsWith('notificacao_'));
-
-      let processadas = 0;
-
-      for (const arquivo of notificacoes) {
-        try {
-          const caminhoCompleto = path.join(this.diretorioTemp, arquivo);
-          const stats = await fs.promises.stat(caminhoCompleto);
-
-          // Ignorar arquivos muito recentes (podem estar sendo escritos)
-          if (Date.now() - stats.mtime.getTime() < 5000) {
-            continue;
-          }
-
-          const conteudo = await fs.promises.readFile(caminhoCompleto, 'utf8');
-          const dados = JSON.parse(conteudo);
-
-          // Tentar enviar a mensagem novamente
-          if (dados.senderNumber && dados.message) {
-            await cliente.sendMessage(dados.senderNumber, dados.message);
-            this.registrador.info(`✅ Notificação pendente enviada para ${dados.senderNumber}`);
-
-            // Remover arquivo após processamento bem-sucedido
-            await fs.promises.unlink(caminhoCompleto);
+    const registrador = this.registrador;
+    const diretorioTemp = this.diretorioTemp;
+    
+    // Pipeline de processamento utilizando lodash/fp e o padrão Ferrovia
+    return Assync.encadear(
+      // Listar arquivos no diretório
+      () => listarArquivos(diretorioTemp),
+      
+      // Filtrar apenas arquivos de notificação
+      (arquivos) => Resultado.sucesso(
+        _.filter(arquivo => arquivo.startsWith('notificacao_') && arquivo.endsWith('.json'), arquivos)
+      ),
+      
+      // Processar cada notificação e contar resultados
+      async (notificacoes) => {
+        if (notificacoes.length === 0) {
+          return Resultado.sucesso(0);
+        }
+        
+        registrador.info(`Encontradas ${notificacoes.length} notificações pendentes para processar`);
+        let processadas = 0;
+        
+        // Processamento sequencial para evitar sobrecarga
+        for (const arquivo of notificacoes) {
+          const resultado = await this._processarNotificacao(arquivo, cliente);
+          if (resultado.sucesso && resultado.dados) {
             processadas++;
           }
-        } catch (err) {
-          this.registrador.error(`Erro ao processar arquivo de notificação ${arquivo}: ${err.message}`);
+        }
+        
+        if (processadas > 0) {
+          registrador.info(`Processadas ${processadas} notificações pendentes`);
+        }
+        
+        return Resultado.sucesso(processadas);
+      }
+    )()
+    .catch(erro => {
+      registrador.error(`Erro ao processar notificações pendentes: ${erro.message}`);
+      return Resultado.sucesso(0); // Falhas não críticas retornam 0 processadas
+    });
+  }
+  
+  /**
+   * Método privado para processar uma notificação individual
+   * @param {string} nomeArquivo - Nome do arquivo de notificação
+   * @param {Object} cliente - Cliente WhatsApp
+   * @returns {Promise<Resultado>} Resultado do processamento
+   * @private
+   */
+  async _processarNotificacao(nomeArquivo, cliente) {
+    const caminhoArquivo = path.join(this.diretorioTemp, nomeArquivo);
+    const registrador = this.registrador;
+    
+    return Assync.encadear(
+      // Verificar idade do arquivo (ignorar muito recentes)
+      async () => {
+        const stats = await fs.promises.stat(caminhoArquivo).catch(() => null);
+        if (!stats || (Date.now() - stats.mtime.getTime() < 5000)) {
+          return Resultado.falha(new Error("Arquivo muito recente, ignorando"));
+        }
+        return Resultado.sucesso(caminhoArquivo);
+      },
+      
+      // Ler conteúdo do arquivo
+      () => lerArquivoJson(caminhoArquivo),
+      
+      // Enviar a mensagem
+      async (dados) => {
+        // Validação dos dados necessários
+        if (!dados.senderNumber || !dados.message) {
+          return Resultado.falha(new Error("Dados de notificação incompletos"));
+        }
+        
+        // Enviando mensagem
+        try {
+          await cliente.sendMessage(dados.senderNumber, dados.message);
+          registrador.info(`✅ Notificação pendente enviada para ${dados.senderNumber}`);
+          
+          // Remover arquivo após processamento
+          await removerArquivo(caminhoArquivo);
+          return Resultado.sucesso(true);
+        } catch (erroEnvio) {
+          return Resultado.falha(erroEnvio);
         }
       }
-
-      if (processadas > 0) {
-        this.registrador.info(`Processadas ${processadas} notificações pendentes`);
+    )()
+    .catch(erro => {
+      // Ignorar erros de arquivos recentes
+      if (erro.message === "Arquivo muito recente, ignorando") {
+        return Resultado.sucesso(false);
       }
-
-      return processadas;
-    } catch (erro) {
-      this.registrador.error(`Erro ao verificar diretório de notificações: ${erro.message}`);
-      return 0;
-    }
+      
+      registrador.error(`Erro ao processar arquivo de notificação ${nomeArquivo}: ${erro.message}`);
+      return Resultado.sucesso(false);
+    });
   }
 
   /**
    * Limpa notificações antigas
    * @param {number} diasAntiguidade - Dias para considerar uma notificação antiga
-   * @returns {Promise<number>} Número de notificações limpas
+   * @returns {Promise<Resultado>} Número de notificações limpas
    */
   async limparAntigas(diasAntiguidade = 7) {
-    try {
-      const arquivos = await fs.promises.readdir(this.diretorioTemp);
-      const notificacoes = arquivos.filter(f => f.startsWith('notificacao_'));
-
-      const agora = Date.now();
-      const limiteAntiguidade = agora - (diasAntiguidade * 24 * 60 * 60 * 1000);
-      let removidas = 0;
-
-      for (const arquivo of notificacoes) {
-        try {
-          const caminhoCompleto = path.join(this.diretorioTemp, arquivo);
-          const stats = await fs.promises.stat(caminhoCompleto);
-
-          if (stats.mtimeMs < limiteAntiguidade) {
-            await fs.promises.unlink(caminhoCompleto);
-            removidas++;
+    const registrador = this.registrador;
+    const diretorioTemp = this.diretorioTemp;
+    const limiteAntiguidade = Date.now() - (diasAntiguidade * 24 * 60 * 60 * 1000);
+    
+    return Assync.encadear(
+      // Listar arquivos no diretório
+      () => listarArquivos(diretorioTemp),
+      
+      // Filtrar apenas arquivos de notificação
+      (arquivos) => Resultado.sucesso(
+        _.filter(arquivo => arquivo.startsWith('notificacao_') && arquivo.endsWith('.json'), arquivos)
+      ),
+      
+      // Processar cada arquivo e remover os antigos
+      async (notificacoes) => {
+        let removidas = 0;
+        
+        for (const arquivo of notificacoes) {
+          const caminhoCompleto = path.join(diretorioTemp, arquivo);
+          
+          try {
+            const stats = await fs.promises.stat(caminhoCompleto);
+            if (stats.mtimeMs < limiteAntiguidade) {
+              const resultado = await removerArquivo(caminhoCompleto);
+              if (resultado.sucesso) {
+                removidas++;
+              }
+            }
+          } catch (err) {
+            registrador.error(`Erro ao limpar notificação antiga ${arquivo}: ${err.message}`);
           }
-        } catch (err) {
-          this.registrador.error(`Erro ao limpar notificação antiga ${arquivo}: ${err.message}`);
         }
+        
+        if (removidas > 0) {
+          registrador.info(`Removidas ${removidas} notificações antigas`);
+        }
+        
+        return Resultado.sucesso(removidas);
       }
-
-      if (removidas > 0) {
-        this.registrador.info(`Removidas ${removidas} notificações antigas`);
-      }
-
-      return removidas;
-    } catch (erro) {
-      this.registrador.error(`Erro ao limpar notificações antigas: ${erro.message}`);
-      return 0;
-    }
+    )()
+    .catch(erro => {
+      registrador.error(`Erro ao limpar notificações antigas: ${erro.message}`);
+      return Resultado.sucesso(0);
+    });
   }
 }
 
