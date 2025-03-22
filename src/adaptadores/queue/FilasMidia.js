@@ -695,8 +695,8 @@ const ProcessadoresFilas = {
       const idTx = resultado.transacaoId || 'sem_id';
       //const idTxFormatado = idTx.startsWith('tx_') ? idTx : `tx_${idTx}`;
 
-      //registrador.info(`Resposta de ${resultado.tipo} pronta para ser enviada ao usuário - ${idTxFormatado}`);
-      registrador.info(`Resposta de ${resultado.tipo} pronta para ser enviada ao usuário - ${idTx}`);
+      //registrador.info(`Resposta de ${resultado.tipo} pronta - ${idTxFormatado}`);
+      registrador.info(`Resposta de ${resultado.tipo} pronta - ${idTx}`);
       return Resultado.sucesso(resultado);
     };
 
@@ -870,7 +870,7 @@ const ProcessadoresFilas = {
 
     try {
       // Adicionamos esta linha para log mais informativo
-      registrador.info(`Imagem inserida na fila principal (Job ${job.id}) - tx_${transacaoId || 'sem_id'}`);
+      registrador.info(`Imagem inserida na fila principal - ${transacaoId || 'sem_id'}`);
 
       // Redirecionar para a nova estrutura de fila
       const uploadJob = await filas.imagem.upload.add('upload-imagem', {
@@ -1170,7 +1170,7 @@ const ProcessadoresFilas = {
 
     try {
       // Adicionamos esta linha para log mais informativo
-      registrador.info(`Vídeo inserido na fila principal (Job ${job.id}) - tx_${transacaoId || 'sem_id'}`);
+      registrador.info(`Vídeo inserido na fila principal - ${transacaoId || 'sem_id'}`);
 
       // Redirecionar para a nova estrutura de fila
       const uploadJob = await filas.video.upload.add('upload-video', {
