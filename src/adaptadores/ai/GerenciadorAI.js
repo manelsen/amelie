@@ -340,6 +340,32 @@ class GerenciadorAI extends IAPort {
           erro.message.includes('blocked') || erro.message.includes('Blocked')) {
         
         this.registrador.warn(`⚠️ Conteúdo de imagem bloqueado por políticas de segurança ${origemInfo}`);
+        
+        // NOVA PARTE: Salvar conteúdo bloqueado para diagnóstico
+        try {
+          const diretorioBloqueados = path.join(process.cwd(), 'blocked');
+          if (!fs.existsSync(diretorioBloqueados)) {
+            fs.mkdirSync(diretorioBloqueados, { recursive: true });
+          }
+          
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const nomeArquivo = `imagem_blocked_${timestamp}.json`;
+          const caminhoArquivo = path.join(diretorioBloqueados, nomeArquivo);
+          
+          const dadosSalvar = {
+            timestamp,
+            origemInfo: config.dadosOrigem || null,
+            erro: erro.message,
+            prompt,
+            mimeType: imagemData.mimetype
+          };
+          
+          fs.writeFileSync(caminhoArquivo, JSON.stringify(dadosSalvar, null, 2), 'utf8');
+          this.registrador.info(`Conteúdo bloqueado salvo para diagnóstico: ${caminhoArquivo}`);
+        } catch (erroSalvar) {
+          this.registrador.error(`Erro ao salvar conteúdo bloqueado: ${erroSalvar.message}`);
+        }
+        
         return "Este conteúdo não pôde ser processado por questões de segurança.";
       }
       
@@ -498,6 +524,45 @@ async processarAudio(audioData, audioId, config) {
       const respostaFinal = `${prefixoResposta}${resposta}`;
       return respostaFinal;
     } catch (erro) {
+      // NOVA PARTE: Verificar se é erro de safety
+      if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
+          erro.message.includes('blocked') || erro.message.includes('Blocked')) {
+        
+        const origemInfo = config.dadosOrigem ? 
+          `[Origem: ${config.dadosOrigem.tipo === 'grupo' ? 'Grupo' : 'Usuário'} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : 
+          '[Origem desconhecida]';
+          
+        this.registrador.warn(`⚠️ Conteúdo de vídeo bloqueado por políticas de segurança ${origemInfo}`);
+        
+        // Salvar conteúdo bloqueado para diagnóstico
+        try {
+          const diretorioBloqueados = path.join(process.cwd(), 'blocked');
+          if (!fs.existsSync(diretorioBloqueados)) {
+            fs.mkdirSync(diretorioBloqueados, { recursive: true });
+          }
+          
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const nomeArquivo = `video_blocked_${timestamp}.json`;
+          const caminhoArquivo = path.join(diretorioBloqueados, nomeArquivo);
+          
+          const dadosSalvar = {
+            timestamp,
+            origemInfo: config.dadosOrigem || null,
+            erro: erro.message,
+            prompt,
+            caminhoOriginal: caminhoVideo,
+            mimeType: config.mimeType || 'video/mp4'
+          };
+          
+          fs.writeFileSync(caminhoArquivo, JSON.stringify(dadosSalvar, null, 2), 'utf8');
+          this.registrador.info(`Conteúdo de vídeo bloqueado salvo para diagnóstico: ${caminhoArquivo}`);
+        } catch (erroSalvar) {
+          this.registrador.error(`Erro ao salvar diagnóstico de vídeo bloqueado: ${erroSalvar.message}`);
+        }
+        
+        return "Este conteúdo não pôde ser processado por questões de segurança.";
+      }
+      
       this.registrador.error(`Erro ao processar vídeo: ${erro.message}`);
       return "Desculpe, ocorreu um erro ao processar este vídeo. Por favor, tente novamente com outro vídeo ou reformule seu pedido.";
     }

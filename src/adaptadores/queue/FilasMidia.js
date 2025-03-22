@@ -218,12 +218,12 @@ const Configuracao = {
       },
       removeOnComplete: true,
       removeOnFail: false
-    },
+    }/*,
     limiter: {
-      max: 10,
-      duration: 60000,
+      max: 100,
+      duration: 60000, //minuto
       bounceback: true
-    }
+    }*/
   })),
   
   /**

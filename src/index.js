@@ -177,31 +177,39 @@ logger.info('💼 Gerenciador de transações inicializado');
 const servicoMensagem = criarServicoMensagem(logger, clienteWhatsApp, gerenciadorTransacoes);
 logger.info('💬 Serviço de mensagens inicializado');
 
-// 6. Inicializar o processador de filas de mídia (substituindo os anteriores)
-const filasMidia = inicializarFilasMidia(logger, gerenciadorAI, configManager, servicoMensagem);
-logger.info('🔄 Filas de mídia inicializadas');
-
-// 7. Inicializar o gerenciador de mensagens
-const gerenciadorMensagens = new GerenciadorMensagens(
-  logger,
-  clienteWhatsApp,
-  configManager,
-  gerenciadorAI,
-  filasMidia,
-  gerenciadorTransacoes,
-  servicoMensagem  
-);
-logger.info('💬 Gerenciador de mensagens inicializado');
-
-// 8. Inicializar o monitor de saúde
+// 8. Inicializar o monitor de saúde (mas não ativá-lo ainda)
 const monitorSaude = require('./monitoramento/MonitorSaude').criar(logger, clienteWhatsApp);
 logger.info('❤️‍🩹 Monitor de saúde inicializado');
+
+// Variáveis para armazenar componentes que serão inicializados depois
+let filasMidia = null;
+let gerenciadorMensagens = null;
 
 // Configurar eventos do cliente WhatsApp
 clienteWhatsApp.on('pronto', async () => {
   logger.info('📱 Cliente WhatsApp pronto e conectado!');
   
+  // 6. Agora que o cliente está pronto, inicializar o processador de filas de mídia
+  filasMidia = inicializarFilasMidia(logger, gerenciadorAI, configManager, servicoMensagem);
+  logger.info('🔄 Filas de mídia inicializadas');
+
+  // 7. Inicializar o gerenciador de mensagens com as filas já inicializadas
+  gerenciadorMensagens = new GerenciadorMensagens(
+    logger,
+    clienteWhatsApp,
+    configManager,
+    gerenciadorAI,
+    filasMidia,
+    gerenciadorTransacoes,
+    servicoMensagem  
+  );
+  logger.info('💬 Gerenciador de mensagens inicializado');
+  
+  // Registrar o gerenciador de mensagens como handler
+  gerenciadorMensagens.registrarComoHandler(clienteWhatsApp);
+  
   // Iniciar o monitor de saúde
+  monitorSaude.parar(); // Garantir que esteja parado antes
   monitorSaude.iniciar();
   
   // Processar notificações pendentes
@@ -217,38 +225,42 @@ clienteWhatsApp.on('pronto', async () => {
   }
 });
 
-gerenciadorMensagens.registrarComoHandler(clienteWhatsApp);
-
 // Verificação de saúde periódica para processar transações e notificações
 setInterval(async () => {
-  try {
-    // Processar notificações pendentes
-    const notificacoesProcessadas = await gerenciadorNotificacoes.processar(clienteWhatsApp.cliente);
-    
-    // Processar transações pendentes
-    const transacoesProcessadas = await gerenciadorTransacoes.processarTransacoesPendentes(clienteWhatsApp);
-    
-    if (notificacoesProcessadas > 0 || transacoesProcessadas > 0) {
-      logger.info(`Processamento periódico: ${notificacoesProcessadas} notificações, ${transacoesProcessadas} transações`);
+  // Só executar se o cliente estiver pronto e os componentes estiverem inicializados
+  if (clienteWhatsApp.pronto && filasMidia && gerenciadorMensagens) {
+    try {
+      // Processar notificações pendentes
+      const notificacoesProcessadas = await gerenciadorNotificacoes.processar(clienteWhatsApp.cliente);
+      
+      // Processar transações pendentes
+      const transacoesProcessadas = await gerenciadorTransacoes.processarTransacoesPendentes(clienteWhatsApp);
+      
+      if (notificacoesProcessadas > 0 || transacoesProcessadas > 0) {
+        logger.info(`Processamento periódico: ${notificacoesProcessadas} notificações, ${transacoesProcessadas} transações`);
+      }
+    } catch (erro) {
+      logger.error(`Erro no processamento periódico: ${erro.message}`);
     }
-  } catch (erro) {
-    logger.error(`Erro no processamento periódico: ${erro.message}`);
   }
 }, 5000); // A cada cinco segundos
 
 // Limpeza de recursos antigos
 setInterval(async () => {
-  try {
-    // Limpar notificações antigas
-    await gerenciadorNotificacoes.limparAntigas(1); // 1 dia
-    
-    // Limpar transações antigas
-    await gerenciadorTransacoes.limparTransacoesAntigas(1); // 1 dia
-    
-    // Limpar trabalhos pendentes na fila (agora usando filasMidia)
-    await filasMidia.limparTrabalhosPendentes();
-  } catch (erro) {
-    logger.error(`Erro na limpeza periódica: ${erro.message}`);
+  // Só executar se o cliente estiver pronto
+  if (clienteWhatsApp.pronto && filasMidia) {
+    try {
+      // Limpar notificações antigas
+      await gerenciadorNotificacoes.limparAntigas(1); // 1 dia
+      
+      // Limpar transações antigas
+      await gerenciadorTransacoes.limparTransacoesAntigas(1); // 1 dia
+      
+      // Limpar trabalhos pendentes na fila
+      await filasMidia.limparTrabalhosPendentes();
+    } catch (erro) {
+      logger.error(`Erro na limpeza periódica: ${erro.message}`);
+    }
   }
 }, 24 * 60 * 60 * 1000); // Uma vez por dia
 

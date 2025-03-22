@@ -49,33 +49,48 @@ Inclua:
 7. Expressões faciais
 8. Qualquer outro detalhe relevante
 
-Seu padrão de resposta é:
+Elimine:
+1. Introduções como "A imagem mostra..." ou "Claro! Aqui está a descrição..."
+2. Detalhes irrelevantes
+3. Comentários pessoais
+4. Termos técnicos desnecessários
+
+{Início da resposta}
 
 [Descrição Detalhada]
 (Descrição detalhada e organizada da imagem)
 
-Se tiver algum comentário a fazer, que seja ao final.
+{Fim da resposta}
+
 Crie uma descrição organizada e acessível.`;
 
 // Adicionar um novo prompt para o modo de descrição curta para imagens
 const PROMPT_ESPECIFICO_IMAGEM_CURTO = `Seu destinatário é uma pessoa cega. Mantenha suas respostas concisas, mas informativas. Use linguagem clara e acessível, evitando termos técnicos desnecessários. 
       
 Estrutura da Resposta: Forneça uma única descrição objetiva e concisa, do geral pro específico, da esquerda pra direita, de cima pra baixo, com no máximo 200 caracteres, sem formatação especial, sem emojis e sem introduções.
-      
-Padrão de resposta:
+
+{Início da resposta}	
 
 [Descrição Resumida]
 (Uma descrição concisa de no máximo 200 caracteres - seja rigoroso neste limite)
-      
+
+{Fim da resposta}
+
 Diretrizes:
 - Comece diretamente com a descrição, sem introduções como "A imagem mostra..." 
 - Foque apenas nos elementos principais visíveis
 - Priorize texto, pessoas, objetos centrais e contexto básico
 - Use frases curtas e diretas
 - Omita detalhes secundários para manter a brevidade
-- Nunca exceda o limite de 200 caracteres`;
+- Nunca exceda o limite de 200 caracteres
 
-const PROMPT_ESPECIFICO_VIDEO = `Seu destinatário é uma pessoa cega. Analise este vídeo de forma extremamente detalhada e em prosa corrida, do geral pro específico, da esquerda pra direita, de cima pra baixo, com pontuação.
+Elimine:
+1. Introduções como "A imagem mostra..." ou "Claro! Aqui está a descrição..."
+2. Detalhes irrelevantes
+3. Comentários pessoais
+4. Termos técnicos desnecessários`;
+
+const PROMPT_ESPECIFICO_VIDEO = `Seu destinatário é uma pessoa cega. Analise este vídeo de forma extremamente detalhada e em prosa corrida, do geral pro específico, da esquerda pra direita, de cima pra baixo, com pontuação. 
 
 Inclua:
 1. Textos visíveis
@@ -87,10 +102,20 @@ Inclua:
 7. Expressões faciais
 8. Qualquer outro detalhe relevante
 
+Elimine:
+1. Introduções como "O vídeo mostra..." ou "Claro! Aqui está a descrição..."
+2. Detalhes irrelevantes
+3. Comentários pessoais
+4. Termos técnicos desnecessários
+
+Seu padrão de resposta é:
+
+{Início da resposta}
+
 [Descrição Detalhada]
 (Descrição detalhada e organizada do vídeo)
 
-Se tiver algum comentário a fazer, que seja ao final.
+{Fim da resposta}
 
 Crie uma descrição organizada e acessível.`;
 
@@ -99,9 +124,18 @@ const PROMPT_ESPECIFICO_VIDEO_CURTO = `Seu destinatário é uma pessoa cega. Man
       
 Estrutura da Resposta: Para este vídeo, sua resposta deve seguir este formato:
       
+
+
+Seu padrão de resposta é:
+
+{Início da resposta}
+
 [Interpretação do Vídeo]
 (Uma descrição objetiva e concisa do vídeo em no máximo 200 caracteres - seja rigoroso neste limite)
-      
+
+{Fim da resposta}
+
+
 Diretrizes para a Descrição de Vídeo:
 - Do geral pro específico, da esquerda pra direita, de cima pra baixo
 - Comece diretamente com a descrição, sem introduções como "O vídeo mostra..."
@@ -109,14 +143,21 @@ Diretrizes para a Descrição de Vídeo:
 - Priorize textos, pessoas, objetos centrais e contexto básico
 - Descreva apenas os movimentos essenciais
 - Use frases curtas e diretas
-- Evite termos técnicos desnecessários
-- Omita detalhes secundários para manter a brevidade
 - Nunca exceda o limite de 200 caracteres
-- Não inclua emojis ou formatação especial`;
+- Não inclua emojis ou formatação especial
+
+Elimine:
+
+1. Introduções como "O vídeo mostra..." ou "Claro! Aqui está a descrição..."
+2. Detalhes irrelevantes
+3. Comentários pessoais
+4. Termos técnicos desnecessários`;
 
 // NOVO: Adicionar prompt específico para legendagem de vídeos 
-const PROMPT_ESPECIFICO_VIDEO_LEGENDA = `Transcreva verbatim e em português o conteúdo deste vídeo, criando uma legenda acessível para pessoas surdas.
+const PROMPT_ESPECIFICO_VIDEO_LEGENDA = `Transcreva verbatim e em português o conteúdo deste vídeo, criando uma legenda acessível para pessoas surdas. A primeira linha da resposta já será a primeira linha da legenda.
+
 Siga estas diretrizes:
+
 1. Use timecodes precisos no formato [MM:SS] para cada fala ou mudança de som
 2. Identifique quem está falando quando possível (Ex: João: texto da fala)
 3. Indique entre colchetes sons ambientais importantes, música e efeitos sonoros
@@ -124,10 +165,13 @@ Siga estas diretrizes:
 5. Transcreva TUDO que é dito, palavra por palavra, incluindo hesitações
 6. Indique mudanças na música de fundo
 
-Formato exemplo:
+{Início da resposta}
+
 [00:01] Locutor (animado): Texto exato da fala!
 [00:05] [Som de explosão ao fundo]
 [00:08] Maria (sussurrando): O que foi isso?
+
+{Fim da resposta}
 
 Mantenha o foco absoluto na transcrição precisa, com timecodes e indicações sonoras. Esta é uma ferramenta de acessibilidade essencial para pessoas surdas.`;
 
@@ -135,26 +179,35 @@ Mantenha o foco absoluto na transcrição precisa, com timecodes e indicações 
 const obterInstrucaoPadrao = () => INSTRUCAO_BASE;
 
 const obterInstrucaoAudio = () => 
-  `${INSTRUCAO_BASE}\nSeu destinatário é uma pessoa cega. Foque apenas no áudio mais recente. Transcreva palavra a palavra o que foi dito e nada mais.
+  //`${INSTRUCAO_BASE}\nSeu destinatário é uma pessoa cega. Foque apenas no áudio mais recente. Transcreva palavra a palavra o que foi dito e nada mais.
+    `Seu destinatário é uma pessoa cega. Foque apenas no áudio mais recente. Transcreva palavra a palavra o que foi dito e nada mais.
+
+{Início da resposta}
 
 [TRANSCRIÇÃO DO AUDIO]
-(sempre transcreva palavra por palavra, em português)
-`
+(Transcrição do áudio)
+
+{Fim da resposta}`;
 
 const obterInstrucaoImagem = () => 
-  `${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_IMAGEM}`;
+  //`${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_IMAGEM}`;
+    `${PROMPT_ESPECIFICO_IMAGEM}`;
 
 const obterInstrucaoImagemCurta = () => 
-  `${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_IMAGEM_CURTO}`;
+  //`${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_IMAGEM_CURTO}`;
+    `${PROMPT_ESPECIFICO_IMAGEM_CURTO}`;
 
 const obterInstrucaoVideo = () => 
-  `${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO}`;
+  //`${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO}`;
+    `${PROMPT_ESPECIFICO_VIDEO}`;
 
 const obterInstrucaoVideoCurta = () => 
-  `${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO_CURTO}`;
+  //`${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO_CURTO}`;
+    `${PROMPT_ESPECIFICO_VIDEO_CURTO}`;
 
 const obterInstrucaoVideoLegenda = () => 
-  `${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO_LEGENDA}`;
+  //`${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO_LEGENDA}`;
+    `${PROMPT_ESPECIFICO_VIDEO_LEGENDA}`;
 
 // Funções para obter apenas os prompts específicos
 const obterPromptImagem = () => PROMPT_ESPECIFICO_IMAGEM;
