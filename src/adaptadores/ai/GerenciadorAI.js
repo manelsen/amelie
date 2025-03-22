@@ -271,7 +271,7 @@ class GerenciadorAI extends IAPort {
       // Adicionar timeout de 45 segundos
       const promessaResultado = modelo.generateContent(texto);
       const promessaTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout da API Gemini")), 45000)
+        setTimeout(() => reject(new Error("Timeout da API Gemini")), 90000)
       );
       
       const resultado = await Promise.race([promessaResultado, promessaTimeout]);
@@ -318,7 +318,7 @@ class GerenciadorAI extends IAPort {
       // Adicionar timeout de 45 segundos
       const promessaResultado = modelo.generateContent(partesConteudo);
       const promessaTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout da API Gemini")), 45000)
+        setTimeout(() => reject(new Error("Timeout da API Gemini")), 90000)
       );
       
       const resultado = await Promise.race([promessaResultado, promessaTimeout]);

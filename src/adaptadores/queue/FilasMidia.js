@@ -505,7 +505,7 @@ const ProcessadoresMidia = {
       // Adicionar timeout de 45 segundos
       const promessaResultado = modelo.generateContent(partesConteudo);
       const promessaTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Tempo esgotado na análise da imagem")), 45000)
+        setTimeout(() => reject(new Error("Tempo esgotado na análise da imagem")), 90000)
       );
       
       // Aguardar o primeiro resultado (modelo ou timeout)
@@ -1476,26 +1476,26 @@ inicializarFilasMidia.MonitoradorFilas = MonitoradorFilas;
   // Configurar todos os processadores de fila
   
   // 1. Processadores de Imagem
-  filas.imagem.upload.process('upload-imagem', 5,
+  filas.imagem.upload.process('upload-imagem', 20,
     ProcessadoresFilas.criarProcessadorUploadImagem(registrador, filas, notificarErro));
   
-  filas.imagem.analise.process('analise-imagem', 5,
+  filas.imagem.analise.process('analise-imagem', 20,
     ProcessadoresFilas.criarProcessadorAnaliseImagem(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro));
   
-  filas.imagem.principal.process('processar-imagem', 5,
+  filas.imagem.principal.process('processar-imagem', 20,
     ProcessadoresFilas.criarProcessadorPrincipalImagem(registrador, filas, notificarErro));
   
   // 2. Processadores de Vídeo
-  filas.video.upload.process('upload-video', 3,
+  filas.video.upload.process('upload-video', 10,
     ProcessadoresFilas.criarProcessadorUploadVideo(registrador, gerenciadorAI, filas, notificarErro));
   
-  filas.video.processamento.process('processar-video', 3,
+  filas.video.processamento.process('processar-video', 10,
     ProcessadoresFilas.criarProcessadorProcessamentoVideo(registrador, gerenciadorAI, filas, notificarErro));
   
-  filas.video.analise.process('analise-video', 3,
+  filas.video.analise.process('analise-video', 10,
     ProcessadoresFilas.criarProcessadorAnaliseVideo(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro));
   
-  filas.video.principal.process('processar-video', 3,
+  filas.video.principal.process('processar-video', 10,
     ProcessadoresFilas.criarProcessadorPrincipalVideo(registrador, filas, notificarErro));
   
   // Limpar tarefas antigas ou problemáticas
