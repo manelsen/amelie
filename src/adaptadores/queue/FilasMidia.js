@@ -9,7 +9,6 @@
 
 const Queue = require('bull');
 const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const _ = require('lodash/fp');
 const { promisify } = require('util');
@@ -17,12 +16,10 @@ const { promisify } = require('util');
 // Promisificar operações do fs para abordagem funcional
 const existsAsync = promisify(fs.exists);
 const unlinkAsync = promisify(fs.unlink);
-const writeFileAsync = promisify(fs.writeFile);
-const readFileAsync = promisify(fs.readFile);
 
 // Importação corrigida - caminho correto!
-const { 
-  obterInstrucaoPadrao, 
+const {
+  obterInstrucaoPadrao,
   obterInstrucaoImagem,
   obterInstrucaoImagemCurta,
   obterInstrucaoVideo,
@@ -43,13 +40,13 @@ const {
 const Resultado = {
   sucesso: (dados) => ({ sucesso: true, dados, erro: null }),
   falha: (erro) => ({ sucesso: false, dados: null, erro }),
-  
+
   // Funções utilitárias para encadeamento
   mapear: (resultado, fn) => resultado.sucesso ? Resultado.sucesso(fn(resultado.dados)) : resultado,
   encadear: (resultado, fn) => resultado.sucesso ? fn(resultado.dados) : resultado,
-  
+
   // Manipuladores de resultado
-  dobrar: (resultado, aoSucesso, aoFalhar) => 
+  dobrar: (resultado, aoSucesso, aoFalhar) =>
     resultado.sucesso ? aoSucesso(resultado.dados) : aoFalhar(resultado.erro)
 };
 
@@ -64,7 +61,7 @@ const Utilitarios = {
    * @returns {string} Identificador hexadecimal
    */
   gerarId: () => crypto.randomBytes(8).toString('hex'),
-  
+
   /**
    * Limpa arquivo temporário
    * @param {string} caminhoArquivo - Caminho para o arquivo
@@ -73,18 +70,18 @@ const Utilitarios = {
   limparArquivo: async (caminhoArquivo) => {
     try {
       const existe = await existsAsync(caminhoArquivo);
-      
+
       if (!existe) {
         return Resultado.sucesso(false);
       }
-      
+
       await unlinkAsync(caminhoArquivo);
       return Resultado.sucesso(true);
     } catch (erro) {
       return Resultado.falha(erro);
     }
   },
-  
+
   /**
    * Obtém uma mensagem de erro amigável
    * @param {string} tipoMidia - Tipo de mídia ('imagem' ou 'video')
@@ -93,44 +90,44 @@ const Utilitarios = {
    */
   obterMensagemErroAmigavel: _.curry((tipoMidia, erro) => {
     const mensagemErro = String(erro.message).toLowerCase();
-    
+
     // Mensagens para erros específicos de imagem
     if (tipoMidia === 'imagem') {
       if (mensagemErro.includes('safety') || mensagemErro.includes('blocked'))
         return "Este conteúdo não pôde ser processado por questões de segurança.";
-      
+
       if (mensagemErro.includes('too large') || mensagemErro.includes('tamanho'))
         return "Essa imagem é um pouco grande demais para eu processar agora. Pode enviar uma versão menor?";
     }
-    
+
     // Mensagens para erros específicos de vídeo
     if (tipoMidia === 'video') {
       if (mensagemErro.includes('time out') || mensagemErro.includes('tempo'))
         return "Esse vídeo é tão complexo que acabei precisando de mais tempo! Poderia tentar um trecho menor?";
-        
+
       if (mensagemErro.includes('forbidden') || mensagemErro.includes('403'))
         return "Encontrei um problema no acesso ao seu vídeo. Pode ser que ele seja muito complexo.";
     }
-    
+
     // Mensagens comuns
     if (mensagemErro.includes('safety') || mensagemErro.includes('blocked'))
       return "Este conteúdo não pôde ser processado por questões de segurança.";
-      
+
     if (mensagemErro.includes('too large') || mensagemErro.includes('tamanho'))
       return "Esse arquivo é um pouco grande demais para eu processar agora.";
-      
+
     if (mensagemErro.includes('format') || mensagemErro.includes('mime'))
       return "Hmm, não consegui processar esse formato. Poderia tentar outro?";
-      
+
     if (mensagemErro.includes('timeout') || mensagemErro.includes('time out'))
       return "Essa mídia é tão complexa que acabei precisando de mais tempo! Poderia tentar novamente?";
-      
+
     if (mensagemErro.includes('rate limit') || mensagemErro.includes('quota'))
       return "Estou um pouquinho sobrecarregada agora. Podemos tentar daqui a pouco?";
-      
+
     return "Tive um probleminha para processar essa mídia. Não desiste de mim, tenta de novo mais tarde?";
   }),
-  
+
   /**
    * Identifica o tipo específico de erro
    * @param {Error} erro - Objeto de erro
@@ -138,7 +135,7 @@ const Utilitarios = {
    */
   identificarTipoErro: (erro) => {
     const mensagemErro = String(erro.message).toLowerCase();
-    
+
     return _.cond([
       [msg => msg.includes('safety') || msg.includes('blocked'), _.constant('safety')],
       [msg => msg.includes('timeout') || msg.includes('time out'), _.constant('timeout')],
@@ -148,19 +145,19 @@ const Utilitarios = {
       [_.stubTrue, _.constant('general')]
     ])(mensagemErro);
   },
-  
+
   /**
    * Tenta executar uma operação com tratamento de erro
    * @param {Function} operacao - Função assíncrona a executar
    * @param {Function} tratarErro - Função para tratar erros
    * @returns {Promise<Resultado>} Resultado da operação
    */
-  tentarOperacao: function() {
+  tentarOperacao: function () {
     // Se for chamada com estilo curry (apenas primeiro argumento)
     if (arguments.length === 1 && typeof arguments[0] === 'function') {
       const operacao = arguments[0];
       // Retorna uma função que aceita o tratador de erro
-      return async function(tratarErro) {
+      return async function (tratarErro) {
         try {
           const resultado = await operacao();
           return Resultado.sucesso(resultado);
@@ -168,7 +165,7 @@ const Utilitarios = {
           return tratarErro ? Resultado.falha(tratarErro(erro)) : Resultado.falha(erro);
         }
       };
-    } 
+    }
     // Chamada direta sem curry
     else if (arguments.length >= 1) {
       const operacao = arguments[0];
@@ -202,7 +199,7 @@ const Configuracao = {
     host: process.env.REDIS_HOST || 'localhost',
     port: process.env.REDIS_PORT || 6379
   }),
-  
+
   /**
    * Cria configuração das filas
    * @param {Object} redisConfig - Configuração do Redis
@@ -225,7 +222,7 @@ const Configuracao = {
       bounceback: true
     }*/
   })),
-  
+
   /**
    * Obtém configurações para processamento de mídia
    * @param {Object} gerenciadorConfig - Gerenciador de configurações
@@ -238,28 +235,28 @@ const Configuracao = {
   obterConfig: _.curry(async (gerenciadorConfig, registrador, chatId, tipoMidia) => {
     try {
       const config = await gerenciadorConfig.obterConfig(chatId);
-      
+
       // Verificação explícita para legenda ativa
       if (config.usarLegenda === true && tipoMidia === 'video') {
         registrador.info(`🎬👂 Usando modo legenda para vídeo no chat ${chatId} (verificado em obterConfig)`);
         config.modoDescricao = 'legenda';
       }
-      
+
       // Usar composição para selecionar a instrução correta
       const obterInstrucao = _.cond([
-        [_.matches({tipo: 'imagem', modo: 'curto'}), _.constant(obterInstrucaoImagemCurta())],
-        [_.matches({tipo: 'imagem', modo: 'longo'}), _.constant(obterInstrucaoImagem())],
-        [_.matches({tipo: 'video', modo: 'curto'}), _.constant(obterInstrucaoVideoCurta())],
-        [_.matches({tipo: 'video', modo: 'longo'}), _.constant(obterInstrucaoVideo())],
-        [_.matches({tipo: 'video', modo: 'legenda'}), _.constant(obterInstrucaoVideoLegenda())],
+        [_.matches({ tipo: 'imagem', modo: 'curto' }), _.constant(obterInstrucaoImagemCurta())],
+        [_.matches({ tipo: 'imagem', modo: 'longo' }), _.constant(obterInstrucaoImagem())],
+        [_.matches({ tipo: 'video', modo: 'curto' }), _.constant(obterInstrucaoVideoCurta())],
+        [_.matches({ tipo: 'video', modo: 'longo' }), _.constant(obterInstrucaoVideo())],
+        [_.matches({ tipo: 'video', modo: 'legenda' }), _.constant(obterInstrucaoVideoLegenda())],
         [_.stubTrue, _.constant(null)]
       ]);
-      
+
       const modoDescricao = config.modoDescricao || 'curto';
       registrador.debug(`Modo de descrição: ${modoDescricao} para ${tipoMidia} no chat ${chatId}`);
-      
-      const systemInstructions = obterInstrucao({tipo: tipoMidia, modo: modoDescricao});
-      
+
+      const systemInstructions = obterInstrucao({ tipo: tipoMidia, modo: modoDescricao });
+
       return Resultado.sucesso({
         temperature: config.temperature || 0.7,
         topK: config.topK || 1,
@@ -272,7 +269,7 @@ const Configuracao = {
       });
     } catch (erro) {
       registrador.warn(`Erro ao obter configurações: ${erro.message}, usando padrão`);
-      
+
       // Configuração padrão
       return Resultado.sucesso({
         temperature: 0.9,
@@ -284,7 +281,7 @@ const Configuracao = {
       });
     }
   }),
-  
+
   /**
    * Prepara o prompt do usuário com base no modo
    * @param {Object} registrador - Logger
@@ -300,33 +297,33 @@ const Configuracao = {
         registrador.info('🎬👂 Ativando modo LEGENDA para vídeo - acessibilidade para surdos');
         return obterPromptVideoLegenda();
       }
-      
+
       // Resto do código com o cond original
       return _.cond([
-        [_.matches({tipo: 'imagem', modo: 'longo'}), () => {
+        [_.matches({ tipo: 'imagem', modo: 'longo' }), () => {
           registrador.debug('Usando prompt LONGO para imagem');
           return obterPromptImagem();
         }],
-        [_.matches({tipo: 'imagem', modo: 'curto'}), () => {
+        [_.matches({ tipo: 'imagem', modo: 'curto' }), () => {
           registrador.debug('Usando prompt CURTO para imagem');
           return obterPromptImagemCurto();
         }],
-        [_.matches({tipo: 'video', modo: 'longo'}), () => {
+        [_.matches({ tipo: 'video', modo: 'longo' }), () => {
           registrador.debug('Usando prompt LONGO para vídeo');
           return obterPromptVideo();
         }],
-        [_.matches({tipo: 'video', modo: 'curto'}), () => {
+        [_.matches({ tipo: 'video', modo: 'curto' }), () => {
           registrador.debug('Usando prompt CURTO para vídeo');
           return obterPromptVideoCurto();
         }],
-        [_.matches({tipo: 'video', modo: 'legenda'}), () => {
+        [_.matches({ tipo: 'video', modo: 'legenda' }), () => {
           registrador.debug('Usando prompt LEGENDA para vídeo');
           return obterPromptVideoLegenda();
         }],
         [_.stubTrue, _.constant(promptUsuario)]
-      ])({tipo: tipoMidia, modo: modoDescricao});
+      ])({ tipo: tipoMidia, modo: modoDescricao });
     }
-    
+
     return promptUsuario;
   })
 };
@@ -371,13 +368,13 @@ const CriadoresFilas = {
         },
         problemas: new Queue('midia-problemas', configFilas)
       };
-      
+
       return Resultado.sucesso(filas);
     } catch (erro) {
       return Resultado.falha(erro);
     }
   }),
-  
+
   /**
    * Configura eventos para uma fila
    * @param {Object} registrador - Logger
@@ -390,20 +387,20 @@ const CriadoresFilas = {
     fila.on('active', (job) => {
       registrador.debug(`[${nomeEtapa}] Job ${job.id} iniciado`);
     });
-    
+
     fila.on('progress', (job, progress) => {
       registrador.debug(`[${nomeEtapa}] Job ${job.id} progresso: ${progress}`);
     });
-    
+
     fila.on('completed', (job, result) => {
       const duracao = Date.now() - (job.processedOn || job.timestamp);
       registrador.debug(`[${nomeEtapa}] Job ${job.id} concluído em ${duracao}ms`);
     });
-    
+
     fila.on('failed', (job, error) => {
       const duracao = Date.now() - (job.processedOn || job.timestamp);
       registrador.error(`[${nomeEtapa}] Job ${job.id} falhou após ${duracao}ms: ${error.message}`);
-      
+
       // Registrar falha para análise posterior
       filaProblemas.add('falha-job', {
         etapa: nomeEtapa,
@@ -416,18 +413,18 @@ const CriadoresFilas = {
         registrador.error(`Erro ao registrar falha: ${err.message}`);
       });
     });
-    
+
     fila.on('error', (error) => {
       registrador.error(`[${nomeEtapa}] Erro na fila: ${error.message}`);
     });
-    
+
     fila.on('stalled', (job) => {
       registrador.warn(`[${nomeEtapa}] Job ${job.id} travado - será reprocessado`);
     });
-    
+
     return fila;
   }),
-  
+
   /**
    * Configura todas as filas com seus respectivos eventos
    * @param {Object} registrador - Logger
@@ -478,17 +475,17 @@ const ProcessadoresMidia = {
   processarImagem: _.curry(async (gerenciadorAI, registrador, imageData, prompt, config) => {
     return Utilitarios.tentarOperacao(async () => {
       registrador.debug(`Processando imagem com modo ${config.modoDescricao}`);
-      
+
       if (!imageData || !imageData.data) {
         throw new Error("Dados de imagem inválidos ou ausentes");
       }
-      
+
       // Obter modelo com as configurações apropriadas
       const modelo = gerenciadorAI.obterOuCriarModelo({
         ...config,
         systemInstruction: config.systemInstructions
       });
-      
+
       // Preparar componentes da requisição
       const parteImagem = {
         inlineData: {
@@ -496,27 +493,27 @@ const ProcessadoresMidia = {
           mimeType: imageData.mimetype
         }
       };
-      
+
       const partesConteudo = [
         parteImagem,
         { text: prompt }
       ];
-      
+
       // Adicionar timeout de 45 segundos
       const promessaResultado = modelo.generateContent(partesConteudo);
-      const promessaTimeout = new Promise((_, reject) => 
+      const promessaTimeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Tempo esgotado na análise da imagem")), 90000)
       );
-      
+
       // Aguardar o primeiro resultado (modelo ou timeout)
       const resultado = await Promise.race([promessaResultado, promessaTimeout]);
       let textoResposta = resultado.response.text();
-      
+
       // Validar resposta
       if (!textoResposta) {
         throw new Error('Resposta vazia gerada pelo modelo');
       }
-      
+
       // Limpar e retornar resposta
       return gerenciadorAI.limparResposta(textoResposta);
     }, erro => {
@@ -524,7 +521,7 @@ const ProcessadoresMidia = {
       return erro;
     });
   }),
-  
+
   /**
    * Processa um vídeo com o modelo de IA (incluindo upload e análise)
    * @param {Object} gerenciadorAI - Gerenciador de IA
@@ -543,7 +540,7 @@ const ProcessadoresMidia = {
       }
       return caminhoArquivo;
     };
-    
+
     // 2. Fazer upload para o Google AI
     const fazerUpload = async (caminhoVerificado) => {
       return await gerenciadorAI.gerenciadorArquivos.uploadFile(caminhoVerificado, {
@@ -551,38 +548,38 @@ const ProcessadoresMidia = {
         displayName: "Vídeo Enviado"
       });
     };
-    
+
     // 3. Aguardar processamento
     const aguardarProcessamento = async (respostaUpload) => {
       let arquivo;
       let tentativas = 0;
       const maxTentativas = 10;
-      
+
       while (tentativas < maxTentativas) {
         arquivo = await gerenciadorAI.gerenciadorArquivos.getFile(respostaUpload.file.name);
-        
+
         if (arquivo.state === "SUCCEEDED" || arquivo.state === "ACTIVE") {
           return { arquivo, respostaUpload };
         }
-        
+
         if (arquivo.state === "FAILED") {
           throw new Error("Falha no processamento do vídeo pelo Google AI");
         }
-        
+
         // Ainda em processamento, aguardar
         registrador.info(`Vídeo ainda em processamento, aguardando... (tentativa ${tentativas + 1}/${maxTentativas})`);
         await new Promise(resolve => setTimeout(resolve, 10000)); // 10 segundos
         tentativas++;
       }
-      
+
       throw new Error("Tempo máximo de processamento excedido");
     };
-    
+
     // 4. Analisar o vídeo
     const analisarVideo = async ({ arquivo, respostaUpload }) => {
       // Obter modelo
       const modelo = gerenciadorAI.obterOuCriarModelo(config);
-      
+
       // Preparar partes de conteúdo
       const partesConteudo = [
         {
@@ -595,31 +592,31 @@ const ProcessadoresMidia = {
           text: prompt
         }
       ];
-      
+
       // Adicionar timeout para a chamada à IA
       const promessaRespostaIA = modelo.generateContent(partesConteudo);
-      const promessaTimeoutIA = new Promise((_, reject) => 
+      const promessaTimeoutIA = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 60000)
       );
-      
+
       // Processar o resultado
       const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
       let resposta = resultado.response.text();
-      
+
       if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
         resposta = "Não consegui gerar uma descrição clara para este vídeo.";
       }
-      
+
       // Limpar arquivo remoto
       try {
         await gerenciadorAI.gerenciadorArquivos.deleteFile(respostaUpload.file.name);
       } catch (erroLimpeza) {
         registrador.warn(`Erro ao limpar arquivo remoto: ${erroLimpeza.message}`);
       }
-      
+
       return resposta;
     };
-    
+
     // Compor as operações usando pipe e tratar erros
     return Utilitarios.tentarOperacao(async () => {
       return _.pipe(
@@ -630,10 +627,10 @@ const ProcessadoresMidia = {
       )();
     }, erro => {
       registrador.error(`Erro ao processar vídeo: ${erro.message}`);
-      
+
       // Limpar arquivo local em caso de erro
       Utilitarios.limparArquivo(caminhoArquivo);
-      
+
       return erro;
     });
   })
@@ -653,11 +650,11 @@ const ProcessadoresFilas = {
    */
   criarNotificadorErro: _.curry((registrador, callbackResposta, tipoMidia, erro, dados) => {
     const { chatId, messageId, senderNumber, transacaoId, remetenteName } = dados;
-    
+
     // Obter mensagem de erro amigável
     const mensagemErro = Utilitarios.obterMensagemErroAmigavel(tipoMidia, erro);
     const tipoErro = Utilitarios.identificarTipoErro(erro);
-    
+
     // Enviar notificação de erro
     if (callbackResposta) {
       callbackResposta({
@@ -675,31 +672,71 @@ const ProcessadoresFilas = {
       registrador.warn(`Sem callback para notificar erro de ${tipoMidia}`);
     }
   }),
-  
+
   /**
-   * Cria processador para enviar resultados
-   * @param {Object} registrador - Logger
-   * @param {Object} callbacks - Map de callbacks por tipo de mídia
-   * @returns {Function} Processador de resultado
-   */
+ * Cria processador para enviar resultados
+ * @param {Object} registrador - Objeto de log
+ * @param {Object} callbacks - Mapa de callbacks por tipo de mídia
+ * @returns {Function} Processador de resultado
+ */
   criarProcessadorResultado: _.curry((registrador, callbacks, resultado) => {
-    // Validar resultado
-    if (!resultado || !resultado.senderNumber) {
-      registrador.warn("Resultado de fila inválido ou incompleto");
-      return;
-    }
-    
-    const { tipo } = resultado;
-    const callback = callbacks[tipo];
-    
-    // Encaminhar para o callback correto
-    if (callback) {
-      callback(resultado);
-    } else {
-      registrador.warn(`Sem callback para processar resultado do tipo ${tipo}`);
-    }
+    // Validar entrada e converter para padrão ferrovia
+    const validarResultado = (resultado) => {
+      if (!resultado || !resultado.senderNumber) {
+        registrador.warn("Resultado de fila inválido ou incompleto");
+        return Resultado.falha(new Error("Dados de resposta incompletos"));
+      }
+      return Resultado.sucesso(resultado);
+    };
+
+    // Registrar informação de conclusão
+    const registrarConclusao = (resultado) => {
+      // Verificar se o transacaoId já começa com tx_
+      const idTx = resultado.transacaoId || 'sem_id';
+      //const idTxFormatado = idTx.startsWith('tx_') ? idTx : `tx_${idTx}`;
+
+      //registrador.info(`Resposta de ${resultado.tipo} pronta para ser enviada ao usuário - ${idTxFormatado}`);
+      registrador.info(`Resposta de ${resultado.tipo} pronta para ser enviada ao usuário - ${idTx}`);
+      return Resultado.sucesso(resultado);
+    };
+
+    // Obter e validar callback
+    const obterCallback = (resultado) => {
+      const { tipo } = resultado;
+      const callback = callbacks[tipo];
+
+      if (!callback) {
+        registrador.warn(`Sem callback para processar resultado do tipo ${tipo}`);
+        return Resultado.falha(new Error(`Callback não encontrado para tipo ${tipo}`));
+      }
+
+      return Resultado.sucesso({ resultado, callback });
+    };
+
+    // Executar callback usando o utilitário já existente no código
+    const executarCallback = ({ resultado, callback }) => {
+      // Usamos o utilitário de tentativa de operação que já existe no código
+      return Utilitarios.tentarOperacao(
+        () => {
+          const valorRetorno = callback(resultado);
+          return valorRetorno;
+        },
+        (erro) => {
+          registrador.error(`Erro ao executar callback para ${resultado.tipo}: ${erro.message}`);
+          return erro;
+        }
+      );
+    };
+
+    // Compor o fluxo usando o padrão ferrovia
+    return _.pipe(
+      validarResultado,
+      resultado => Resultado.encadear(resultado, registrarConclusao),
+      resultado => Resultado.encadear(resultado, obterCallback),
+      resultado => Resultado.encadear(resultado, executarCallback)
+    )(resultado);
   }),
-  
+
   /**
    * Criar processador de upload de imagem
    * @param {Object} registrador - Logger
@@ -709,15 +746,15 @@ const ProcessadoresFilas = {
    */
   criarProcessadorUploadImagem: _.curry((registrador, filas, notificarErro) => async (job) => {
     const { imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
-    
+
     try {
       registrador.debug(`[Imagem] Iniciando preparo da imagem para análise (Job ${job.id})`);
-      
+
       // Verificar se temos dados da imagem válidos
       if (!imageData || !imageData.data) {
         throw new Error("Dados da imagem inválidos ou ausentes");
       }
-      
+
       // Adicionar à fila de análise
       await filas.imagem.analise.add('analise-imagem', {
         imageData,
@@ -731,18 +768,18 @@ const ProcessadoresFilas = {
         uploadTimestamp: Date.now(),
         tipo: 'imagem'
       });
-      
+
       return { success: true };
     } catch (erro) {
       registrador.error(`[Imagem] Erro no preparo: ${erro.message}`, { erro, jobId: job.id });
-      
+
       // Notificar erro
-      notificarErro('imagem', erro, {chatId, messageId, senderNumber, transacaoId, remetenteName});
-      
+      notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
+
       throw erro;
     }
   }),
-  
+
   /**
    * Criar processador de análise de imagem
    * @param {Object} registrador - Logger
@@ -753,21 +790,21 @@ const ProcessadoresFilas = {
    * @returns {Function} Função processadora
    */
   criarProcessadorAnaliseImagem: _.curry((registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro) => async (job) => {
-    const { 
-      imageData, chatId, messageId, mimeType, userPrompt, 
-      senderNumber, transacaoId, remetenteName 
+    const {
+      imageData, chatId, messageId, mimeType, userPrompt,
+      senderNumber, transacaoId, remetenteName
     } = job.data;
-    
+
     const obterConfig = Configuracao.obterConfig(gerenciadorConfig, registrador);
     const prepararPrompt = Configuracao.prepararPrompt(registrador);
     const processarImagem = ProcessadoresMidia.processarImagem(gerenciadorAI, registrador);
-    
+
     try {
       registrador.debug(`[Imagem] Iniciando análise da imagem (Job ${job.id})`);
-      
+
       // Obter configuração
       const resultadoConfig = await obterConfig(chatId, 'imagem');
-      
+
       // Extrair config ou usar padrão em caso de erro
       const config = Resultado.dobrar(
         resultadoConfig,
@@ -784,18 +821,19 @@ const ProcessadoresFilas = {
           };
         }
       );
-      
+
       // Preparar prompt
       const promptFinal = prepararPrompt('imagem', userPrompt, config.modoDescricao);
-      
+
       // Processar imagem
       const resultadoProcessamento = await processarImagem(imageData, promptFinal, config);
-      
+
       // Processar resultado
       return Resultado.dobrar(
         resultadoProcessamento,
         resposta => {
           // Enviar resultado bem-sucedido
+          registrador.debug(`[Imagem] Análise concluída com sucesso (Job ${job.id})`);
           processarResultado({
             resposta,
             chatId,
@@ -805,56 +843,53 @@ const ProcessadoresFilas = {
             remetenteName,
             tipo: 'imagem'
           });
-          
+
           return { success: true };
         },
         erro => {
           // Processar erro
-          notificarErro('imagem', erro, {chatId, messageId, senderNumber, transacaoId, remetenteName});
+          notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
           throw erro;
         }
       );
     } catch (erro) {
       registrador.error(`[Imagem] Erro na análise: ${erro.message}`, { erro, jobId: job.id });
-      
+
       // Notificar erro
-      notificarErro('imagem', erro, {chatId, messageId, senderNumber, transacaoId, remetenteName});
-      
+      notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
+
       throw erro;
     }
   }),
-  
+
   /**
-   * Criar processador principal de imagem (compatibilidade)
-   * @param {Object} registrador - Logger
-   * @param {Object} filas - Estrutura de filas
-   * @param {Function} notificarErro - Função para notificar erros
-   * @returns {Function} Função processadora
-   */
+ * Criar processador principal de imagem (compatibilidade)
+ */
   criarProcessadorPrincipalImagem: _.curry((registrador, filas, notificarErro) => async (job) => {
     const { imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
-    
+
     try {
-      registrador.info(`Imagem inserida na fila principal (Job ${job.id})`);
-      
+      // Adicionamos esta linha para log mais informativo
+      registrador.info(`Imagem inserida na fila principal (Job ${job.id}) - tx_${transacaoId || 'sem_id'}`);
+
       // Redirecionar para a nova estrutura de fila
       const uploadJob = await filas.imagem.upload.add('upload-imagem', {
         imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName, tipo: 'imagem'
       });
-      
+
       registrador.debug(`[Imagem] Redirecionada com sucesso, job ID: ${uploadJob.id}`);
-      
+
       return { success: true, redirectedJobId: uploadJob.id };
     } catch (erro) {
       registrador.error(`[Imagem] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
-      
+
       // Notificar erro
-      notificarErro('imagem', erro, {chatId, messageId, senderNumber, transacaoId, remetenteName});
-      
+      notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
+
       throw erro;
     }
   }),
-  
+
   /**
    * Criar processador de upload de vídeo
    * @param {Object} registrador - Logger
@@ -865,24 +900,24 @@ const ProcessadoresFilas = {
    */
   criarProcessadorUploadVideo: _.curry((registrador, gerenciadorAI, filas, notificarErro) => async (job) => {
     const { tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
-    
+
     try {
       registrador.debug(`[Vídeo] Iniciando upload: ${tempFilename} (Job ${job.id})`);
-      
+
       // Verificar se o arquivo existe
       const existe = await existsAsync(tempFilename);
       if (!existe) {
         throw new Error("Arquivo temporário do vídeo não encontrado");
       }
-      
+
       // Fazer upload para o Google AI
       const respostaUpload = await gerenciadorAI.gerenciadorArquivos.uploadFile(tempFilename, {
         mimeType: mimeType || 'video/mp4',
         displayName: "Vídeo Enviado"
       });
-      
+
       registrador.debug(`[Vídeo] Upload concluído, nome do arquivo: ${respostaUpload.file.name}`);
-      
+
       // Adicionar à fila de processamento
       await filas.video.processamento.add('processar-video', {
         fileName: respostaUpload.file.name,
@@ -898,21 +933,21 @@ const ProcessadoresFilas = {
         uploadTimestamp: Date.now(),
         tipo: 'video'
       });
-      
+
       return { success: true, fileName: respostaUpload.file.name };
     } catch (erro) {
       registrador.error(`[Vídeo] Erro no upload: ${erro.message}`, { erro, jobId: job.id });
-      
+
       // Notificar erro
-      notificarErro('video', erro, {chatId, messageId, senderNumber, transacaoId, remetenteName});
-      
+      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
+
       // Limpar arquivo temporário em caso de erro
       await Utilitarios.limparArquivo(tempFilename);
-      
+
       throw erro;
     }
   }),
-  
+
   /**
    * Criar processador de processamento de vídeo
    * @param {Object} registrador - Logger
@@ -922,21 +957,21 @@ const ProcessadoresFilas = {
    * @returns {Function} Função processadora
    */
   criarProcessadorProcessamentoVideo: _.curry((registrador, gerenciadorAI, filas, notificarErro) => async (job) => {
-    const { 
-      fileName, fileUri, tempFilename, chatId, messageId, 
-      mimeType, userPrompt, senderNumber, transacaoId, 
-      uploadTimestamp, remetenteName, tentativas = 0 
+    const {
+      fileName, fileUri, tempFilename, chatId, messageId,
+      mimeType, userPrompt, senderNumber, transacaoId,
+      uploadTimestamp, remetenteName, tentativas = 0
     } = job.data;
-    
+
     try {
       registrador.debug(`[Vídeo] Verificando processamento: ${fileName} (Job ${job.id}), tentativa ${tentativas + 1}`);
-      
+
       // Verificar se já passou tempo demais desde o upload
       const tempoDecorrido = Date.now() - uploadTimestamp;
       if (tempoDecorrido > 120000 && tentativas > 3) { // 2 minutos e já tentou algumas vezes
-        throw new Error(`Arquivo provavelmente expirou após ${Math.round(tempoDecorrido/1000)} segundos`);
+        throw new Error(`Arquivo provavelmente expirou após ${Math.round(tempoDecorrido / 1000)} segundos`);
       }
-      
+
       // Obter estado atual do arquivo
       let arquivo;
       try {
@@ -947,39 +982,39 @@ const ProcessadoresFilas = {
         }
         throw erroAcesso;
       }
-      
+
       const maxTentativas = 10;
-      
+
       // Verificar o estado do arquivo
       if (arquivo.state === "PROCESSING") {
         // Se ainda está processando e não excedeu o limite de tentativas, reagendar
         if (tentativas < maxTentativas) {
           registrador.debug(`[Vídeo] Ainda em processamento, reagendando... (tentativa ${tentativas + 1})`);
-          
+
           // Calcular delay com exponential backoff
           const backoffDelay = Math.min(15000, 500 * Math.pow(2, tentativas));
-          
+
           // Reagendar
           await filas.video.processamento.add('processar-video', {
             ...job.data,
             tentativas: tentativas + 1
           }, { delay: backoffDelay });
-          
+
           return { success: true, status: "PROCESSING", tentativas: tentativas + 1 };
         } else {
           throw new Error("Tempo máximo de processamento excedido");
         }
       } else if (arquivo.state === "FAILED") {
         throw new Error("Falha no processamento do vídeo pelo Google AI");
-      } 
-      
+      }
+
       // Estados válidos para prosseguir: SUCCEEDED ou ACTIVE
       if (arquivo.state !== "SUCCEEDED" && arquivo.state !== "ACTIVE") {
         throw new Error(`Estado inesperado do arquivo: ${arquivo.state}`);
       }
-      
+
       registrador.debug(`[Vídeo] Processado com sucesso, estado: ${arquivo.state}`);
-      
+
       // Adicionar à fila de análise
       await filas.video.analise.add('analise-video', {
         fileName,
@@ -996,17 +1031,17 @@ const ProcessadoresFilas = {
         remetenteName,
         tipo: 'video'
       });
-      
+
       return { success: true, status: arquivo.state };
     } catch (erro) {
       registrador.error(`[Vídeo] Erro no processamento: ${erro.message}`, { erro, jobId: job.id });
-      
+
       // Notificar erro
-      notificarErro('video', erro, {chatId, messageId, senderNumber, transacaoId, remetenteName});
-      
+      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
+
       // Limpar arquivo temporário
       await Utilitarios.limparArquivo(tempFilename);
-      
+
       // Tentar excluir o arquivo do Google AI
       try {
         if (fileName) {
@@ -1015,35 +1050,29 @@ const ProcessadoresFilas = {
       } catch (errDelete) {
         registrador.warn(`Não foi possível excluir o arquivo remoto: ${errDelete.message}`);
       }
-      
+
       throw erro;
     }
   }),
-  
+
   /**
-   * Criar processador de análise de vídeo
-   * @param {Object} registrador - Logger
-   * @param {Object} gerenciadorConfig - Gerenciador de configurações
-   * @param {Object} gerenciadorAI - Gerenciador de IA
-   * @param {Function} processarResultado - Função para processar resultado
-   * @param {Function} notificarErro - Função para notificar erros
-   * @returns {Function} Função processadora
-   */
+ * Criar processador de análise de vídeo
+ */
   criarProcessadorAnaliseVideo: _.curry((registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro) => async (job) => {
-    const { 
-      fileName, tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, 
+    const {
+      fileName, tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber,
       transacaoId, fileState, fileUri, fileMimeType, remetenteName
     } = job.data;
-    
+
     const obterConfig = Configuracao.obterConfig(gerenciadorConfig, registrador);
     const prepararPrompt = Configuracao.prepararPrompt(registrador);
-    
+
     try {
       registrador.debug(`[Vídeo] Iniciando análise: ${fileName} (Job ${job.id})`);
-      
+
       // Obter configuração
       const resultadoConfig = await obterConfig(chatId, 'video');
-      
+
       // Extrair config ou usar padrão em caso de erro
       const config = Resultado.dobrar(
         resultadoConfig,
@@ -1060,13 +1089,13 @@ const ProcessadoresFilas = {
           };
         }
       );
-      
+
       // Preparar prompt
       const promptFinal = prepararPrompt('video', userPrompt, config.modoDescricao);
-      
+
       // Obter modelo
       const modelo = gerenciadorAI.obterOuCriarModelo(config);
-      
+
       // Preparar partes de conteúdo
       const partesConteudo = [
         {
@@ -1079,26 +1108,29 @@ const ProcessadoresFilas = {
           text: promptFinal
         }
       ];
-      
+
       // Adicionar timeout para a chamada à IA
       const promessaRespostaIA = modelo.generateContent(partesConteudo);
-      const promessaTimeoutIA = new Promise((_, reject) => 
+      const promessaTimeoutIA = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 120000)
       );
-      
+
       const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
       let resposta = resultado.response.text();
-      
+
       if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
         resposta = "Não consegui gerar uma descrição clara para este vídeo.";
       }
-      
+
       // Limpar o arquivo temporário
       await Utilitarios.limparArquivo(tempFilename);
-      
+
       // Limpar o arquivo do Google
       await gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
-      
+
+      // Adicionamos esta linha para log mais informativo
+      registrador.debug(`[Vídeo] Análise concluída com sucesso (Job ${job.id})`);
+
       // Enviar resposta via callback
       processarResultado({
         resposta,
@@ -1109,54 +1141,51 @@ const ProcessadoresFilas = {
         remetenteName,
         tipo: 'video'
       });
-      
+
       return { success: true };
     } catch (erro) {
       registrador.error(`[Vídeo] Erro na análise: ${erro.message}`, { erro, jobId: job.id });
-      
+
       // Notificar erro
-      notificarErro('video', erro, {chatId, messageId, senderNumber, transacaoId, remetenteName});
-      
+      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
+
       // Limpar arquivos
       await Utilitarios.limparArquivo(tempFilename);
-      
+
       try {
         await gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
       } catch (errDelete) {
         registrador.warn(`Não foi possível excluir o arquivo remoto: ${errDelete.message}`);
       }
-      
+
       throw erro;
     }
   }),
-  
+
   /**
-   * Criar processador principal de vídeo (compatibilidade)
-   * @param {Object} registrador - Logger
-   * @param {Object} filas - Estrutura de filas
-   * @param {Function} notificarErro - Função para notificar erros
-   * @returns {Function} Função processadora
-   */
+ * Criar processador principal de vídeo (compatibilidade)
+ */
   criarProcessadorPrincipalVideo: _.curry((registrador, filas, notificarErro) => async (job) => {
     const { tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
-    
+
     try {
-      registrador.info(`Vídeo inserido na fila principal (Job ${job.id})`);
-      
+      // Adicionamos esta linha para log mais informativo
+      registrador.info(`Vídeo inserido na fila principal (Job ${job.id}) - tx_${transacaoId || 'sem_id'}`);
+
       // Redirecionar para a nova estrutura de fila
       const uploadJob = await filas.video.upload.add('upload-video', {
         tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName, tipo: 'video'
       });
-      
+
       registrador.debug(`[Vídeo] Redirecionado com sucesso, job ID: ${uploadJob.id}`);
-      
+
       return { success: true, redirectedJobId: uploadJob.id };
     } catch (erro) {
       registrador.error(`[Vídeo] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
-      
+
       // Notificar erro
-      notificarErro('video', erro, {chatId, messageId, senderNumber, transacaoId, remetenteName});
-      
+      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
+
       throw erro;
     }
   })
@@ -1184,7 +1213,7 @@ const MonitoradorFilas = {
       'Vid-Análise': filas.video.analise,
       'Vid-Principal': filas.video.principal
     };
-    
+
     // Estrutura para contagens
     const contagens = {
       total: {
@@ -1195,12 +1224,12 @@ const MonitoradorFilas = {
         delayed: 0
       }
     };
-    
+
     // Coletar contagens de trabalhos por fila
     for (const [nome, fila] of Object.entries(mapaFilas)) {
       const contagensFila = await fila.getJobCounts();
       contagens[nome] = contagensFila;
-      
+
       // Acumular totais
       contagens.total.waiting += contagensFila.waiting || 0;
       contagens.total.active += contagensFila.active || 0;
@@ -1208,14 +1237,14 @@ const MonitoradorFilas = {
       contagens.total.failed += contagensFila.failed || 0;
       contagens.total.delayed += contagensFila.delayed || 0;
     }
-    
+
     // Obter trabalhos ativos e com falha para análise
     const obterJobs = async (estadoJobs, limite = 10) => {
       let jobsColetados = [];
-      
+
       for (const [nome, fila] of Object.entries(mapaFilas)) {
         const jobs = await fila.getJobs([estadoJobs], 0, limite);
-        
+
         jobsColetados = jobsColetados.concat(
           jobs.map(j => ({
             id: j.id,
@@ -1226,29 +1255,29 @@ const MonitoradorFilas = {
           }))
         );
       }
-      
+
       return jobsColetados;
     };
-    
+
     // Coletar trabalhos ativos e com falha para análise
     const trabalhos = {
       ativos: await obterJobs('active'),
       falhas: await obterJobs('failed')
     };
-    
+
     return { contagens, trabalhos };
   },
-  
-    /**
-   * Limpa trabalhos pendentes que possam causar problemas
-   * @param {Object} registrador - Logger
-   * @param {Object} filas - Estrutura de filas
-   * @returns {Promise<number>} Número de trabalhos limpos
-   */
+
+  /**
+ * Limpa trabalhos pendentes que possam causar problemas
+ * @param {Object} registrador - Logger
+ * @param {Object} filas - Estrutura de filas
+ * @returns {Promise<number>} Número de trabalhos limpos
+ */
   limparTrabalhosPendentes: _.curry(async (registrador, filas) => {
     try {
       registrador.info("🧹 Iniciando limpeza das filas de trabalhos antigos...");
-      
+
       // Mapear todas as filas para limpeza
       const listaFilas = [
         filas.imagem.upload,
@@ -1259,18 +1288,18 @@ const MonitoradorFilas = {
         filas.video.analise,
         filas.video.principal
       ];
-      
+
       // Usar composição para processar cada fila
       const processarFila = async (fila) => {
         const trabalhos = await fila.getJobs(['waiting', 'active', 'delayed']);
         let removidos = 0;
-        
+
         for (const trabalho of trabalhos) {
           // Função para verificar e remover trabalho
           const verificarTrabalho = async () => {
             if (trabalho.data && trabalho.data.tempFilename) {
               const { tempFilename } = trabalho.data;
-              
+
               // Verificar se o arquivo existe
               const existe = await existsAsync(tempFilename);
               if (!existe) {
@@ -1279,31 +1308,31 @@ const MonitoradorFilas = {
                 return 1;
               }
             }
-            
+
             // Verificar se está travado há muito tempo
             if (trabalho.processedOn && Date.now() - trabalho.processedOn > 300000) { // 5 minutos
-              registrador.warn(`⚠️ Removendo trabalho travado: ${trabalho.id} (processando há ${Math.round((Date.now() - trabalho.processedOn)/1000)}s)`);
+              registrador.warn(`⚠️ Removendo trabalho travado: ${trabalho.id} (processando há ${Math.round((Date.now() - trabalho.processedOn) / 1000)}s)`);
               await trabalho.remove();
               return 1;
             }
-            
+
             return 0;
           };
-          
+
           try {
             removidos += await verificarTrabalho();
           } catch (erroTrabalho) {
             registrador.error(`Erro ao processar trabalho ${trabalho.id}: ${erroTrabalho.message}`);
           }
         }
-        
+
         return removidos;
       };
-      
+
       // Executar para cada fila e somar os resultados
       const resultados = await Promise.all(listaFilas.map(processarFila));
       const totalRemovidos = resultados.reduce((a, b) => a + b, 0);
-      
+
       registrador.info(`✅ Limpeza concluída! ${totalRemovidos} trabalhos problemáticos removidos.`);
       return totalRemovidos;
     } catch (erro) {
@@ -1311,7 +1340,7 @@ const MonitoradorFilas = {
       return 0;
     }
   }),
-  
+
   /**
    * Limpa todas as filas
    * @param {Object} registrador - Logger
@@ -1322,7 +1351,7 @@ const MonitoradorFilas = {
   limparFilas: _.curry(async (registrador, filas, apenasCompletos = true) => {
     try {
       registrador.info(`🧹 Iniciando limpeza ${apenasCompletos ? 'de trabalhos concluídos' : 'COMPLETA'} das filas...`);
-      
+
       // Mapear todas as filas para limpeza
       const mapaFilas = [
         { nome: 'Img-Upload', fila: filas.imagem.upload },
@@ -1333,43 +1362,43 @@ const MonitoradorFilas = {
         { nome: 'Vid-Análise', fila: filas.video.analise },
         { nome: 'Vid-Principal', fila: filas.video.principal }
       ];
-      
+
       // Usar composição para processar cada fila
       const processarFila = async ({ nome, fila }) => {
         if (apenasCompletos) {
           const removidosCompletos = await fila.clean(30000, 'completed');
           const removidosFalhas = await fila.clean(30000, 'failed');
-          return { 
+          return {
             nome,
-            resultados: { 
+            resultados: {
               completos: removidosCompletos.length,
-              falhas: removidosFalhas.length 
+              falhas: removidosFalhas.length
             }
           };
         } else {
           await fila.empty();
-          return { 
+          return {
             nome,
-            resultados: 'Fila completamente esvaziada!' 
+            resultados: 'Fila completamente esvaziada!'
           };
         }
       };
-      
+
       // Executar para cada fila
       const resultados = await Promise.all(mapaFilas.map(processarFila));
-      
+
       // Transformar resultados em um objeto
       const resultadosObj = resultados.reduce((acc, { nome, resultados }) => {
         acc[nome] = resultados;
         return acc;
       }, {});
-      
+
       const mensagem = apenasCompletos
         ? `✅ Limpeza de filas concluída! Removidos trabalhos concluídos e com falha.`
         : `⚠️ TODAS as filas foram completamente esvaziadas!`;
-        
+
       registrador.info(mensagem);
-      
+
       return resultadosObj;
     } catch (erro) {
       registrador.error(`❌ Erro ao limpar filas: ${erro.message}`);
@@ -1392,48 +1421,48 @@ const MonitoradorFilas = {
  */
 const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, servicoMensagem) => {
   registrador.info('✨ Inicializando sistema funcional de filas de mídia...');
-  
+
   // Criar configuração do Redis
   const redisConfig = Configuracao.criarConfigRedis();
-  
+
   // Criar configuração das filas
   const configFilas = Configuracao.criarConfigFilas(redisConfig);
-  
+
   // Criar estrutura de filas
   const resultadoFilas = CriadoresFilas.criarFilas(configFilas);
-  
+
   if (!resultadoFilas.sucesso) {
     throw resultadoFilas.erro;
   }
 
   // Jest - Adicionar os componentes internos como propriedades da função
 
-inicializarFilasMidia.Resultado = Resultado;
-inicializarFilasMidia.Utilitarios = Utilitarios;
-inicializarFilasMidia.Configuracao = Configuracao;
-inicializarFilasMidia.CriadoresFilas = CriadoresFilas;
-inicializarFilasMidia.ProcessadoresMidia = ProcessadoresMidia;
-inicializarFilasMidia.ProcessadoresFilas = ProcessadoresFilas;
-inicializarFilasMidia.MonitoradorFilas = MonitoradorFilas;
-  
+  inicializarFilasMidia.Resultado = Resultado;
+  inicializarFilasMidia.Utilitarios = Utilitarios;
+  inicializarFilasMidia.Configuracao = Configuracao;
+  inicializarFilasMidia.CriadoresFilas = CriadoresFilas;
+  inicializarFilasMidia.ProcessadoresMidia = ProcessadoresMidia;
+  inicializarFilasMidia.ProcessadoresFilas = ProcessadoresFilas;
+  inicializarFilasMidia.MonitoradorFilas = MonitoradorFilas;
+
   // Configurar todas as filas com eventos
   const filas = CriadoresFilas.configurarTodasFilas(registrador, resultadoFilas.dados);
-  
+
   // Definir callbacks funcionais padrão usando Railway Pattern
   const criarCallbackPadrao = (tipo) => (resultado) => {
     if (!resultado || !resultado.senderNumber) {
       registrador.warn(`Resultado de fila ${tipo} inválido ou incompleto`);
       return Resultado.falha(new Error(`Dados de resposta ${tipo} incompletos`));
     }
-    
+
     registrador.debug(`Processando resultado de ${tipo} com callback padrão: ${resultado.transacaoId || 'sem_id'}`);
-    
+
     // Criar mensagem simulada mais completa
     const mensagemSimulada = {
       from: resultado.senderNumber,
       id: { _serialized: resultado.messageId || `msg_${Date.now()}` },
       body: resultado.userPrompt || '',
-      
+
       // Método getChat simplificado
       getChat: async () => ({
         id: { _serialized: `${resultado.chatId || resultado.senderNumber}` },
@@ -1441,67 +1470,67 @@ inicializarFilasMidia.MonitoradorFilas = MonitoradorFilas;
         isGroup: resultado.chatId ? resultado.chatId.includes('@g.us') : false,
         name: resultado.chatName || 'Chat'
       }),
-      
+
       // Não implementamos reply - o servicoMensagem lidará com isso
       hasMedia: true,
       type: tipo,
-      
+
       _data: {
         notifyName: resultado.remetenteName || 'Usuário'
       }
     };
-    
+
     // Prepara texto contextualizado para mídias
     // const textoContextualizado = `[Resposta para ${tipo === 'imagem' ? '📷 imagem' : '🎥 vídeo'} enviada por ${resultado.remetenteName || 'você'}]\n\n${resultado.resposta}`;    
     // return servicoMensagem.enviarResposta(mensagemSimulada, textoContextualizado, resultado.transacaoId);
 
     return servicoMensagem.enviarResposta(mensagemSimulada, resultado.resposta, resultado.transacaoId);
   };
-  
+
   // Objeto para armazenar callbacks
   const callbacks = {
     imagem: criarCallbackPadrao('imagem'),
     video: criarCallbackPadrao('video')
   };
-  
+
   // Criar funções utilitárias com contexto
   const notificarErro = ProcessadoresFilas.criarNotificadorErro(registrador, (resultado) => {
     const callback = callbacks[resultado.tipo];
     if (callback) callback(resultado);
     else registrador.warn(`Sem callback para notificar erro de ${resultado.tipo}`);
   });
-  
+
   const processarResultado = ProcessadoresFilas.criarProcessadorResultado(registrador, callbacks);
-  
+
   // Configurar todos os processadores de fila
-  
+
   // 1. Processadores de Imagem
   filas.imagem.upload.process('upload-imagem', 20,
     ProcessadoresFilas.criarProcessadorUploadImagem(registrador, filas, notificarErro));
-  
+
   filas.imagem.analise.process('analise-imagem', 20,
     ProcessadoresFilas.criarProcessadorAnaliseImagem(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro));
-  
+
   filas.imagem.principal.process('processar-imagem', 20,
     ProcessadoresFilas.criarProcessadorPrincipalImagem(registrador, filas, notificarErro));
-  
+
   // 2. Processadores de Vídeo
   filas.video.upload.process('upload-video', 10,
     ProcessadoresFilas.criarProcessadorUploadVideo(registrador, gerenciadorAI, filas, notificarErro));
-  
+
   filas.video.processamento.process('processar-video', 10,
     ProcessadoresFilas.criarProcessadorProcessamentoVideo(registrador, gerenciadorAI, filas, notificarErro));
-  
+
   filas.video.analise.process('analise-video', 10,
     ProcessadoresFilas.criarProcessadorAnaliseVideo(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro));
-  
+
   filas.video.principal.process('processar-video', 10,
     ProcessadoresFilas.criarProcessadorPrincipalVideo(registrador, filas, notificarErro));
-  
+
   // Limpar tarefas antigas ou problemáticas
   MonitoradorFilas.limparTrabalhosPendentes(registrador, filas)
     .catch(erro => registrador.error(`Erro ao limpar trabalhos pendentes: ${erro.message}`));
-  
+
   // Retornar API pública funcionalmente composta
   return {
     // Setters para callbacks
@@ -1509,18 +1538,18 @@ inicializarFilasMidia.MonitoradorFilas = MonitoradorFilas;
       callbacks.imagem = callback;
       registrador.info('✅ Callback de resposta para imagens configurado');
     },
-    
+
     setCallbackRespostaVideo: (callback) => {
       callbacks.video = callback;
       registrador.info('✅ Callback de resposta para vídeos configurado');
     },
-    
+
     setCallbackRespostaUnificado: (callback) => {
       callbacks.imagem = callback;
       callbacks.video = callback;
       registrador.info('✅ Callback de resposta unificado configurado');
     },
-    
+
     // Adição de trabalhos às filas
     adicionarImagem: async (dados) => {
       return filas.imagem.principal.add('processar-imagem', {
@@ -1528,21 +1557,21 @@ inicializarFilasMidia.MonitoradorFilas = MonitoradorFilas;
         tipo: 'imagem'
       });
     },
-    
+
     adicionarVideo: async (dados) => {
       return filas.video.principal.add('processar-video', {
         ...dados,
         tipo: 'video'
       });
     },
-    
+
     // Limpeza de filas
-    limparFilas: (apenasCompletos = true) => 
+    limparFilas: (apenasCompletos = true) =>
       MonitoradorFilas.limparFilas(registrador, filas, apenasCompletos),
-    
-    limparTrabalhosPendentes: () => 
+
+    limparTrabalhosPendentes: () =>
       MonitoradorFilas.limparTrabalhosPendentes(registrador, filas),
-    
+
     // Finalização e liberação de recursos
     finalizar: () => {
       registrador.info('Sistema de filas de mídia finalizado');

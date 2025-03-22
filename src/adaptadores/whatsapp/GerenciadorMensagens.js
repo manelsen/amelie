@@ -1336,36 +1336,27 @@ const processarEntradaGrupo = (dependencias) => async (notificacao) => {
  */
 const verificarPermissaoComando = async (mensagem, clienteWhatsApp, registrador) => {
   try {
-    // Obter o chat
     const chat = await mensagem.getChat();
     
-    // Verificar se é um grupo
     const ehGrupo = chat.id && chat.id.server === 'g.us';
     if (!ehGrupo) {
-      registrador.info(`✅ Chat privado - comando liberado!`);
       return true;
     }
 
-    // Pegar o ID do remetente
     const remetenteId = mensagem.author || mensagem.from;
-    registrador.info(`🔍 Verificando se ${remetenteId} é admin no grupo ${chat.name}`);
+    registrador.debug(`🔍 Verificando se ${remetenteId} é admin no grupo ${chat.name}`);
     
-    // REVELAÇÃO! Acessar o groupMetadata e sua lista de participantes
     if (chat.groupMetadata && chat.groupMetadata.participants) {
-      registrador.info(`✅ Encontrados ${chat.groupMetadata.participants.length} participantes no grupo`);
+      registrador.debug(`✅ Encontrados ${chat.groupMetadata.participants.length} participantes no grupo`);
       
-      // Procurar o remetente na lista
       const participante = chat.groupMetadata.participants.find(p => 
         p.id._serialized === remetenteId
       );
       
       if (participante) {
-        // Verificar se é admin
         const ehAdmin = participante.isAdmin || participante.isSuperAdmin;
         
-        registrador.info(`${ehAdmin ? '✅ É ADMIN! Permissão concedida!' : '⚠️ NÃO É ADMIN'}`);
         
-        // Se for admin, retorna true, senão segue para liberar por padrão
         if (ehAdmin) return true;
       } else {
         registrador.warn(`⚠️ Participante não encontrado na lista, estranho...`);
@@ -1374,8 +1365,6 @@ const verificarPermissaoComando = async (mensagem, clienteWhatsApp, registrador)
       registrador.warn(`⚠️ Não encontramos groupMetadata ou participants`);
     }
     
-    // Liberando por padrão, como solicitado
-    registrador.info(`🔓 Liberando comando por padrão`);
     return false;
     
   } catch (erro) {
