@@ -17,7 +17,6 @@ const path = require('path');
 const { Resultado, ArquivoUtils, Trilho, Operacoes } = require('../../utilitarios/Ferrovia');
 const { verificarArquivoExiste, removerArquivo } = ArquivoUtils;
 
-// Importação corrigida - caminho correto
 const {
   obterInstrucaoImagem,
   obterInstrucaoImagemCurta,
