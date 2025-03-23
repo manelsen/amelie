@@ -17,7 +17,6 @@ const { verificarArquivoExiste, removerArquivo } = ArquivoUtils;
 
 // Importação corrigida - caminho correto
 const {
-  obterInstrucaoPadrao,
   obterInstrucaoImagem,
   obterInstrucaoImagemCurta,
   obterInstrucaoVideo,
