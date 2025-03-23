@@ -1,3 +1,5 @@
+// FilasMidia.js
+
 /**
  * FilasMidia - Módulo funcional para processamento assíncrono de filas de mídia
  * 
@@ -164,7 +166,7 @@ const Configuracao = {
   /**
    * Obtém configurações para processamento de mídia
    * @param {Object} gerenciadorConfig - Gerenciador de configurações
-   * @param {Object} registrador - Logger
+   * @param {Object} registrador - Logger para registro
    * @param {string} chatId - ID do chat
    * @param {string} tipoMidia - Tipo de mídia
    * @returns {Promise<Resultado>} Configurações
@@ -412,7 +414,7 @@ const ProcessadoresMidia = {
   processarImagem: _.curry((gerenciadorAI, registrador, imageData, prompt, config) => {
     // Validar dados de entrada
     if (!imageData || !imageData.data) {
-      return Promise.resolve(Resultado.falha(new Error("Dados de imagem inválidos ou ausentes")));
+      return Promise.resolve(Resultado.falha(new Error("Dados da imagem inválidos ou ausentes")));
     }
     
     registrador.debug(`Processando imagem com modo ${config.modoDescricao}`);
@@ -1526,66 +1528,66 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
   filas.video.upload.process('upload-video', 10,
     ProcessadoresFilas.criarProcessadorUploadVideo(registrador, gerenciadorAI, filas, notificarErro));
   
-    filas.video.processamento.process('processar-video', 10,
-      ProcessadoresFilas.criarProcessadorProcessamentoVideo(registrador, gerenciadorAI, filas, notificarErro));
+  filas.video.processamento.process('processar-video', 10,
+    ProcessadoresFilas.criarProcessadorProcessamentoVideo(registrador, gerenciadorAI, filas, notificarErro));
   
-    filas.video.analise.process('analise-video', 10,
-      ProcessadoresFilas.criarProcessadorAnaliseVideo(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro));
+  filas.video.analise.process('analise-video', 10,
+    ProcessadoresFilas.criarProcessadorAnaliseVideo(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro));
   
-    filas.video.principal.process('processar-video', 10,
-      ProcessadoresFilas.criarProcessadorPrincipalVideo(registrador, filas, notificarErro));
+  filas.video.principal.process('processar-video', 10,
+    ProcessadoresFilas.criarProcessadorPrincipalVideo(registrador, filas, notificarErro));
   
-    // Limpar tarefas antigas ou problemáticas
-    MonitoradorFilas.limparTrabalhosPendentes(registrador, filas)
-      .catch(erro => registrador.error(`Erro ao limpar trabalhos pendentes: ${erro.message}`));
+  // Limpar tarefas antigas ou problemáticas
+  MonitoradorFilas.limparTrabalhosPendentes(registrador, filas)
+    .catch(erro => registrador.error(`Erro ao limpar trabalhos pendentes: ${erro.message}`));
   
-    // Retornar API pública funcionalmente composta
-    return {
-      // Setters para callbacks
-      setCallbackRespostaImagem: (callback) => {
-        callbacks.imagem = callback;
-        registrador.info('✅ Callback de resposta para imagens configurado');
-      },
-  
-      setCallbackRespostaVideo: (callback) => {
-        callbacks.video = callback;
-        registrador.info('✅ Callback de resposta para vídeos configurado');
-      },
-  
-      setCallbackRespostaUnificado: (callback) => {
-        callbacks.imagem = callback;
-        callbacks.video = callback;
-        registrador.info('✅ Callback de resposta unificado configurado');
-      },
-  
-      // Adição de trabalhos às filas
-      adicionarImagem: async (dados) => {
-        return filas.imagem.principal.add('processar-imagem', {
-          ...dados,
-          tipo: 'imagem'
-        });
-      },
-  
-      adicionarVideo: async (dados) => {
-        return filas.video.principal.add('processar-video', {
-          ...dados,
-          tipo: 'video'
-        });
-      },
-  
-      // Limpeza de filas
-      limparFilas: (apenasCompletos = true) =>
-        MonitoradorFilas.limparFilas(registrador, filas, apenasCompletos),
-  
-      limparTrabalhosPendentes: () =>
-        MonitoradorFilas.limparTrabalhosPendentes(registrador, filas),
-  
-      // Finalização e liberação de recursos
-      finalizar: () => {
-        registrador.info('Sistema de filas de mídia finalizado');
-      }
-    };
+  // Retornar API pública funcionalmente composta
+  return {
+    // Setters para callbacks
+    setCallbackRespostaImagem: (callback) => {
+      callbacks.imagem = callback;
+      registrador.info('✅ Callback de resposta para imagens configurado');
+    },
+
+    setCallbackRespostaVideo: (callback) => {
+      callbacks.video = callback;
+      registrador.info('✅ Callback de resposta para vídeos configurado');
+    },
+
+    setCallbackRespostaUnificado: (callback) => {
+      callbacks.imagem = callback;
+      callbacks.video = callback;
+      registrador.info('✅ Callback de resposta unificado configurado');
+    },
+
+    // Adição de trabalhos às filas
+    adicionarImagem: async (dados) => {
+      return filas.imagem.principal.add('processar-imagem', {
+        ...dados,
+        tipo: 'imagem'
+      });
+    },
+
+    adicionarVideo: async (dados) => {
+      return filas.video.principal.add('processar-video', {
+        ...dados,
+        tipo: 'video'
+      });
+    },
+
+    // Limpeza de filas
+    limparFilas: (apenasCompletos = true) =>
+      MonitoradorFilas.limparFilas(registrador, filas, apenasCompletos),
+
+    limparTrabalhosPendentes: () =>
+      MonitoradorFilas.limparTrabalhosPendentes(registrador, filas),
+
+    // Finalização e liberação de recursos
+    finalizar: () => {
+      registrador.info('Sistema de filas de mídia finalizado');
+    }
   };
-  
-  // Exportar a função de inicialização
-  module.exports = inicializarFilasMidia;
+};
+
+// Exportar a função de inicialização
+module.exports = inicializarFilasMidia;

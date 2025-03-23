@@ -1,9 +1,10 @@
-/**
+// GerenciadorMensagens.js
 
+/**
  * GerenciadorMensagens - Módulo para processamento de mensagens do WhatsApp
  * 
  * Implementação refatorada usando programação funcional, padrão Railway e composição com Lodash/FP.
-   */
+ */
 
 const _ = require('lodash/fp');
 const EventEmitter = require('events');
@@ -26,9 +27,8 @@ const Resultado = {
 };
 
 /**
-
  * Funções puras para validação e processamento
-   */
+ */
 
 // Verifica se uma mensagem deve ser processada
 const validarMensagem = (registrador, mensagensProcessadas) => (mensagem) => {
@@ -66,7 +66,7 @@ const verificarMensagemSistema = (registrador) => (dados) => {
       mensagem._data.subtype === 'system' ||
       (mensagem._data.star === true && !mensagem.body && !mensagem.hasMedia) ||
       mensagem._data.isStatusV3 === true ||
-      mensagem._data.isViewOnce === true && !mensagem.body
+      (mensagem._data.isViewOnce === true && !mensagem.body)
     )) ||
     (mensagem.id && mensagem.id._serialized && mensagem.id._serialized.includes('NOTIFICATION'));
 
@@ -84,7 +84,6 @@ const obterInformacoesChat = (registrador) => async (dados) => {
     const { mensagem } = dados;
     const chat = await mensagem.getChat();
     await chat.sendSeen();
-
 
     const chatId = chat.id._serialized;
     const ehGrupo = chatId.endsWith('@g.us');
@@ -114,7 +113,6 @@ const verificarRespostaGrupo = (clienteWhatsApp) => async (dados) => {
   // Verificar critérios para responder em grupo
   try {
     const deveResponder = await clienteWhatsApp.deveResponderNoGrupo(mensagem, chat);
-
 
     if (!deveResponder) {
       return Resultado.falha(new Error("Não atende critérios para resposta em grupo"));
@@ -184,9 +182,8 @@ const inferirMimeType = (buffer) => {
 };
 
 /**
-
  * Obter ou criar usuário
-   */
+ */
 const obterOuCriarUsuario = (gerenciadorConfig, clienteWhatsApp, registrador) => async (remetente, chat) => {
   try {
     // Se temos gerenciadorConfig, usar o método dele
@@ -229,9 +226,8 @@ const obterOuCriarUsuario = (gerenciadorConfig, clienteWhatsApp, registrador) =>
 };
 
 /**
-
  * Processamento de transações
-   */
+ */
 const criarTransacao = (gerenciadorTransacoes, registrador) => async (mensagem, chat, remetente) => {
   try {
     const transacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
@@ -274,9 +270,8 @@ const adicionarRespostaTransacao = (gerenciadorTransacoes, registrador) => async
 };
 
 /**
-
  * Processamento de mensagens de texto
-   */
+ */
 const processarMensagemTexto = (dependencias) => async (dados) => {
   const { registrador, gerenciadorAI, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, clienteWhatsApp } = dependencias;
   const { mensagem, chat, chatId } = dados;
@@ -285,7 +280,6 @@ const processarMensagemTexto = (dependencias) => async (dados) => {
     // Obter informações do remetente
     const resultadoRemetente = await obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(mensagem.author || mensagem.from, chat);
     const remetente = resultadoRemetente.dados;
-
 
     // Criar transação para esta mensagem
     const resultadoTransacao = await criarTransacao(gerenciadorTransacoes, registrador)(mensagem, chat, remetente);
@@ -383,7 +377,7 @@ const processarComando = (dependencias) => async (dados) => {
       'imagem': () => tratarComandoAlternarMidia(dependencias)('mediaImage', 'descrição de imagem')(mensagem, chatId),
       'longo': () => tratarComandoLongo(dependencias)(mensagem, chatId),
       'curto': () => tratarComandoCurto(dependencias)(mensagem, chatId),
-      'legenda': () => tratarComandoLegenda(dependencias)(mensagem, chatId), // Adicionado novo comando
+      'legenda': () => tratarComandoLegenda(dependencias)(mensagem, chatId),
       'filas': () => tratarComandoFilas(dependencias)(mensagem, args, chatId)
     };
 
@@ -415,9 +409,8 @@ const processarComando = (dependencias) => async (dados) => {
 };
 
 /**
-
  * Implementações de comandos
-   */
+ */
 
 const tratarComandoLegenda = (dependencias) => async (mensagem, chatId) => {
   const { registrador, gerenciadorConfig, servicoMensagem } = dependencias;
@@ -475,7 +468,6 @@ const tratarComandoReset = (dependencias) => async (mensagem, chatId) => {
   try {
     await gerenciadorConfig.resetarConfig(chatId);
     await gerenciadorConfig.limparPromptSistemaAtivo(chatId);
-
 
     await servicoMensagem.enviarResposta(
       mensagem,
@@ -896,8 +888,8 @@ const tratarComandoFilas = (dependencias) => async (mensagem, args, chatId) => {
 };
 
 /**
-* Processamento de mensagens com mídia
-*/
+ * Processamento de mensagens com mídia
+ */
 const processarMensagemComMidia = (dependencias) => async (dados) => {
   const { registrador, servicoMensagem } = dependencias;
   const { mensagem, chatId } = dados;
@@ -942,8 +934,8 @@ const processarMensagemComMidia = (dependencias) => async (dados) => {
 };
 
 /**
-* Processamento de mensagens de áudio
-*/
+ * Processamento de mensagens de áudio
+ */
 const processarMensagemAudio = (dependencias) => async (dados) => {
   const { registrador, gerenciadorAI, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, clienteWhatsApp } = dependencias;
   const { mensagem, chatId, dadosAnexo } = dados;
@@ -960,7 +952,7 @@ const processarMensagemAudio = (dependencias) => async (dados) => {
     const tamanhoAudioMB = dadosAnexo.data.length / (1024 * 1024);
     if (tamanhoAudioMB > 20) {
       await servicoMensagem.enviarResposta(mensagem, 'Desculpe, só posso processar áudios de até 20MB.');
-      return Resultado.falha(new Error("Áudio muito grande"));    
+      return Resultado.falha(new Error("Áudio muito grande"));
     }
 
     const ehPTT = dadosAnexo.mimetype === 'audio/ogg; codecs=opus';
@@ -1002,8 +994,8 @@ const processarMensagemAudio = (dependencias) => async (dados) => {
 };
 
 /**
-* Processamento de mensagens de imagem
-*/
+ * Processamento de mensagens de imagem
+ */
 const processarMensagemImagem = (dependencias) => async (dados) => {
   const { registrador, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, filasMidia, clienteWhatsApp } = dependencias;
   const { mensagem, chatId, dadosAnexo } = dados;
@@ -1084,8 +1076,8 @@ const processarMensagemImagem = (dependencias) => async (dados) => {
 };
 
 /**
-* Processamento de mensagens de vídeo
-*/
+ * Processamento de mensagens de vídeo
+ */
 const processarMensagemVideo = (dependencias) => async (dados) => {
   const { registrador, gerenciadorConfig, gerenciadorTransacoes, servicoMensagem, filasMidia, clienteWhatsApp } = dependencias;
   const { mensagem, chatId, dadosAnexo } = dados;
@@ -1148,7 +1140,7 @@ Inclua:
 2. Ambiente e cenário completo
 3. Todos os objetos visíveis 
 4. Movimentos e ações detalhadas
-5. Expressões faciais
+5. Expressões faciais e tons de voz
 6. Textos visíveis
 7. Qualquer outro detalhe relevante
 
@@ -1233,8 +1225,8 @@ Crie uma descrição organizada e acessível.`;
 };
 
 /**
-* Recupera uma transação interrompida
-*/
+ * Recupera uma transação interrompida
+ */
 const recuperarTransacao = (dependencias) => async (transacao) => {
   const { registrador, servicoMensagem, clienteWhatsApp, gerenciadorTransacoes } = dependencias;
 
@@ -1272,8 +1264,8 @@ const recuperarTransacao = (dependencias) => async (transacao) => {
 };
 
 /**
-* Processa o evento de entrada em grupo
-*/
+ * Processa o evento de entrada em grupo
+ */
 const processarEntradaGrupo = (dependencias) => async (notificacao) => {
   const { registrador, clienteWhatsApp, servicoMensagem } = dependencias;
 
@@ -1356,7 +1348,6 @@ const verificarPermissaoComando = async (mensagem, clienteWhatsApp, registrador)
       if (participante) {
         const ehAdmin = participante.isAdmin || participante.isSuperAdmin;
         
-        
         if (ehAdmin) return true;
       } else {
         registrador.warn(`⚠️ Participante não encontrado na lista, estranho...`);
@@ -1374,8 +1365,8 @@ const verificarPermissaoComando = async (mensagem, clienteWhatsApp, registrador)
 };
 
 /**
-* Função principal para criar o gerenciador
-*/
+ * Função principal para criar o gerenciador
+ */
 const criarGerenciadorMensagens = (dependencias) => {
   const {
     registrador,
