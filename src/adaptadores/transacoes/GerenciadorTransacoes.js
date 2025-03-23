@@ -22,7 +22,39 @@ class GerenciadorTransacoes extends EventEmitter {
     this.registrador.info('Gerenciador de transações inicializado');
   }
 
-  // Mantém a assinatura do método original
+  async limparTransacoesIncompletas() {
+    try {
+      // Encontrar transações sem resposta ou que estão travadas
+      const resultado = await this.repoTransacoes.encontrar({
+        $or: [
+          { resposta: { $exists: false }, status: { $ne: 'criada' } },
+          { status: 'falha_permanente' }
+        ]
+      });
+
+      const transacoes = resultado.sucesso ? resultado.dados : [];
+      if (transacoes.length === 0) return 0;
+
+      this.registrador.info(`Encontradas ${transacoes.length} transações incompletas para limpeza`);
+      let limpas = 0;
+
+      for (const transacao of transacoes) {
+        try {
+          await this.repoTransacoes.remover({ id: transacao.id });
+          limpas++;
+        } catch (erro) {
+          this.registrador.error(`Erro ao remover transação incompleta ${transacao.id}: ${erro.message}`);
+        }
+      }
+
+      this.registrador.info(`Limpas ${limpas} transações incompletas`);
+      return limpas;
+    } catch (erro) {
+      this.registrador.error(`Erro ao limpar transações incompletas: ${erro.message}`);
+      return 0;
+    }
+  }
+
   async criarTransacao(mensagem, chat) {
     const resultado = await this.repoTransacoes.criarTransacao(mensagem, chat);
 

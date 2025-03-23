@@ -20,13 +20,13 @@ dotenv.config();
 // Importar módulos da aplicação
 const ConfigManager = require('./config/ConfigManager');
 
-const ClienteWhatsApp         = require('./adaptadores/whatsapp/ClienteWhatsApp');
-const GerenciadorAI           = require('./adaptadores/ai/GerenciadorAI');
-const GerenciadorMensagens    = require('./adaptadores/whatsapp/AdaptadorGerenciadorMensagens');
+const ClienteWhatsApp = require('./adaptadores/whatsapp/ClienteWhatsApp');
+const GerenciadorAI = require('./adaptadores/ai/GerenciadorAI');
+const GerenciadorMensagens = require('./adaptadores/whatsapp/AdaptadorGerenciadorMensagens');
 const GerenciadorNotificacoes = require('./adaptadores/whatsapp/GerenciadorNotificacoes');
-const inicializarFilasMidia   = require('./adaptadores/queue/FilasMidia');
-const GerenciadorTransacoes   = require('./adaptadores/transacoes/GerenciadorTransacoes');
-const criarServicoMensagem    = require('./servicos/ServicoMensagem');
+const inicializarFilasMidia = require('./adaptadores/queue/FilasMidia');
+const GerenciadorTransacoes = require('./adaptadores/transacoes/GerenciadorTransacoes');
+const criarServicoMensagem = require('./servicos/ServicoMensagem');
 
 
 // Configurações
@@ -47,22 +47,22 @@ for (const dir of diretorios) {
  */
 const meuFormato = winston.format.printf(({ timestamp, level, message, ...rest }) => {
   const dadosExtras = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '';
-  
+
   // Usar expressões regulares para colorir apenas partes específicas
   let mensagemColorida = message;
-  
+
   // Colorir apenas "Mensagem de [nome]" em verde
   mensagemColorida = mensagemColorida.replace(
-    /(Mensagem de [^:]+):/g, 
+    /(Mensagem de [^:]+):/g,
     match => colors.green(match)
   );
-  
+
   // Colorir apenas "Resposta:" em azul
   mensagemColorida = mensagemColorida.replace(
-    /\b(Resposta):/g, 
+    /\b(Resposta):/g,
     match => colors.blue(match)
   );
-  
+
   return `${timestamp} [${colors.yellow(level)}]: ${mensagemColorida} ${dadosExtras}`;
 });
 
@@ -86,7 +86,7 @@ const logger = winston.createLogger({
         meuFormato
       )
     }),
-    new winston.transports.File({ 
+    new winston.transports.File({
       filename: './logs/bot.log',
       format: winston.format.combine(
         winston.format.timestamp(),
@@ -97,7 +97,7 @@ const logger = winston.createLogger({
         })
       )
     }),
-    new winston.transports.File({ 
+    new winston.transports.File({
       filename: './logs/error.log',
       level: 'error',
       format: winston.format.combine(
@@ -146,6 +146,46 @@ Se quiser conhecer, fala com ela em https://beacons.ai/belleutsch
 Quer entrar no grupo oficial da Amélie? O link é https://chat.whatsapp.com/C0Ys7pQ6lZH5zqDD9A8cLp
 Meu repositório fica em https://github.com/manelsen/amelie`;
 
+// Adicionar método para limpar transações em problemas
+GerenciadorTransacoes.prototype.limparTransacoesIncompletas = async function() {
+  try {
+    // Encontrar transações sem resposta ou que estão travadas
+    const resultado = await this.repoTransacoes.encontrar({
+      $or: [
+        { status: 'falha_temporaria' },
+        { status: 'falha_permanente' }
+      ]
+    });
+
+    if (!resultado.sucesso) {
+      this.registrador.error(`Erro ao buscar transações incompletas: ${resultado.erro.message}`);
+      return 0;
+    }
+
+    const transacoes = resultado.dados || [];
+    if (transacoes.length === 0) return 0;
+
+    this.registrador.info(`Encontradas ${transacoes.length} transações incompletas para limpeza`);
+    let limpas = 0;
+
+    for (const transacao of transacoes) {
+      try {
+        await this.repoTransacoes.remover({ id: transacao.id });
+        this.registrador.info(`Transação ${transacao.id} removida com sucesso`);
+        limpas++;
+      } catch (erro) {
+        this.registrador.error(`Erro ao remover transação ${transacao.id}: ${erro.message}`);
+      }
+    }
+
+    this.registrador.info(`Limpas ${limpas} transações incompletas`);
+    return limpas;
+  } catch (erro) {
+    this.registrador.error(`Erro ao limpar transações incompletas: ${erro.message}`);
+    return 0;
+  }
+};
+
 // Inicializar os componentes do sistema
 logger.info('🤖 Iniciando Amélie - Assistente Virtual de IA para WhatsApp');
 
@@ -188,7 +228,7 @@ let gerenciadorMensagens = null;
 // Configurar eventos do cliente WhatsApp
 clienteWhatsApp.on('pronto', async () => {
   logger.info('📱 Cliente WhatsApp pronto e conectado!');
-  
+
   // 6. Agora que o cliente está pronto, inicializar o processador de filas de mídia
   filasMidia = inicializarFilasMidia(logger, gerenciadorAI, configManager, servicoMensagem);
   logger.info('🔄 Filas de mídia inicializadas');
@@ -201,27 +241,30 @@ clienteWhatsApp.on('pronto', async () => {
     gerenciadorAI,
     filasMidia,
     gerenciadorTransacoes,
-    servicoMensagem  
+    servicoMensagem
   );
   logger.info('💬 Gerenciador de mensagens inicializado');
-  
+
   // Registrar o gerenciador de mensagens como handler
   gerenciadorMensagens.registrarComoHandler(clienteWhatsApp);
-  
+
   // Iniciar o monitor de saúde
   monitorSaude.parar(); // Garantir que esteja parado antes
   monitorSaude.iniciar();
-  
+
+  // Limpar transações problemáticas antes de processar
+  await gerenciadorTransacoes.limparTransacoesIncompletas();
+
   // Processar notificações pendentes
-  const notificacoesProcessadas = await gerenciadorNotificacoes.processar(clienteWhatsApp.cliente);
-  if (notificacoesProcessadas > 0) {
-    logger.info(`Processadas ${notificacoesProcessadas} notificações pendentes na inicialização`);
-  }
-  
+  const resultadoNotificacoes = await gerenciadorNotificacoes.processar(clienteWhatsApp.cliente);
+  const notificacoesProcessadas = resultadoNotificacoes.sucesso ? resultadoNotificacoes.dados : 0;
+
   // Processar transações pendentes
-  const transacoesProcessadas = await gerenciadorTransacoes.processarTransacoesPendentes(clienteWhatsApp);
-  if (transacoesProcessadas > 0) {
-    logger.info(`Processadas ${transacoesProcessadas} transações pendentes na inicialização`);
+  const resultadoTransacoes = await gerenciadorTransacoes.processarTransacoesPendentes(clienteWhatsApp);
+  const transacoesProcessadas = resultadoTransacoes.sucesso ? resultadoTransacoes.dados : 0;
+
+  if (notificacoesProcessadas > 0 || transacoesProcessadas > 0) {
+    logger.info(`Processamento periódico: ${notificacoesProcessadas} notificações, ${transacoesProcessadas} transações`);
   }
 });
 
@@ -230,12 +273,17 @@ setInterval(async () => {
   // Só executar se o cliente estiver pronto e os componentes estiverem inicializados
   if (clienteWhatsApp.pronto && filasMidia && gerenciadorMensagens) {
     try {
+      // Limpar transações problemáticas
+      await gerenciadorTransacoes.limparTransacoesIncompletas();
+
       // Processar notificações pendentes
-      const notificacoesProcessadas = await gerenciadorNotificacoes.processar(clienteWhatsApp.cliente);
-      
+      const resultadoNotificacoes = await gerenciadorNotificacoes.processar(clienteWhatsApp.cliente);
+      const notificacoesProcessadas = resultadoNotificacoes.sucesso ? resultadoNotificacoes.dados : 0;
+
       // Processar transações pendentes
-      const transacoesProcessadas = await gerenciadorTransacoes.processarTransacoesPendentes(clienteWhatsApp);
-      
+      const resultadoTransacoes = await gerenciadorTransacoes.processarTransacoesPendentes(clienteWhatsApp);
+      const transacoesProcessadas = resultadoTransacoes.sucesso ? resultadoTransacoes.dados : 0;
+
       if (notificacoesProcessadas > 0 || transacoesProcessadas > 0) {
         logger.info(`Processamento periódico: ${notificacoesProcessadas} notificações, ${transacoesProcessadas} transações`);
       }
@@ -252,10 +300,13 @@ setInterval(async () => {
     try {
       // Limpar notificações antigas
       await gerenciadorNotificacoes.limparAntigas(1); // 1 dia
-      
+
       // Limpar transações antigas
       await gerenciadorTransacoes.limparTransacoesAntigas(1); // 1 dia
-      
+
+      // Limpar Transações Incompletas
+      await gerenciadorTransacoes.limparTransacoesIncompletas();
+
       // Limpar trabalhos pendentes na fila
       await filasMidia.limparTrabalhosPendentes();
     } catch (erro) {
@@ -271,7 +322,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (erro) => {
   logger.error(`Uncaught Exception: ${erro.message}`, { erro });
-  
+
   // Em produção, você pode querer reiniciar em vez de encerrar
   if (process.env.NODE_ENV === 'production') {
     logger.error('Erro crítico, reiniciando o processo em 5 segundos...');
