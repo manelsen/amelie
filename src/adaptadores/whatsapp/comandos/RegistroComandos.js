@@ -40,7 +40,7 @@ const criarRegistroComandos = (dependencias) => {
   // Encontrar comando por nome
   const encontrarComando = nomeComando => 
     comandos.find(comando => comando.corresponde(nomeComando));
-  
+   
   // Executar comando pelo nome
   const executarComando = (nomeComando, mensagem, args, chatId) => {
     const comando = encontrarComando(nomeComando);
@@ -50,6 +50,10 @@ const criarRegistroComandos = (dependencias) => {
     }
     
     return comando.executar(mensagem, args, chatId);
+  };
+
+  const comandoExiste = (nomeComando) => {
+    return Boolean(comandos[nomeComando]);
   };
   
   // Obter lista de comandos para ajuda
@@ -63,8 +67,12 @@ const criarRegistroComandos = (dependencias) => {
     encontrarComando,
     executarComando,
     listarComandos,
+    comandoExiste,
     comandos
   };
+
+  
 };
+
 
 module.exports = criarRegistroComandos;

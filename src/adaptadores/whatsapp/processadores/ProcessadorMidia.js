@@ -52,20 +52,18 @@ const criarProcessadorMidia = (dependencias) => {
 
   // Processa a mídia e direciona para o processador específico
   // Versão corrigida do ProcessadorMidia.js
-const processarMensagemComMidia = async (dados) => {
-  const { mensagem, chatId } = dados;
-
-  return Trilho.encadear(
-    // Baixar mídia
-    () => Trilho.dePromise(mensagem.downloadMedia()),
-    
-    // Verificar dados e preparar objeto completo
-    dadosAnexo => {
+  const processarMensagemComMidia = async (dados) => {
+    const { mensagem, chatId } = dados;
+  
+    try {
+      // Baixar mídia de forma direta, sem usar o Trilho ainda
+      const dadosAnexo = await mensagem.downloadMedia();
+      
       if (!dadosAnexo || !dadosAnexo.data) {
         registrador.error('Não foi possível obter dados de mídia.');
         return Resultado.falha(new Error('Falha ao obter dados de mídia'));
       }
-
+  
       // Inferir MIME type se necessário
       let mimeType = dadosAnexo.mimetype;
       if (!mimeType) {
@@ -73,38 +71,23 @@ const processarMensagemComMidia = async (dados) => {
         dadosAnexo.mimetype = mimeType;
         registrador.info(`MIME inferido: ${mimeType}`);
       }
-
-      // Criar objeto completo com todos os dados necessários
-      return Resultado.sucesso({
-        mensagem,  
-        chatId,
-        dadosAnexo, // Importante manter esse objeto!
-        mimeType
-      });
-    },
-    
-    // Direcionar para o processador adequado com dados completos
-    dadosCompletos => {
-      const { mimeType } = dadosCompletos;
-      
-      // Usar cond com dados completos
-      const encaminharParaProcessador = _.cond([
-        [tipo => tipo.startsWith('audio/'), () => 
-          processadorAudio.processarMensagemAudio(dadosCompletos)],
-        [tipo => tipo.startsWith('image/'), () => 
-          processadorImagem.processarMensagemImagem(dadosCompletos)],
-        [tipo => tipo.startsWith('video/'), () => 
-          processadorVideo.processarMensagemVideo(dadosCompletos)],
-        [_.stubTrue, () => {
-          registrador.info(`Tipo de mídia não suportado: ${mimeType}`);
-          return Resultado.falha(new Error(`Tipo de mídia não suportado: ${mimeType}`));
-        }]
-      ]);
-      
-      return encaminharParaProcessador(mimeType);
+  
+      // Direcionar para o processador adequado com base no tipo MIME
+      if (mimeType.startsWith('audio/')) {
+        return await processadorAudio.processarMensagemAudio({ mensagem, chatId, dadosAnexo });
+      } else if (mimeType.startsWith('image/')) {
+        return await processadorImagem.processarMensagemImagem({ mensagem, chatId, dadosAnexo });
+      } else if (mimeType.startsWith('video/')) {
+        return await processadorVideo.processarMensagemVideo({ mensagem, chatId, dadosAnexo });
+      } else {
+        registrador.info(`Tipo de mídia não suportado: ${mimeType}`);
+        return Resultado.falha(new Error(`Tipo de mídia não suportado: ${mimeType}`));
+      }
+    } catch (erro) {
+      registrador.error(`Erro ao processar mídia: ${erro.message}`);
+      return Resultado.falha(erro);
     }
-  )();
-};
+  };
 
   return { 
     processarMensagemComMidia,

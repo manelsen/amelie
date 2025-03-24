@@ -83,131 +83,130 @@ const criarProcessadorVideo = (dependencias) => {
   const processarMensagemVideo = async (dados) => {
     const { mensagem, chatId, dadosAnexo } = dados;
     let arquivoTemporario = null;
-
-    return Trilho.encadear(
-      // Obter chat e configuração
-      () => Promise.all([
-        mensagem.getChat(),
-        gerenciadorConfig.obterConfig(chatId)
-      ]),
+  
+    try {
+      // Obter chat
+      const chat = await mensagem.getChat();
+      
+      // Obter configuração
+      const config = await gerenciadorConfig.obterConfig(chatId);
       
       // Verificar se processamento de vídeo está habilitado
-      ([chat, config]) => {
-        if (!config.mediaVideo) {
-          registrador.debug(`Descrição de vídeo desabilitada para o chat ${chatId}. Ignorando mensagem de vídeo.`);
-          return Resultado.falha(new Error("Descrição de vídeo desabilitada"));
-        }
-        
-        return Resultado.sucesso({ chat, config });
-      },
+      if (!config.mediaVideo) {
+        registrador.debug(`Descrição de vídeo desabilitada para o chat ${chatId}. Ignorando mensagem de vídeo.`);
+        return Resultado.falha(new Error("Descrição de vídeo desabilitada"));
+      }
       
-      // Obter informações do remetente
-      dados => 
-        obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(
-          mensagem.author || mensagem.from, 
-          dados.chat
-        )
-        .then(resultado => ({ ...dados, remetente: resultado.dados })),
+      // Obter informações do remetente de forma direta
+      const resultadoRemetente = await obterOuCriarUsuario(
+        gerenciadorConfig, 
+        clienteWhatsApp, 
+        registrador
+      )(mensagem.author || mensagem.from, chat);
+      
+      if (!resultadoRemetente.sucesso) {
+        registrador.error(`Falha ao obter remetente: ${resultadoRemetente.erro?.message}`);
+        return resultadoRemetente;
+      }
+      
+      const remetente = resultadoRemetente.dados;
+      registrador.debug(`Remetente encontrado: ${remetente.name}`);
       
       // Verificar tamanho do vídeo
-      dados => {
-        const resultadoTamanho = verificarTamanhoVideo(dadosAnexo);
+      const tamanhoVideoMB = dadosAnexo.data.length / (1024 * 1024);
+      if (tamanhoVideoMB > 20) {
+        await servicoMensagem.enviarResposta(
+          mensagem,
+          "Desculpe, só posso processar vídeos de até 20MB. Este vídeo é muito grande para eu analisar."
+        );
         
-        if (!resultadoTamanho.sucesso) {
-          return Trilho.dePromise(
-            servicoMensagem.enviarResposta(
-              mensagem,
-              "Desculpe, só posso processar vídeos de até 20MB. Este vídeo é muito grande para eu analisar."
-            )
-          )
-          .then(() => {
-            registrador.warn(`Vídeo muito grande (${dadosAnexo.data.length / (1024 * 1024).toFixed(2)}MB) recebido de ${dados.remetente.name}. Processamento rejeitado.`);
-            return resultadoTamanho;
-          });
-        }
-        
-        return Resultado.sucesso(dados);
-      },
+        registrador.warn(`Vídeo muito grande (${tamanhoVideoMB.toFixed(2)}MB) recebido de ${remetente.name}. Processamento rejeitado.`);
+        return Resultado.falha(new Error(`Vídeo muito grande (${tamanhoVideoMB.toFixed(2)}MB)`));
+      }
       
       // Criar transação
-      dados => Trilho.dePromise(
-        gerenciadorTransacoes.criarTransacao(mensagem, dados.chat)
-      )
-      .then(transacao => ({ ...dados, transacao })),
+      const transacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
+      registrador.debug(`Nova transação criada: ${transacao.id} para mensagem de vídeo de ${remetente.name}`);
       
       // Marcar como processando
-      dados => Trilho.dePromise(
-        gerenciadorTransacoes.marcarComoProcessando(dados.transacao.id)
-      )
-      .then(() => dados),
+      await gerenciadorTransacoes.marcarComoProcessando(transacao.id);
       
       // Determinar prompt do usuário baseado no modo
-      dados => {
-        const promptUsuario = determinarPromptUsuario(dados.config, mensagem.body);
-        
-        if (dados.config.modoDescricao === 'legenda' || dados.config.usarLegenda === true) {
-          registrador.info(`🎬👂 Aplicando prompt específico para LEGENDAGEM (transação ${dados.transacao.id})`);
-        }
-        
-        return Resultado.sucesso({ ...dados, promptUsuario });
-      },
+      let promptUsuario = "";
       
-      // Salvar arquivo temporário
-      dados => salvarArquivoTemporario(dadosAnexo)
-        .then(resultado => {
-          arquivoTemporario = resultado.dados;
-          return { ...dados, arquivoTemporario };
-        }),
-      
-      // Adicionar à fila de processamento
-      dados => {
-        // Preparar opções adicionais
-        const opcoesAdicionais = {};
-        if (dados.config.modoDescricao === 'legenda' || dados.config.usarLegenda === true) {
-          opcoesAdicionais.modoLegenda = true;
-        }
-        
-        // Payload para fila
-        const payload = {
-          tempFilename: dados.arquivoTemporario,
-          chatId,
-          messageId: mensagem.id._serialized,
-          mimeType: dadosAnexo.mimetype,
-          userPrompt: dados.promptUsuario,
-          senderNumber: mensagem.from,
-          transacaoId: dados.transacao.id,
-          remetenteName: dados.remetente.name,
-          modoDescricao: dados.config.modoDescricao || 'curto',
-          usarLegenda: dados.config.usarLegenda === true,
-          ...opcoesAdicionais
-        };
-        
-        return Trilho.dePromise(filasMidia.adicionarVideo(payload))
-          .then(() => dados);
-      }
-    )()
-    .then(dados => {
-      registrador.debug(`🚀 Vídeo de ${dados.remetente.name} adicionado à fila com sucesso: ${dados.arquivoTemporario}`);
-      return Resultado.sucesso({ transacao: dados.transacao });
-    })
-    .catch(erro => {
-      // Ignorar erros de configuração
-      if (erro.message === "Descrição de vídeo desabilitada" ||
-          erro.message.startsWith("Vídeo muito grande")) {
-        return Resultado.falha(erro);
+      // Verificar o modo legenda explicitamente
+      if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
+        registrador.info(`🎬👂 Aplicando prompt específico para LEGENDAGEM (transação ${transacao.id})`);
+        promptUsuario = `Transcreva verbatim e em português o conteúdo deste vídeo, criando uma legenda acessível para pessoas surdas.
+  Siga estas diretrizes:
+  1. Use timecodes precisos no formato [MM:SS] para cada fala ou mudança de som
+  2. Identifique quem está falando quando possível (Ex: João: texto da fala)
+  3. Indique entre colchetes sons ambientais importantes, música e efeitos sonoros
+  4. Descreva o tom emocional das falas (Ex: [voz triste], [gritando])
+  5. Transcreva TUDO que é dito, palavra por palavra, incluindo hesitações
+  6. Indique mudanças na música de fundo`;
+      } else if (mensagem.body && mensagem.body.trim() !== '') {
+        promptUsuario = mensagem.body.trim();
+      } else if (config.modoDescricao === 'longo') {
+        promptUsuario = `Analise este vídeo de forma extremamente detalhada para pessoas com deficiência visual.
+  Inclua:
+  1. Número exato de pessoas, suas posições e roupas (cores, tipos)
+  2. Ambiente e cenário completo
+  3. Todos os objetos visíveis 
+  4. Movimentos e ações detalhadas
+  5. Expressões faciais e tons de voz
+  6. Textos visíveis
+  7. Qualquer outro detalhe relevante`;
       }
       
+      // Cria um arquivo temporário para o vídeo
+      const dataHora = new Date().toISOString().replace(/[:.]/g, '-');
+      arquivoTemporario = `./temp/video_${dataHora}_${Math.floor(Math.random() * 10000)}.mp4`;
+      
+      // Garantir que o diretório existe
+      const diretorio = path.dirname(arquivoTemporario);
+      await fs.promises.mkdir(diretorio, { recursive: true });
+      
+      // Salvar o arquivo
+      registrador.debug(`Salvando arquivo de vídeo ${arquivoTemporario}...`);
+      const videoBuffer = Buffer.from(dadosAnexo.data, 'base64');
+      
+      await fs.promises.writeFile(arquivoTemporario, videoBuffer);
+      
+      // Verificar se o arquivo foi salvo corretamente
+      const stats = await fs.promises.stat(arquivoTemporario);
+      if (stats.size !== videoBuffer.length) {
+        throw new Error(`Tamanho do arquivo salvo (${stats.size}) não corresponde ao buffer original (${videoBuffer.length})`);
+      }
+      
+      registrador.debug(`✅ Arquivo de vídeo salvo com sucesso: ${arquivoTemporario} (${Math.round(videoBuffer.length / 1024)} KB)`);
+      
+      // Passar informação de legenda nas opções
+      const opcoesAdicionais = {};
+      if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
+        opcoesAdicionais.modoLegenda = true;
+      }
+      
+      // Adicionar vídeo à fila
+      await filasMidia.adicionarVideo({
+        tempFilename: arquivoTemporario,
+        chatId,
+        messageId: mensagem.id._serialized,
+        mimeType: dadosAnexo.mimetype,
+        userPrompt: promptUsuario,
+        senderNumber: mensagem.from,
+        transacaoId: transacao.id,
+        remetenteName: remetente.name,
+        modoDescricao: config.modoDescricao || 'curto',
+        usarLegenda: config.usarLegenda === true,
+        ...opcoesAdicionais
+      });
+      
+      registrador.debug(`🚀 Vídeo de ${remetente.name} adicionado à fila com sucesso: ${arquivoTemporario}`);
+      return Resultado.sucesso({ transacao });
+      
+    } catch (erro) {
       registrador.error(`❌ Erro ao processar vídeo: ${erro.message}`);
-      
-      // Registrar falha na transação se houver
-      if (dados && dados.transacao) {
-        gerenciadorTransacoes.registrarFalhaEntrega(
-          dados.transacao.id, 
-          `Erro no processamento: ${erro.message}`
-        ).catch(e => {
-          registrador.error(`Erro ao registrar falha: ${e.message}`);
-        });
-      }
       
       // Limpar arquivo temporário se existir
       if (arquivoTemporario && fs.existsSync(arquivoTemporario)) {
@@ -228,9 +227,14 @@ const criarProcessadorVideo = (dependencias) => {
         mensagemAmigavel = 'O processamento demorou mais que o esperado. Talvez o vídeo seja muito complexo?';
       }
       
-      return Trilho.dePromise(servicoMensagem.enviarResposta(mensagem, mensagemAmigavel))
-        .then(() => Resultado.falha(erro));
-    });
+      try {
+        await servicoMensagem.enviarResposta(mensagem, mensagemAmigavel);
+      } catch (erroEnvio) {
+        registrador.error(`Não foi possível enviar mensagem de erro: ${erroEnvio.message}`);
+      }
+      
+      return Resultado.falha(erro);
+    }
   };
 
   return { processarMensagemVideo };

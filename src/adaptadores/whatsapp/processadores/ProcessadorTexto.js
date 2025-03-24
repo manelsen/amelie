@@ -53,70 +53,78 @@ const criarProcessadorTexto = (dependencias) => {
   // Pipeline completo de processamento de texto usando composição funcional
   const processarMensagemTexto = async (dados) => {
     const { mensagem, chat, chatId } = dados;
-
-    return Trilho.encadear(
+  
+    try {
       // Obter informações do remetente
-      () => obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(mensagem.author || mensagem.from, chat),
+      const resultadoRemetente = await obterOuCriarUsuario(
+        gerenciadorConfig, 
+        clienteWhatsApp, 
+        registrador
+      )(mensagem.author || mensagem.from, chat);
+      
+      if (!resultadoRemetente.sucesso) {
+        return resultadoRemetente;
+      }
+      
+      const remetente = resultadoRemetente.dados;
+      registrador.debug(`Remetente encontrado: ${remetente.name}`);
       
       // Criar transação
-      remetente => Trilho.dePromise(criarTransacao(mensagem, chat, remetente))
-        .then(transacao => ({ transacao, remetente })),
+      const transacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
+      registrador.debug(`Nova transação criada: ${transacao.id} para mensagem de ${remetente.name}`);
       
       // Adicionar dados para recuperação
-      dados => Trilho.dePromise(adicionarDadosRecuperacao(
-        dados.transacao.id,
+      await gerenciadorTransacoes.adicionarDadosRecuperacao(
+        transacao.id,
         {
           tipo: 'texto',
           remetenteId: mensagem.from,
-          remetenteNome: dados.remetente.name,
+          remetenteNome: remetente.name,
           chatId: chatId,
           textoOriginal: mensagem.body,
           timestampOriginal: mensagem.timestamp
         }
-      )).then(() => dados),
+      );
       
       // Marcar como processando
-      dados => Trilho.dePromise(gerenciadorTransacoes.marcarComoProcessando(dados.transacao.id))
-        .then(() => dados),
+      await gerenciadorTransacoes.marcarComoProcessando(transacao.id);
       
       // Obter histórico e configuração
-      dados => Promise.all([
-        clienteWhatsApp.obterHistoricoMensagens(chatId),
-        gerenciadorConfig.obterConfig(chatId)
-      ]).then(([historico, config]) => ({
-        ...dados,
-        historico,
-        config
-      })),
+      const historico = await clienteWhatsApp.obterHistoricoMensagens(chatId);
+      const config = await gerenciadorConfig.obterConfig(chatId);
       
-      // Gerar resposta da IA
-      dados => {
-        const textoHistorico = formatarHistorico(
-          dados.historico, 
-          mensagem.body, 
-          dados.remetente.name
-        );
-        
-        return adaptadorIA.processarTexto(textoHistorico, dados.config)
-          .then(resultado => ({ 
-            ...dados, 
-            resposta: resultado.dados 
-          }));
-      },
+      // Verificar se a última mensagem já é a atual
+      const ultimaMensagem = historico.length > 0 ? historico[historico.length - 1] : '';
+      const mensagemUsuarioAtual = `${remetente.name}: ${mensagem.body}`;
+      
+      // Formatar histórico
+      const textoHistorico = ultimaMensagem.includes(mensagem.body)
+        ? `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${historico.join('\n')}`
+        : `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${historico.join('\n')}\n${mensagemUsuarioAtual}`;
+      
+      // Processar com IA através do adaptadorIA (não gerenciadorAI diretamente)
+      registrador.debug(`Enviando texto para processamento: ${textoHistorico.substring(0, 50)}...`);
+      const resultadoResposta = await adaptadorIA.processarTexto(textoHistorico, config);
+      
+      if (!resultadoResposta.sucesso) {
+        return resultadoResposta;
+      }
+      
+      const resposta = resultadoResposta.dados;
       
       // Adicionar resposta à transação
-      dados => Trilho.dePromise(
-        gerenciadorTransacoes.adicionarRespostaTransacao(dados.transacao.id, dados.resposta)
-      ).then(() => dados),
+      await gerenciadorTransacoes.adicionarRespostaTransacao(transacao.id, resposta);
       
       // Enviar a resposta
-      dados => Trilho.dePromise(
-        servicoMensagem.enviarResposta(mensagem, dados.resposta, dados.transacao.id)
-      ).then(() => {
-        registrador.info(`Resposta de texto enviada - ${dados.transacao.id}`);
-        return Resultado.sucesso({ transacao: dados.transacao, resposta: dados.resposta });
-      })
-    )();
+      await servicoMensagem.enviarResposta(mensagem, resposta, transacao.id);
+      registrador.info(`Resposta de texto enviada - ${transacao.id}`);
+      
+      return Resultado.sucesso({ transacao, resposta });
+      
+    } catch (erro) {
+      registrador.error(`Erro ao processar mensagem de texto: ${erro.message}`, erro);
+      return Resultado.falha(erro);
+    }
   };
 
   return { processarMensagemTexto };

@@ -48,30 +48,30 @@ const criarGerenciadorMensagens = (dependencias) => {
 
   // Criar adaptador para isolar chamadas à IA
   const adaptadorIA = criarAdaptadorIA(registrador, gerenciadorAI);
-  
+
   // Criar gerenciador de cache
   const gerenciadorCache = criarGerenciadorCache(registrador);
-  
+
   // Criar registro de comandos
   const registroComandos = criarRegistroComandos(dependencias);
-  
+
   // AQUI ESTÁ A MUDANÇA NA ORDEM DE CRIAÇÃO 🌟
   // Primeiro criamos os processadores específicos
   const processadorAudio = criarProcessadorAudio({
     ...dependencias,
     adaptadorIA
   });
-  
+
   const processadorImagem = criarProcessadorImagem({
     ...dependencias,
     adaptadorIA
   });
-  
+
   const processadorVideo = criarProcessadorVideo({
     ...dependencias,
     adaptadorIA
   });
-  
+
   // Agora sim criamos o processador de mídia injetando os processadores específicos
   const processadorMidia = criarProcessadorMidia({
     ...dependencias,
@@ -80,13 +80,13 @@ const criarGerenciadorMensagens = (dependencias) => {
     processadorImagem,
     processadorVideo
   });
-  
+
   // Criar processador de texto e comandos normalmente
   const processadorTexto = criarProcessadorTexto({
     ...dependencias,
     adaptadorIA
   });
-  
+
   const processadorComandos = criarProcessadorComandos({
     ...dependencias,
     registroComandos
@@ -95,19 +95,19 @@ const criarGerenciadorMensagens = (dependencias) => {
   // Direcionar mensagem conforme o tipo
   const direcionarPorTipo = (dados) => {
     const { tipo } = dados;
-    
+
     const mapeadorTipos = {
       'comando': () => processadorComandos.processarComando(dados),
       'midia': () => processadorMidia.processarMensagemComMidia(dados),
       'texto': () => processadorTexto.processarMensagemTexto(dados)
     };
-    
+
     const processador = mapeadorTipos[tipo];
-    
+
     if (!processador) {
       return Resultado.falha(new Error(`Tipo de mensagem desconhecido: ${tipo}`));
     }
-    
+
     return processador();
   };
 
@@ -118,28 +118,35 @@ const criarGerenciadorMensagens = (dependencias) => {
       const resultado = await Trilho.encadear(
         // Etapa 1: Validação e verificação de duplicação
         () => validarMensagem(registrador, gerenciadorCache.cache, mensagem),
-        
+
         // Etapa 2: Verificar se é mensagem de sistema
         dados => verificarMensagemSistema(registrador, dados),
-        
+
         // Etapa 3: Obter informações do chat
         dados => obterInformacoesChat(registrador, dados),
-        
+
         // Etapa 4: Verificar se deve responder em grupo
         dados => {
+          // Verificar primeiro se é um comando (começa com ponto)
+          if (dados.mensagem.body && dados.mensagem.body.startsWith('.')) {
+            return Resultado.sucesso(dados); // Sempre processar comandos
+          }
+
+          // Para mensagens normais em grupo, verificar se deve responder
           if (dados.ehGrupo) {
             return verificarRespostaGrupo(clienteWhatsApp, dados);
           }
+
           return Resultado.sucesso(dados);
         },
-        
+
         // Etapa 5: Classificar tipo de mensagem
         dados => verificarTipoMensagem(registrador, dados),
-        
+
         // Etapa 6: Processar conforme o tipo
         dados => direcionarPorTipo(dados)
       )();
-      
+
       // Tratar resultado
       return resultado.sucesso;
     } catch (erro) {
@@ -148,11 +155,11 @@ const criarGerenciadorMensagens = (dependencias) => {
 
       // Classificar tipos de erro para tratamento adequado
       if (erro.message === "Mensagem duplicada" ||
-          erro.message === "Mensagem de sistema" ||
-          erro.message === "Não atende critérios para resposta em grupo" ||
-          erro.message === "Transcrição de áudio desabilitada" ||
-          erro.message === "Descrição de imagem desabilitada" ||
-          erro.message === "Descrição de vídeo desabilitada") {
+        erro.message === "Mensagem de sistema" ||
+        erro.message === "Não atende critérios para resposta em grupo" ||
+        erro.message === "Transcrição de áudio desabilitada" ||
+        erro.message === "Descrição de imagem desabilitada" ||
+        erro.message === "Descrição de vídeo desabilitada") {
         // Erros esperados e tratados silenciosamente
         return false;
       }
@@ -279,7 +286,7 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
   const iniciar = () => {
     // Iniciar gerenciador de cache
     gerenciadorCache.iniciar();
-    
+
     // Configurar handlers de eventos
     clienteWhatsApp.on('mensagem', processarMensagem);
     clienteWhatsApp.on('entrada_grupo', processarEntradaGrupo);

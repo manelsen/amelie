@@ -65,27 +65,61 @@ const verificarMensagemSistema = _.curry((registrador, dados) => {
 const verificarTipoMensagem = _.curry((registrador, dados) => {
   const { mensagem } = dados;
 
-  // Predicado para verificar se é comando válido
+  // Verificação detalhada com logs para debug
   const ehComandoValido = msg => {
-    if (!(msg.body && msg.body.startsWith('.') && msg.body.length > 1)) return false;
+    // Primeiro verificamos se a mensagem tem corpo
+    if (!msg.body) {
+      registrador.debug(`Mensagem sem corpo: ${JSON.stringify(msg.id)}`);
+      return false;
+    }
     
+    // Depois se começa com ponto
+    if (!msg.body.startsWith('.')) {
+      registrador.debug(`Mensagem não inicia com ponto: ${msg.body}`);
+      return false;
+    }
+    
+    // Verificar comprimento mínimo
+    if (msg.body.length <= 1) {
+      registrador.debug(`Mensagem muito curta: ${msg.body}`);
+      return false;
+    }
+    
+    // Extrair o comando propriamente dito
     const comando = msg.body.substring(1).split(' ')[0].toLowerCase();
+    registrador.debug(`Comando extraído: "${comando}"`);
+    
+    // Lista de comandos válidos
     const comandosValidos = ['reset', 'ajuda', 'prompt', 'config', 'users', 'cego',
       'audio', 'video', 'imagem', 'longo', 'curto', 'filas', 'legenda'];
-      
-    return comandosValidos.includes(comando);
+    
+    // Verificar se está na lista
+    const ehValido = comandosValidos.includes(comando);
+    
+    // Log do resultado
+    if (ehValido) {
+      registrador.info(`✅ Comando válido detectado: ${comando}`);
+    } else {
+      registrador.debug(`❌ Comando não reconhecido: ${comando}`);
+    }
+    
+    return ehValido;
   };
 
-  // Definir tipo usando cond
+  // Definir tipo usando cond com logs explícitos
   const tipo = _.cond([
-    [ehComandoValido, () => {
-      registrador.debug(`Comando válido detectado: ${mensagem.body}`);
-      return 'comando';
+    [ehComandoValido, () => 'comando'],
+    [msg => msg.hasMedia, () => {
+      registrador.debug(`Mensagem com mídia detectada`);
+      return 'midia';
     }],
-    [msg => msg.hasMedia, _.constant('midia')],
-    [_.stubTrue, _.constant('texto')]
+    [_.stubTrue, () => {
+      registrador.debug(`Mensagem de texto comum: ${mensagem.body?.substring(0, 20)}...`);
+      return 'texto';
+    }]
   ])(mensagem);
 
+  registrador.debug(`Mensagem classificada como: ${tipo}`);
   return Resultado.sucesso({ ...dados, tipo });
 });
 
