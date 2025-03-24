@@ -52,7 +52,7 @@ const criarComandoAudio = (dependencias) => {
   };
   
   return criarComando(
-    'audio', 
+    '.audio', 
     'Liga/desliga a transcrição de áudio', 
     executar
   );

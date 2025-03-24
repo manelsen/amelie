@@ -53,7 +53,7 @@ const criarRegistroComandos = (dependencias) => {
   };
 
   const comandoExiste = (nomeComando) => {
-    return Boolean(comandos[nomeComando]);
+    return comandos.some(comando => comando.nome === nomeComando.toLowerCase());
   };
   
   // Obter lista de comandos para ajuda

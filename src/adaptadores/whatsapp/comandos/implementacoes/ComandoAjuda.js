@@ -36,7 +36,7 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
   };
   
   return criarComando(
-    'ajuda', 
+    '.ajuda', 
     'Mostra esta mensagem de ajuda',
     executar
   );

@@ -64,7 +64,7 @@ const criarComandoLegenda = (dependencias) => {
   };
   
   return criarComando(
-    'legenda', 
+    '.legenda', 
     'Ativa/desativa o modo de legendagem para vídeos', 
     executar
   );

@@ -45,7 +45,7 @@ const criarComandoLongo = (dependencias) => {
   };
   
   return criarComando(
-    'longo', 
+    '.longo', 
     'Usa descrição longa e detalhada para imagens e vídeos', 
     executar
   );

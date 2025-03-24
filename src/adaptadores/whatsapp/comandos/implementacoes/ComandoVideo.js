@@ -52,7 +52,7 @@ const criarComandoVideo = (dependencias) => {
   };
   
   return criarComando(
-    'video', 
+    '.video', 
     'Liga/desliga a interpretação de vídeo', 
     executar
   );

@@ -70,7 +70,7 @@ const criarComandoUsers = (dependencias) => {
   };
   
   return criarComando(
-    'users', 
+    '.users', 
     'Lista usuários no grupo atual', 
     executar
   );

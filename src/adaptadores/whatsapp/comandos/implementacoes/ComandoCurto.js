@@ -45,7 +45,7 @@ const criarComandoCurto = (dependencias) => {
   };
   
   return criarComando(
-    'curto', 
+    '.curto', 
     'Usa descrição curta e concisa para imagens e vídeos', 
     executar
   );
