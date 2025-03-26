@@ -121,7 +121,7 @@ const criarProcessadorVideo = (dependencias) => {
         );
         
         registrador.warn(`Vídeo muito grande (${tamanhoVideoMB.toFixed(2)}MB) recebido de ${remetente.name}. Processamento rejeitado.`);
-        return Resultado.falha(new Error(`Vídeo muito grande (${tamanhoVideoMB.toFixed(2)}MB)`));
+        return Resultado.sucesso("Ignorado");
       }
       
       // Criar transação

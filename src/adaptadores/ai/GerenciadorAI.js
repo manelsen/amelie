@@ -265,28 +265,57 @@ class GerenciadorAI extends IAPort {
    * @returns {Promise<string>} Resposta gerada
    */
   async processarTexto(texto, config) {
-    try {
-      const modelo = this.obterOuCriarModelo(config);
-      
-      // Adicionar timeout de 45 segundos
-      const promessaResultado = modelo.generateContent(texto);
-      const promessaTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout da API Gemini")), 90000)
-      );
-      
-      const resultado = await Promise.race([promessaResultado, promessaTimeout]);
-      let textoResposta = resultado.response.text();
-      
-      if (!textoResposta) {
-        throw new Error('Resposta vazia gerada pelo modelo');
+    let tentativas = 0;
+    const maxTentativas = 5;
+    const tempoEspera = 2000; // 2 segundos iniciais
+    
+    while (tentativas < maxTentativas) {
+      try {
+        const modelo = this.obterOuCriarModelo(config);
+        
+        // Adicionar timeout de 45 segundos
+        const promessaResultado = modelo.generateContent(texto);
+        const promessaTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Timeout da API Gemini")), 90000)
+        );
+        
+        const resultado = await Promise.race([promessaResultado, promessaTimeout]);
+        let textoResposta = resultado.response.text();
+        
+        if (!textoResposta) {
+          throw new Error('Resposta vazia gerada pelo modelo');
+        }
+        
+        // Registrar sucesso no circuit breaker
+        this.disjuntor.registrarSucesso();
+        
+        return this.limparResposta(textoResposta);
+      } catch (erro) {
+        tentativas++;
+        
+        // Verificar se é erro 503
+        if (erro.message.includes('503 Service Unavailable')) {
+          this.registrador.warn(`API do Google indisponível (503), tentativa ${tentativas}/${maxTentativas}`);
+          
+          // Se não for a última tentativa, aguardar com backoff exponencial
+          if (tentativas < maxTentativas) {
+            const tempoEsperaAtual = tempoEspera * Math.pow(2, tentativas - 1);
+            this.registrador.info(`Aguardando ${tempoEsperaAtual}ms antes da próxima tentativa...`);
+            await new Promise(resolve => setTimeout(resolve, tempoEsperaAtual));
+            continue;
+          }
+        }
+        
+        this.registrador.error(`Erro ao processar texto: ${erro.message}`);
+        
+        // Registrar falha no circuit breaker
+        this.disjuntor.registrarFalha();
+        
+        return "Desculpe, o serviço de IA está temporariamente indisponível. Por favor, tente novamente em alguns instantes.";
       }
-      
-      return this.limparResposta(textoResposta);
-    } catch (erro) {
-      this.registrador.error(`Erro ao processar texto: ${erro.message}`);
-      return "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente ou reformule sua pergunta.";
     }
   }
+  
 
   /**
  * Implementação do método processarImagem da interface IAPort
@@ -374,52 +403,87 @@ async processarImagem(imagemData, prompt, config) {
  * @param {Object} config - Configurações de processamento
  * @returns {Promise<string>} Resposta gerada
  */
+/**
+ * Implementação do método processarAudio da interface IAPort
+ * @param {Object} audioData - Dados do áudio
+ * @param {string} audioId - Identificador único do áudio
+ * @param {Object} config - Configurações de processamento
+ * @returns {Promise<string>} Resposta gerada
+ */
 async processarAudio(audioData, audioId, config) {
-  try {
-    const modelo = this.obterOuCriarModelo({
-      ...config,
-      temperature: 0.3, // Menor temperatura para transcrição mais precisa
-      systemInstruction: config.systemInstructions || obterInstrucaoAudio()
-    });
-    
-    const arquivoAudioBase64 = audioData.data;
-    
-    const partesConteudo = [
-      {
-        inlineData: {
-          mimeType: audioData.mimetype,
-          data: arquivoAudioBase64
-        }
-      },
-      { text: `Transcreva o áudio com ID ${audioId} e resuma seu conteúdo em português.`} // Ignore qualquer contexto anterior.` }
-    ];
-    
-    // Adicionar timeout
-    const promessaResultado = modelo.generateContent(partesConteudo);
-    const promessaTimeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Timeout da API Gemini")), 60000)
-    );
-    
-    const resultado = await Promise.race([promessaResultado, promessaTimeout]);
-    let textoResposta = resultado.response.text();
-    
-    if (!textoResposta) {
-      throw new Error('Resposta vazia gerada pelo modelo');
-    }
-    
-    return this.limparResposta(textoResposta);
-  } catch (erro) {
-    this.registrador.error(`Erro ao processar áudio: ${erro.message}`);
-    
-    // Verificar se é um erro de segurança
-    if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
-        erro.message.includes('blocked') || erro.message.includes('Blocked')) {
+  let tentativas = 0;
+  const maxTentativas = 5;
+  const tempoEspera = 2000; // 2 segundos iniciais
+  
+  while (tentativas < maxTentativas) {
+    try {
+      const modelo = this.obterOuCriarModelo({
+        ...config,
+        temperature: 0.3, // Menor temperatura para transcrição mais precisa
+        systemInstruction: config.systemInstructions || obterInstrucaoAudio()
+      });
       
-      this.registrador.warn(`⚠️ Conteúdo de áudio bloqueado por políticas de segurança`);
-      return "Este conteúdo não pôde ser processado por questões de segurança.";
+      const arquivoAudioBase64 = audioData.data;
+      
+      const partesConteudo = [
+        {
+          inlineData: {
+            mimeType: audioData.mimetype,
+            data: arquivoAudioBase64
+          }
+        },
+        { text: `Transcreva o áudio com ID ${audioId} e resuma seu conteúdo em português.`}
+      ];
+      
+      // Adicionar timeout
+      const promessaResultado = modelo.generateContent(partesConteudo);
+      const promessaTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout da API Gemini")), 60000)
+      );
+      
+      const resultado = await Promise.race([promessaResultado, promessaTimeout]);
+      let textoResposta = resultado.response.text();
+      
+      if (!textoResposta) {
+        throw new Error('Resposta vazia gerada pelo modelo');
+      }
+      
+      // Registrar sucesso no circuit breaker
+      this.disjuntor.registrarSucesso();
+      
+      return this.limparResposta(textoResposta);
+      
+    } catch (erro) {
+      tentativas++;
+      
+      // Verificar se é erro 503
+      if (erro.message.includes('503 Service Unavailable')) {
+        this.registrador.warn(`API do Google indisponível (503), tentativa ${tentativas}/${maxTentativas}`);
+        
+        // Se não for a última tentativa, aguardar com backoff exponencial
+        if (tentativas < maxTentativas) {
+          const tempoEsperaAtual = tempoEspera * Math.pow(2, tentativas - 1);
+          this.registrador.info(`Aguardando ${tempoEsperaAtual}ms antes da próxima tentativa...`);
+          await new Promise(resolve => setTimeout(resolve, tempoEsperaAtual));
+          continue;
+        }
+      }
+      
+      this.registrador.error(`Erro ao processar áudio: ${erro.message}`);
+      
+      // Registrar falha no circuit breaker
+      this.disjuntor.registrarFalha();
+      
+      // Verificar se é um erro de segurança
+      if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
+          erro.message.includes('blocked') || erro.message.includes('Blocked')) {
+        
+        this.registrador.warn(`⚠️ Conteúdo de áudio bloqueado por políticas de segurança`);
+        return "Este conteúdo não pôde ser processado por questões de segurança.";
+      }
+      
+      return "Desculpe, o serviço de IA está temporariamente indisponível. Por favor, tente novamente em alguns instantes.";
     }
-    
-    return "Desculpe, ocorreu um erro ao processar este áudio. Por favor, tente novamente com outro áudio ou reformule seu pedido.";
   }
 }
 

@@ -1100,7 +1100,7 @@ const processarMensagemVideo = (dependencias) => async (dados) => {
       );
 
       registrador.warn(`Vídeo muito grande (${tamanhoVideoMB.toFixed(2)}MB) recebido de ${remetente.dados.name}. Processamento rejeitado.`);
-      return Resultado.falha(new Error("Vídeo muito grande"));
+      return Resultado.sucesso("Ignorado");
     }
 
     // Criar transação para esta mensagem de vídeo
