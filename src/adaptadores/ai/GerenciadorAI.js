@@ -180,7 +180,7 @@ class GerenciadorAI extends IAPort {
           temperature: config.temperature || 0.7,
           topK: config.topK || 1,
           topP: config.topP || 0.95,
-          maxOutputTokens: config.maxOutputTokens || 800,
+          maxOutputTokens: config.maxOutputTokens || 1024,
           model: config.model || "gemini-2.0-flash",
           systemInstructions: sistemInstructions,
           modoDescricao
@@ -195,7 +195,7 @@ class GerenciadorAI extends IAPort {
       temperature: 0.7,
       topK: 1,
       topP: 0.95,
-      maxOutputTokens: 800,
+      maxOutputTokens: 1024,
       model: "gemini-2.0-flash", // Usar o modelo rápido para imagens simples
       systemInstructions: obterInstrucaoImagem(),
       modoDescricao: 'curto'

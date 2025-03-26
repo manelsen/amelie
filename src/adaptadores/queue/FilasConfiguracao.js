@@ -90,7 +90,7 @@ const FilasConfiguracao = {
         temperature: config.temperature || 0.7,
         topK: config.topK || 1,
         topP: config.topP || 0.95,
-        maxOutputTokens: config.maxOutputTokens || (tipoMidia === 'video' ? 1024 : 800),
+        maxOutputTokens: config.maxOutputTokens || 1024,
         model: "gemini-2.0-flash",
         systemInstructions,
         modoDescricao,
