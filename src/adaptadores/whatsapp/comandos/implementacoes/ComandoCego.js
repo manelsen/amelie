@@ -69,7 +69,7 @@ const criarComandoCego = (dependencias) => {
   };
   
   return criarComando(
-    '.cego', 
+    'cego', 
     'Aplica configurações para usuários com deficiência visual', 
     executar
   );

@@ -97,7 +97,7 @@ const criarComandoConfig = (dependencias) => {
   };
   
   return criarComando(
-    '.config', 
+    'config', 
     'Gerencia configurações do bot', 
     executar
   );

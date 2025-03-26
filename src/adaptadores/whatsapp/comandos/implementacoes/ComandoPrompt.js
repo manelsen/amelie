@@ -162,7 +162,7 @@ const criarComandoPrompt = (dependencias) => {
   };
   
   return criarComando(
-    '.prompt', 
+    'prompt', 
     'Gerencia instruções do sistema para personalização', 
     executar
   );

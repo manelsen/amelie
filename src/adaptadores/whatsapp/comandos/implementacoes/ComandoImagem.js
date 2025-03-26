@@ -52,7 +52,7 @@ const criarComandoImagem = (dependencias) => {
   };
   
   return criarComando(
-    '.imagem', 
+    'imagem', 
     'Liga/desliga a descrição de imagem', 
     executar
   );

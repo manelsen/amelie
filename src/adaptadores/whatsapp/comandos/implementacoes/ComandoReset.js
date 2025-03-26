@@ -26,7 +26,7 @@ const criarComandoReset = (dependencias) => {
     });
   
   return criarComando(
-    '.reset', 
+    'reset', 
     'Restaura todas as configurações originais e desativa o modo cego', 
     executar
   );

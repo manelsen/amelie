@@ -87,7 +87,7 @@ const criarComandoFilas = (dependencias) => {
   };
   
   return criarComando(
-    '.filas', 
+    'filas', 
     'Gerencia filas de processamento de mídia', 
     executar
   );
