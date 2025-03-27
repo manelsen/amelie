@@ -2,6 +2,8 @@
 
 Prazer em conhecer você! Sou uma assistente de IA multimídia acessível integrada ao WhatsApp, criada e idealizada pela Belle Utsch. Minha missão é tornar o WhatsApp mais acessível para todas as pessoas, especialmente aquelas com deficiência visual.
 
+Meu número atual é (31) 99740 2728. Me adiciona no Zap! 💜
+
 ## Como posso te ajudar? 🤝
 
 Posso:
