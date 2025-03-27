@@ -62,10 +62,15 @@ class GerenciadorTransacoes extends EventEmitter {
       resultado,
       (documento) => {
         this.registrador.debug(`Transação criada: ${documento.id}`);
-        return documento;
+        // CORREÇÃO AQUI: Envolva o documento em Resultado.sucesso()
+        return Resultado.sucesso(documento);
       },
       (erro) => {
         this.registrador.error(`Erro ao criar transação: ${erro.message}`);
+        // Manter o throw aqui está correto para o dobrar, mas o importante
+        // é que o caminho de sucesso retorne um Resultado.sucesso.
+        // Uma alternativa seria retornar Resultado.falha(erro) aqui também,
+        // mas como o código chamador já trata o erro lançado, manter o throw funciona.
         throw erro;
       }
     );
