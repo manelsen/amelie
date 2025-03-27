@@ -242,38 +242,73 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
   };
 
   // Configuração de callbacks para filas de mídia
+  // Dentro de src/adaptadores/whatsapp/GerenciadorMensagens.js -> criarGerenciadorMensagens
+
+  // Configuração de callbacks para filas de mídia
   const configurarCallbacksFilas = () => {
     filasMidia.setCallbackRespostaUnificado(async (resultado) => {
+      // *** LOG DE ENTRADA NO CALLBACK ***
+      // Este log é crucial para saber se esta função está sendo chamada
+      registrador.info(`[CallbackFila] INICIANDO CALLBACK para resultado: ${JSON.stringify(resultado)}`);
+      let transacaoIdParaLog = resultado?.transacaoId || 'ID_DESCONHECIDO_NA_ENTRADA';
+
       try {
         // Verificação básica do resultado recebido
-        if (!resultado || !resultado.senderNumber) {
-          registrador.warn("Resultado de fila inválido ou incompleto");
-          return;
+        if (!resultado || !resultado.senderNumber || !resultado.transacaoId) {
+          registrador.warn(`[CallbackFila] Resultado de fila inválido, incompleto ou sem ID de transação. Saindo.`);
+          return; // Sair se dados essenciais faltam
         }
 
-        const { resposta, senderNumber, transacaoId, remetenteName } = resultado;
+        // Atualizar ID para logs futuros se estava faltando inicialmente
+        transacaoIdParaLog = resultado.transacaoId;
+        const { resposta, senderNumber, remetenteName, tipo } = resultado;
+        const tipoMidiaStr = tipo || 'mídia'; // Usar 'mídia' como padrão se tipo não vier
 
-        // Usar o ServicoMensagem para enviar
+        registrador.debug(`[CallbackFila] Processando resultado final para ${tipoMidiaStr} (Transação ${transacaoIdParaLog})`);
+
+        // *** LOG ANTES DO ENVIO ***
+        registrador.debug(`[CallbackFila] Tentando enviar via servicoMensagem.enviarMensagemDireta para ${transacaoIdParaLog}...`);
+
+        // Chamada para o serviço de envio
         const resultadoEnvio = await servicoMensagem.enviarMensagemDireta(
           senderNumber,
           resposta,
           {
-            transacaoId,
+            transacaoId: transacaoIdParaLog, // Passar o ID correto
             remetenteName,
-            tipoMidia: resultado.tipo || 'desconhecido'
+            tipoMidia: tipoMidiaStr
           }
         );
 
-        if (!resultadoEnvio.sucesso) {
-          registrador.error(`Erro ao enviar resultado de mídia: ${resultadoEnvio.erro.message}`);
-        }
-      } catch (erro) {
-        registrador.error(`Erro ao processar resultado de fila: ${erro.message}`);
-      }
-    });
+        // *** LOG DEPOIS DO ENVIO ***
+        registrador.debug(`[CallbackFila] Resultado de enviarMensagemDireta para ${transacaoIdParaLog}: ${JSON.stringify(resultadoEnvio)}`);
 
-    registrador.info('📬 Callback unificado de filas de mídia configurado com sucesso');
-  };
+        // Checar o resultado do envio
+        if (!resultadoEnvio || !resultadoEnvio.sucesso) {
+          registrador.error(`[CallbackFila] Erro ao enviar resultado de ${tipoMidiaStr} para ${transacaoIdParaLog}: ${resultadoEnvio?.erro?.message || 'Erro desconhecido ou resultado inválido do envio'}`);
+          // A transação deve ser marcada como falha pelo ServicoMensagem ou aqui? Revisar ServicoMensagem.
+        } else {
+          // *** ESTE É O LOG QUE VOCÊ QUER VER ***
+          registrador.info(`[CallbackFila] Resposta de ${tipoMidiaStr} enviada com sucesso para ${transacaoIdParaLog}`);
+        }
+
+      } catch (erro) {
+        registrador.error(`[CallbackFila] Erro GERAL ao processar resultado de fila (Transação ${transacaoIdParaLog}): ${erro.message}`, erro);
+        // Tentar registrar falha na transação se ocorrer erro GERAL aqui
+        if (transacaoIdParaLog && transacaoIdParaLog !== 'ID_DESCONHECIDO_NA_ENTRADA') {
+            try {
+                 await gerenciadorTransacoes.registrarFalhaEntrega(transacaoIdParaLog, `Erro no callback: ${erro.message}`);
+            } catch (e) {registrador.error(`Falha ao registrar erro de callback na transação ${transacaoIdParaLog}`)}
+        }
+      } finally {
+         // *** LOG DE SAÍDA DO CALLBACK ***
+         // Este log ajuda a confirmar que o callback terminou, mesmo se houve erro
+         registrador.debug(`[CallbackFila] FINALIZANDO CALLBACK para transação ${transacaoIdParaLog}`);
+      }
+    }); // Fim do async (resultado) => { ... }
+
+    registrador.info('📬 Callback unificado de filas de mídia configurado com sucesso (com logs MUITO detalhados de envio).');
+  }; // Fim de configurarCallbacksFilas
 
   // Inicialização do gerenciador
   const iniciar = () => {

@@ -1,81 +1,65 @@
-/**
- * ProcessadorTexto - Processamento de mensagens de texto
- */
+// src/adaptadores/whatsapp/processadores/ProcessadorTexto.js
+
 const _ = require('lodash/fp');
 const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia');
 const { obterOuCriarUsuario } = require('../dominio/OperacoesChat');
 
 const criarProcessadorTexto = (dependencias) => {
-  const { 
-    registrador, 
-    adaptadorIA, 
-    gerenciadorConfig, 
-    gerenciadorTransacoes, 
-    servicoMensagem, 
-    clienteWhatsApp 
+  const {
+    registrador,
+    adaptadorIA,
+    gerenciadorConfig,
+    gerenciadorTransacoes,
+    servicoMensagem,
+    clienteWhatsApp
   } = dependencias;
 
-  // Criar transação para esta mensagem
-  const criarTransacao = async (mensagem, chat, remetente) => {
-    try {
-      const transacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
-      registrador.debug(`Nova transação criada: ${transacao.id} para mensagem de ${remetente.name}`);
-      return Resultado.sucesso(transacao);
-    } catch (erro) {
-      registrador.error(`Erro ao criar transação: ${erro.message}`);
-      return Resultado.falha(erro);
-    }
-  };
-
-  // Adicionar dados para recuperação
-  const adicionarDadosRecuperacao = async (transacaoId, dados) => {
-    try {
-      await gerenciadorTransacoes.adicionarDadosRecuperacao(transacaoId, dados);
-      return Resultado.sucesso(true);
-    } catch (erro) {
-      registrador.error(`Erro ao adicionar dados de recuperação: ${erro.message}`);
-      return Resultado.sucesso(false); // Continuar mesmo assim
-    }
-  };
-
-  // Formatar histórico de mensagens
-  const formatarHistorico = (historico, mensagemAtual, nomeRemetente) => {
-    // Verificar se a última mensagem já é a atual
-    const ultimaMensagem = historico.length > 0 ? historico[historico.length - 1] : '';
-    const mensagemUsuarioAtual = `${nomeRemetente}: ${mensagemAtual}`;
-
-    // Só adiciona a mensagem atual se ela não for a última do histórico
-    return ultimaMensagem.includes(mensagemAtual)
-      ? `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${historico.join('\n')}`
-      : `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${historico.join('\n')}\n${mensagemUsuarioAtual}`;
-  };
-
-  // Pipeline completo de processamento de texto usando composição funcional
   const processarMensagemTexto = async (dados) => {
     const { mensagem, chat, chatId } = dados;
-  
-    try {
+    let currentTransacaoId = null; // Initialize for logging in catch block
+    registrador.debug(`[Texto] Iniciando para msg ${mensagem.id._serialized} no chat ${chatId}`);
+
+    try { // *** Add robust try...catch block ***
       // Obter informações do remetente
-      const resultadoRemetente = await obterOuCriarUsuario(
-        gerenciadorConfig, 
-        clienteWhatsApp, 
-        registrador
-      )(mensagem.author || mensagem.from, chat);
-      
+      registrador.debug(`[Texto] Obtendo remetente para ${chatId}...`);
+      const resultadoRemetente = await obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(
+          mensagem.author || mensagem.from,
+          chat
+      );
       if (!resultadoRemetente.sucesso) {
-        return resultadoRemetente;
+         registrador.error(`[Texto] Falha ao obter remetente: ${resultadoRemetente.erro?.message}`);
+         throw new Error("Falha ao obter remetente");
       }
-      
       const remetente = resultadoRemetente.dados;
-      registrador.debug(`Remetente encontrado: ${remetente.name}`);
-      
+      registrador.debug(`[Texto] Remetente obtido: ${remetente.name}`);
+
       // Criar transação
-      const transacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
-      registrador.debug(`Nova transação criada: ${transacao.id} para mensagem de ${remetente.name}`);
-      
+      registrador.debug(`[Texto] Criando transação para ${chatId}...`);
+      const resultadoTransacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
+      // *** LOG DETALHADO DO RESULTADO DA CRIAÇÃO ***
+      registrador.debug(`[Texto] Resultado de criarTransacao: ${JSON.stringify(resultadoTransacao)}`);
+
+      // *** VERIFICAÇÃO ROBUSTA DO RESULTADO ***
+      if (!resultadoTransacao || !resultadoTransacao.sucesso) {
+           registrador.error(`[Texto] Falha ao criar transação: ${resultadoTransacao?.erro?.message || 'Resultado inválido'}`);
+           throw new Error("Falha ao criar transação");
+      }
+
+      const transacao = resultadoTransacao.dados;
+      // *** LOG CRÍTICO DO ID ANTES DE USAR ***
+      registrador.info(`[Texto] Transação ${transacao?.id ? 'criada com id' : 'criada sem id (!)'}. ID: ${transacao?.id}`);
+
+      // *** VERIFICAÇÃO CRÍTICA DO ID ***
+      if (!transacao || !transacao.id) {
+          registrador.error("[Texto] *** ERRO CRÍTICO: Objeto transação ou ID está faltando após criação! ***");
+          throw new Error("ID da Transação faltando após criação");
+      }
+      currentTransacaoId = transacao.id; // Assign ID for later use
+
       // Adicionar dados para recuperação
+      registrador.debug(`[Texto] Adicionando dados de recuperação para ${currentTransacaoId}...`);
       await gerenciadorTransacoes.adicionarDadosRecuperacao(
-        transacao.id,
+        currentTransacaoId,
         {
           tipo: 'texto',
           remetenteId: mensagem.from,
@@ -85,47 +69,63 @@ const criarProcessadorTexto = (dependencias) => {
           timestampOriginal: mensagem.timestamp
         }
       );
-      
+
       // Marcar como processando
-      await gerenciadorTransacoes.marcarComoProcessando(transacao.id);
-      
+      registrador.debug(`[Texto] Marcando ${currentTransacaoId} como processando...`);
+      await gerenciadorTransacoes.marcarComoProcessando(currentTransacaoId);
+
       // Obter histórico e configuração
+      registrador.debug(`[Texto] Obtendo histórico e config para ${currentTransacaoId}...`);
       const historico = await clienteWhatsApp.obterHistoricoMensagens(chatId);
       const config = await gerenciadorConfig.obterConfig(chatId);
-      
-      // Verificar se a última mensagem já é a atual
+
+      // ... (formatar histórico - código omitido por brevidade) ...
       const ultimaMensagem = historico.length > 0 ? historico[historico.length - 1] : '';
       const mensagemUsuarioAtual = `${remetente.name}: ${mensagem.body}`;
-      
-      // Formatar histórico
       const textoHistorico = ultimaMensagem.includes(mensagem.body)
         ? `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${historico.join('\n')}`
         : `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${historico.join('\n')}\n${mensagemUsuarioAtual}`;
-      
-      // Processar com IA através do adaptadorIA (não gerenciadorAI diretamente)
-      registrador.debug(`Enviando texto para processamento: ${textoHistorico.substring(0, 50)}...`);
+
+
+      // Processar com IA
+      registrador.debug(`[Texto] Chamando adaptadorIA.processarTexto para ${currentTransacaoId}...`);
       const resultadoResposta = await adaptadorIA.processarTexto(textoHistorico, config);
-      
       if (!resultadoResposta.sucesso) {
-        return resultadoResposta;
+          registrador.error(`[Texto] Falha na IA para ${currentTransacaoId}: ${resultadoResposta.erro.message}`);
+          await gerenciadorTransacoes.registrarFalhaEntrega(currentTransacaoId, `Falha IA: ${resultadoResposta.erro.message}`); // Registrar falha
+          throw new Error(`Falha IA: ${resultadoResposta.erro.message}`); // Lançar para catch
       }
-      
       const resposta = resultadoResposta.dados;
-      
+      registrador.info(`[Texto] Resposta da IA recebida para ${currentTransacaoId}. Tamanho: ${resposta?.length}`);
+
       // Adicionar resposta à transação
-      await gerenciadorTransacoes.adicionarRespostaTransacao(transacao.id, resposta);
-      
+      registrador.debug(`[Texto] Adicionando resposta à transação ${currentTransacaoId}...`);
+      await gerenciadorTransacoes.adicionarRespostaTransacao(currentTransacaoId, resposta);
+
       // Enviar a resposta
-      await servicoMensagem.enviarResposta(mensagem, resposta, transacao.id);
-      registrador.info(`Resposta de texto enviada - ${transacao.id}`);
-      
+      registrador.debug(`[Texto] Enviando resposta via servicoMensagem para ${currentTransacaoId}...`);
+      await servicoMensagem.enviarResposta(mensagem, resposta, currentTransacaoId);
+      registrador.info(`[Texto] Resposta de texto enviada (ou enfileirada) para ${currentTransacaoId}`);
+
+      // 'marcarComoEntregue' é provavelmente tratado por servicoMensagem
+
       return Resultado.sucesso({ transacao, resposta });
-      
-    } catch (erro) {
-      registrador.error(`Erro ao processar mensagem de texto: ${erro.message}`, erro);
+
+    } catch (erro) { // Catch block robusto
+      registrador.error(`[Texto] ERRO GERAL para msg ${mensagem?.id?._serialized} / chat ${chatId} / transação ${currentTransacaoId}: ${erro.message}`, erro);
+      // Tentar registrar falha se tivermos ID
+      if (currentTransacaoId) {
+          try {
+              await gerenciadorTransacoes.registrarFalhaEntrega(currentTransacaoId, `Erro: ${erro.message}`);
+          } catch (e) { registrador.error(`[Texto] Falha ao registrar erro na transação ${currentTransacaoId}: ${e.message}`); }
+      }
+      // Tentar enviar feedback de erro
+      try {
+          await servicoMensagem.enviarResposta(mensagem, 'Desculpe, ocorreu um erro ao processar sua mensagem de texto.');
+      } catch (e) { registrador.error(`[Texto] Falha ao enviar feedback de erro: ${e.message}`); }
       return Resultado.falha(erro);
     }
-  };
+  }; // Fim de processarMensagemTexto
 
   return { processarMensagemTexto };
 };

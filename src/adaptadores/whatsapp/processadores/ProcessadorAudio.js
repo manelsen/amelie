@@ -33,7 +33,7 @@ const criarProcessadorAudio = (dependencias) => {
       const config = await gerenciadorConfig.obterConfig(chatId);
 
       if (!config || !config.mediaAudio) {
-        registrador.debug(`[ProcessadorAudio] Transcrição de áudio DESABILITADA para ${chatId}. Ignorando áudio.`);
+        registrador.debug(`[Audio] Transcrição de áudio DESABILITADA para ${chatId}. Ignorando áudio.`);
         return Resultado.falha(new Error("Transcrição de áudio desabilitada"));
       }
 
@@ -44,13 +44,13 @@ const criarProcessadorAudio = (dependencias) => {
         chat
       );
       if (!resultadoRemetente.sucesso) {
-           registrador.error(`[ProcessadorAudio] Falha ao obter remetente para ${chatId}: ${resultadoRemetente.erro?.message}`);
+           registrador.error(`[Audio] Falha ao obter remetente para ${chatId}: ${resultadoRemetente.erro?.message}`);
            throw new Error("Falha ao obter remetente");
       }
       const remetente = resultadoRemetente.dados;
       const resultadoTamanho = verificarTamanhoAudio(dadosAnexo);
       if (!resultadoTamanho.sucesso) {
-        registrador.warn(`[ProcessadorAudio] Áudio muito grande para ${chatId}: ${resultadoTamanho.erro.message}`);
+        registrador.warn(`[Audio] Áudio muito grande para ${chatId}: ${resultadoTamanho.erro.message}`);
         await servicoMensagem.enviarResposta(
           mensagem,
           'Desculpe, só posso processar áudios de até 20MB.'
@@ -61,7 +61,7 @@ const criarProcessadorAudio = (dependencias) => {
       const hashAudio = crypto.createHash('md5').update(dadosAnexo.data).digest('hex');
       const resultadoTransacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
        if (!resultadoTransacao.sucesso) {
-           registrador.error(`[ProcessadorAudio] Falha ao criar transação para ${chatId}: ${resultadoTransacao.erro?.message}`);
+           registrador.error(`[Audio] Falha ao criar transação para ${chatId}: ${resultadoTransacao.erro?.message}`);
            throw new Error("Falha ao criar transação");
        }
       const transacao = resultadoTransacao.dados;
@@ -70,7 +70,7 @@ const criarProcessadorAudio = (dependencias) => {
       const resultadoIA = await adaptadorIA.processarAudio(dadosAnexo, hashAudio, config);
 
       if (!resultadoIA.sucesso) {
-        registrador.error(`[ProcessadorAudio] Falha no adaptadorIA.processarAudio para ${transacaoId}: ${resultadoIA.erro?.message}`);
+        registrador.error(`[Audio] Falha no adaptadorIA.processarAudio para ${transacaoId}: ${resultadoIA.erro?.message}`);
         if (resultadoIA.erro?.message?.includes('segurança')) {
              await servicoMensagem.enviarResposta(mensagem, 'Este conteúdo não pôde ser processado por questões de segurança.', transacaoId);
              await gerenciadorTransacoes.registrarFalhaEntrega(transacaoId, "Conteúdo bloqueado por segurança");
@@ -79,26 +79,26 @@ const criarProcessadorAudio = (dependencias) => {
         throw new Error(`Falha no processamento da IA: ${resultadoIA.erro?.message}`);
       }
       const resposta = resultadoIA.dados; // A transcrição
-      registrador.info(`[ProcessadorAudio] Transcrição recebida da IA para ${transacaoId}. Tamanho: ${resposta?.length || 0}`);
+      registrador.info(`[Audio] Transcrição recebida da IA para ${transacaoId}. Tamanho: ${resposta?.length || 0}`);
       await gerenciadorTransacoes.adicionarRespostaTransacao(transacao.id, resposta);
       const resultadoEnvio = await servicoMensagem.enviarResposta(mensagem, resposta, transacao.id);
       if (!resultadoEnvio.sucesso) {
            // ServicoMensagem trata falhas de envio (reenvio, notificação), logar o erro aqui.
-           registrador.error(`[ProcessadorAudio] Falha reportada por servicoMensagem ao enviar resposta para ${transacaoId}: ${resultadoEnvio.erro?.message}`);
+           registrador.error(`[Audio] Falha reportada por servicoMensagem ao enviar resposta para ${transacaoId}: ${resultadoEnvio.erro?.message}`);
            // Não lançar erro aqui, pois a IA pode ter funcionado. O problema foi o envio.
       } else {
-           registrador.info(`[ProcessadorAudio] Resposta (transcrição) enviada com sucesso para ${transacaoId}`);
+           registrador.info(`[Audio] Resposta (transcrição) enviada com sucesso para ${transacaoId}`);
       }
       return Resultado.sucesso({ transacao, resposta });
 
     } catch (erro) {
-      registrador.error(`[ProcessadorAudio] ERRO GERAL no processamento para msg ${mensagem?.id?._serialized} / chat ${chatId} / transação ${transacaoId}: ${erro.message}`, erro);
+      registrador.error(`[Audio] ERRO GERAL no processamento para msg ${mensagem?.id?._serialized} / chat ${chatId} / transação ${transacaoId}: ${erro.message}`, erro);
 
       if (transacaoId) {
           try {
               await gerenciadorTransacoes.registrarFalhaEntrega(transacaoId, `Erro processamento áudio: ${erro.message}`);
           } catch (errTransacao) {
-               registrador.error(`[ProcessadorAudio] Falha ao registrar erro na transação ${transacaoId}: ${errTransacao.message}`);
+               registrador.error(`[Audio] Falha ao registrar erro na transação ${transacaoId}: ${errTransacao.message}`);
           }
       }
 
@@ -110,7 +110,7 @@ const criarProcessadorAudio = (dependencias) => {
                'Desculpe, ocorreu um erro inesperado ao tentar transcrever o áudio.'
             );
          } catch (erroEnvio) {
-            registrador.error(`[ProcessadorAudio] Falha ao enviar mensagem de erro geral: ${erroEnvio.message}`);
+            registrador.error(`[Audio] Falha ao enviar mensagem de erro geral: ${erroEnvio.message}`);
          }
       }
 
