@@ -1,0 +1,2033 @@
+--- a/src/utilitarios/Ferrovia.js
++++ b/src/utilitarios/Ferrovia.js
+@@ -1,5 +1,8 @@
+ /**
+- * Ferrovia.js - Implementação do Padrão Ferrovia (Railway Pattern)
++ * Ferrovia.js - Implementação do Padrão Ferrovia (Railway Pattern) V2
++ *
++ * Fornece utilitários para tratamento funcional de erros e composição.
++ * Inspirado pela programação funcional e Either monad.
++ * Versão 2: Erro enriquecido com contexto e stack trace.
+  * * @author Manel
+  */
+ 
+@@ -7,8 +10,36 @@
+ const _ = require('lodash/fp');
+
+ /**
+- * Estrutura Resultado para encapsular sucessos e falhas
++ * Formata um objeto de erro enriquecido para logging
++ * @param {Object} erroEnriquecido - O objeto de erro da estrutura Resultado.falha V2
++ * @returns {string} String formatada para log
+  */
++const formatarErroResultado = (erroEnriquecido) => {
++    if (!erroEnriquecido || typeof erroEnriquecido !== 'object') {
++        return `Erro inesperado: ${String(erroEnriquecido)}`;
++    }
++    let log = `Erro: ${erroEnriquecido.mensagem || 'Mensagem não disponível'}\n`;
++    if (erroEnriquecido.contexto?.etapa) {
++        log += `  Etapa: ${erroEnriquecido.contexto.etapa}\n`;
++    }
++    if (erroEnriquecido.contexto?.tipo) {
++        log += `  Tipo: ${erroEnriquecido.contexto.tipo}\n`;
++    }
++    if (erroEnriquecido.contexto?.detalhes) {
++        try {
++            log += `  Detalhes: ${JSON.stringify(erroEnriquecido.contexto.detalhes)}\n`;
++        } catch {
++             log += `  Detalhes: [Não serializável]\n`;
++        }
++    }
++    if (erroEnriquecido.timestamp) {
++        log += `  Timestamp: ${erroEnriquecido.timestamp}\n`;
++    }
++    if (erroEnriquecido.stackOriginal) {
++        // Limitar stack trace no log para não poluir demais
++        const stackResumido = erroEnriquecido.stackOriginal.split('\n').slice(0, 10).join('\n');
++        log += `  Stack Original (resumido):\n${stackResumido}\n`;
++    }
++    return log;
++};
++
++/**
++ * Estrutura Resultado V2 para encapsular sucessos e falhas
++ */
+ const Resultado = {
+   /**
+    * Encapsula um valor de sucesso
+@@ -16,33 +47,51 @@
+    * @returns {Object} Objeto de resultado com sucesso
+    */
+   sucesso: (dados) => ({ sucesso: true, dados, erro: null }),
++  //sucesso: (dados) => Object.freeze({ sucesso: true, dados, erro: null }), // Versão imutável (opcional)
+
+   /**
+-   * Encapsula um erro
+-   * @param {Error|string} erro - Erro ou mensagem de erro
+-   * @returns {Object} Objeto de resultado com falha
++   * Encapsula um erro enriquecido
++   * @param {Error|string} erroOriginal - Erro original ou mensagem de erro
++   * @param {Object} [contexto={}] - Informações adicionais sobre onde o erro ocorreu
++   * @param {string} [contexto.etapa] - Nome da função ou etapa onde o erro foi capturado
++   * @param {string} [contexto.tipo] - Tipo de captura (ex: 'promise_rejeitada', 'excecao_sincrona')
++   * @param {any} [contexto.detalhes] - Outros detalhes relevantes
++   * @returns {Object} Objeto de resultado com falha e erro enriquecido
+    */
+-  falha: (erro) => ({ 
++  falha: (erroOriginal, contexto = {}) => {
++    const erro = erroOriginal instanceof Error ? erroOriginal : new Error(String(erroOriginal));
++    // Limitar o tamanho do stack para evitar objetos muito grandes
++    const stack = erro.stack ? erro.stack.substring(0, 2048) : undefined;
++
++    // Garante que o contexto seja sempre um objeto
++    const contextoSeguro = _.isObject(contexto) ? contexto : { detalhes: contexto };
++
++    return {
+     sucesso: false, 
+     dados: null, 
+-    erro: erro instanceof Error ? erro : new Error(String(erro))
+-  }),
++      erro: { // Objeto de erro enriquecido (serializável)
++        mensagem: erro.message || 'Erro desconhecido',
++        stackOriginal: stack,
++        contexto: contextoSeguro,
++        timestamp: new Date().toISOString()
++      }
++    };
++    // return Object.freeze({ ... }); // Versão imutável (opcional)
++  },
+   
+   /**
+    * Transforma os dados de um resultado bem-sucedido
+    * @param {Object} resultado - Objeto de resultado
+    * @param {Function} fn - Função de transformação
+    * @returns {Object} Novo objeto de resultado
+-   */
+-  mapear: (resultado, fn) => resultado.sucesso 
++   */ // OK
++  mapear: (resultado, fn) => resultado.sucesso
+     ? Resultado.sucesso(fn(resultado.dados)) 
+     : resultado,
+   
+   /**
+-   * Encadeia um resultado com uma função que retorna outro resultado
+-   * @param {Object} resultado - Objeto de resultado
+-   * @param {Function} fn - Função que retorna um novo resultado
++   * Encadeia um resultado com uma função que retorna outro resultado (com verificação)
++   * @param {Object} resultado - Objeto de resultado
++   * @param {Function} fn - Função que retorna um novo resultado (síncrono ou Promise<Resultado>)
+    * @returns {Object} Novo objeto de resultado
+    */
+   encadear: (resultado, fn) => resultado.sucesso 
+@@ -51,19 +100,20 @@
+   
+   /**
+    * Aplica uma de duas funções dependendo do estado do resultado
++   * @param {Object} resultado - Objeto de resultado
++   * @param {Function} aoSucesso - Função aplicada em caso de sucesso (recebe dados)
++   * @param {Function} aoFalhar - Função aplicada em caso de falha (recebe objeto de erro enriquecido)
++   * @returns {any} Valor retornado pela função aplicada
++   */ // OK - Mudança é na assinatura do aoFalhar para quem chama
++  dobrar: (resultado, aoSucesso, aoFalhar) =>
+    resultado.sucesso 
+       ? aoSucesso(resultado.dados) 
+-      : aoFalhar(resultado.erro)
+-  }),
++      : aoFalhar(resultado.erro), // Passa o objeto de erro enriquecido
+   
+   /**
+    * Recupera de um erro aplicando uma função de recuperação
+-   * @param {Object} resultado - Objeto de resultado
+-   * @param {Function} fn - Função de recuperação que recebe o erro
++   * @param {Object} resultado - Objeto de resultado
++   * @param {Function} fnRecuperacao - Função de recuperação que recebe o objeto de erro enriquecido e DEVE retornar um Resultado (sucesso ou falha)
+    * @returns {Object} Novo objeto de resultado
+    */
+   recuperar: (resultado, fn) => resultado.sucesso
+@@ -75,7 +125,7 @@
+    * @returns {Object} Resultado combinado
+    */
+   todos: (resultados) => {
+-    const falha = resultados.find(r => !r.sucesso);
++    const falha = resultados.find(r => !r.sucesso); // OK
+     if (falha) return falha;
+     
+     return Resultado.sucesso(resultados.map(r => r.dados));
+@@ -83,32 +133,42 @@
+ };
+ 
+ /**
+- * Utilitários para trabalhar com funções assíncronas seguindo o padrão Ferrovia
++ * Utilitários para trabalhar com funções assíncronas seguindo o padrão Ferrovia V2
+  */
+ const Trilho = {
+   /**
+-   * Converte uma Promise em um Resultado
++   * Converte uma Promise em um Resultado, adicionando contexto em caso de falha
+    * @param {Promise} promessa - Promise a ser convertida
++   * @param {string} [contextoEtapa='Promise desconhecida'] - Nome da etapa para contexto de erro
+    * @returns {Promise<Object>} Promise de um Resultado
+    */
+-  dePromise: (promessa) => 
+-    promessa
++  dePromise: (promessa, contextoEtapa = 'Promise desconhecida') =>
++    Promise.resolve(promessa) // Garante que estamos lidando com uma Promise
+       .then(valor => Resultado.sucesso(valor))
+-      .catch(erro => Resultado.falha(erro)),
++      .catch(erro => Resultado.falha(erro, { etapa: contextoEtapa, tipo: 'promise_rejeitada' })),
+   
+   /**
+-   * Envolve uma função que retorna Promise em uma que retorna Resultado
++   * Envolve uma função que retorna Promise em uma que retorna Resultado, adicionando contexto
+    * @param {Function} fn - Função que retorna Promise
++   * @param {string} [contextoPadrao] - Contexto padrão (default: nome da função ou 'anônima')
+    * @returns {Function} Função que retorna Promise<Resultado>
+    */
+-  envolver: (fn) => (...args) => 
+-    Trilho.dePromise(fn(...args)),
++  envolver: (fn, contextoPadrao = fn.name || 'anônima') => (...args) =>
++    Trilho.dePromise(fn(...args), contextoPadrao),
+     
+   /**
+    * Encadeia operações assíncronas que retornam Resultado
+-   * @param {Array<Function>} fns - Funções que recebem valor e retornam Promise<Resultado>
++   * Garante que cada função na cadeia receba o valor de sucesso da anterior e
++   * que qualquer falha (Resultado.falha ou exceção) interrompa a cadeia.
++   * @param {...Function} fns - Funções a serem encadeadas. Cada função recebe o 'dado' do resultado anterior
++   * e deve retornar um Resultado, uma Promise<Resultado>, ou um valor simples (que será encapsulado em Resultado.sucesso).
+    * @returns {Function} Função composta que retorna Promise<Resultado>
+    */
+   encadear: (...fns) => async (valorInicial) => {
+@@ -116,43 +176,54 @@
+     
+     for (const fn of fns) {
+       if (!resultado.sucesso) break;
+-      resultado = await fn(resultado.dados);
+-    }
+-    
++
++      const nomeFn = fn.name || 'anônima';
++      try {
++        // Resultado.encadear lida com a chamada de fn e a verificação do retorno (síncrono ou assíncrono)
++        // Await garante que lidamos com Promises retornadas por fn
++        resultado = await Resultado.encadear(resultado, fn);
++
++      } catch (erro) {
++        // Captura exceções inesperadas que podem ocorrer fora da execução direta de fn
++        // (embora Resultado.encadear deva pegar a maioria)
++        resultado = Resultado.falha(erro, { etapa: `Trilho.encadear (durante ${nomeFn})`, tipo: 'excecao_inesperada' });
++      }
++    }
+     return resultado;
+   }
+ };
+ 
+
+ /**
+- * Utilitários para trabalhar com operações que podem falhar
++ * Utilitários para trabalhar com operações que podem falhar (V2 com contexto)
+  */
+ const Operacoes = {
+   /**
+-   * Tenta executar uma operação e captura exceções como Resultado
++   * Tenta executar uma operação síncrona ou assíncrona e captura exceções como Resultado
+    * @param {Function} fn - Operação a ser executada
+-   * @returns {Function} Função que retorna um Resultado
+-   */
+-  tentar: (fn) => (...args) => {
++   * @param {string} [contextoPadrao] - Contexto padrão (default: nome da função ou 'anônima')
++   * @returns {Function} Função que retorna um Resultado ou Promise<Resultado>
++   */
++  tentar: (fn, contextoPadrao = fn.name || 'anônima') => (...args) => {
+     try {
+       const resultado = fn(...args);
+       // Se fn retornar uma Promise, Trilho.dePromise adicionará contexto se ela rejeitar
+       return resultado instanceof Promise
+         ? Trilho.dePromise(resultado, contextoPadrao)
+         : Resultado.sucesso(resultado);
+     } catch (erro) {
+-      return Resultado.falha(erro);
++      // Captura exceções síncronas
++      return Resultado.falha(erro, { etapa: contextoPadrao, tipo: 'excecao_sincrona' });
+     }
+   },
+   
+   /**
+    * Verifica uma condição e retorna Resultado.falha se for falsa
+    * @param {Function} predicado - Função que retorna boolean
+-   * @param {string} mensagemErro - Mensagem em caso de falha
++   * @param {string|Error} mensagemErro - Mensagem ou erro em caso de falha
++   * @param {string} [contextoEtapa='verificacao'] - Contexto da etapa
+    * @returns {Function} Função que retorna um Resultado
+-   */
++   */ // OK
+   verificar: (predicado, mensagemErro) => (valor) =>
+     predicado(valor)
+       ? Resultado.sucesso(valor)
+@@ -161,35 +232,36 @@
+   /**
+    * Tenta executar sequencialmente cada operação até que uma tenha sucesso
+    * @param {Array<Function>} operacoes - Operações a tentar
+-   * @returns {Function} Função que retorna um Resultado
++   * @returns {Function} Função que retorna Promise<Resultado>
+    */
+   tentarCada: (operacoes) => async (...args) => {
+-    let ultimoErro = null;
++    let ultimoErroEnriquecido = null;
+     
+     for (const op of operacoes) {
++      const nomeOp = op.name || 'anônima';
++      // Usar Operacoes.tentar para garantir que qualquer erro seja capturado como Resultado.falha V2
++      const resultado = await Operacoes.tentar(op, `tentarCada (${nomeOp})`)(...args);
++
+       try {
+-        const resultado = op(...args);
+-        if (resultado instanceof Promise) {
+-          const resultadoResolvido = await Trilho.dePromise(resultado);
+-          if (resultadoResolvido.sucesso) return resultadoResolvido;
+-          ultimoErro = resultadoResolvido.erro;
+-        } else if (resultado.sucesso) {
++        if (resultado.sucesso) {
+           return resultado;
+         } else {
+-          ultimoErro = resultado.erro;
++          ultimoErroEnriquecido = resultado.erro; // Guarda o erro enriquecido
+         }
+       } catch (erro) {
+         ultimoErro = erro;
+       }
+     }
+     
+-    return Resultado.falha(ultimoErro || new Error("Todas as operações falharam"));
+-  }
+-};
+-
+-/**
+- * Utilitários para trabalhar com arquivos usando o padrão Ferrovia
++    // Se todas falharam, retorna a última falha
++    return Resultado.falha(
++        ultimoErroEnriquecido?.mensagem || "Todas as operações falharam", // Usa a mensagem do último erro
++        {
++            etapa: 'tentarCada (final)',
++            tipo: 'todas_operacoes_falharam',
++            ultimoErro: ultimoErroEnriquecido // Guarda o último erro enriquecido completo
++        }
++    );
++  }
++};
++
++/**
++ * Utilitários para trabalhar com arquivos usando o padrão Ferrovia V2
++ * (Adaptado para usar Resultado V2)
+  */
+ const ArquivoUtils = require('./ArquivoUtils'); // Assumindo que ArquivoUtils já usa Resultado internamente
+
+-module.exports = {
++module.exports = Object.freeze({ // Congela o módulo para imutabilidade
+   Resultado,
+   Trilho,
+   Operacoes,
+-  ArquivoUtils
+-};
++  ArquivoUtils: Object.freeze(ArquivoUtils), // Assumindo que ArquivoUtils também é imutável
++  formatarErroResultado // Exporta o novo helper
++});
+--- a/src/index.js
++++ b/src/index.js
+@@ -9,6 +9,7 @@
+ const dotenv = require('dotenv');
+ const fs = require('fs');
+ const path = require('path');
++const { formatarErroResultado } = require('./utilitarios/Ferrovia'); // Importar helper
+
+ // Carregar variáveis de ambiente
+ dotenv.config();
+@@ -103,7 +104,7 @@
+     });
+
+     if (!resultado.sucesso) {
+-      this.registrador.error(`Erro ao buscar transações incompletas: ${resultado.erro.message}`);
++      this.registrador.error(`Erro ao buscar transações incompletas: ${formatarErroResultado(resultado.erro)}`); // Usar helper
+       return 0;
+     }
+
+@@ -117,13 +118,13 @@
+       try {
+         await this.repoTransacoes.remover({ id: transacao.id });
+         this.registrador.info(`Transação ${transacao.id} removida com sucesso`);
+-        limpas++;
++        limpas++; // Incrementa o contador de transações limpas
+       } catch (erroRemocao) { // Renomeado para evitar conflito com 'erro' do escopo externo
+-        this.registrador.error(`Erro ao remover transação ${transacao.id}: ${erro.message}`);
++        this.registrador.error(`Erro ao remover transação ${transacao.id}: ${formatarErroResultado(erroRemocao)}`); // Usar helper
+       }
+     }
+
+-    this.registrador.info(`Limpas ${limpas} transações incompletas`);
++    this.registrador.info(`Limpas ${limpas} de ${transacoes.length} transações incompletas encontradas`);
+     return limpas;
+   } catch (erro) {
+     this.registrador.error(`Erro ao limpar transações incompletas: ${erro.message}`);
+@@ -200,7 +201,7 @@
+         logger.info(`Processamento periódico: ${notificacoesProcessadas} notificações, ${transacoesProcessadas} transações`);
+       }
+     } catch (erro) {
+-      logger.error(`Erro no processamento periódico: ${erro.message}`);
++      logger.error(`Erro no processamento periódico: ${formatarErroResultado(erro)}`); // Usar helper
+     }
+   }
+ }, 5000); // A cada cinco segundos
+@@ -223,7 +224,7 @@
+       // Limpar trabalhos pendentes na fila
+       await filasMidia.limparTrabalhosPendentes();
+     } catch (erro) {
+-      logger.error(`Erro na limpeza periódica: ${erro.message}`);
++      logger.error(`Erro na limpeza periódica: ${formatarErroResultado(erro)}`); // Usar helper
+     }
+   }
+ }, 24 * 60 * 60 * 1000); // Uma vez por dia
+--- a/src/adaptadores/queue/FilasConfiguracao.js
++++ b/src/adaptadores/queue/FilasConfiguracao.js
+@@ -5,7 +5,7 @@
+  */
+
+ const _ = require('lodash/fp');
+-const { Resultado } = require('../../utilitarios/Ferrovia');
++const { Resultado, formatarErroResultado } = require('../../utilitarios/Ferrovia'); // Importar helper
+
+ const {
+   obterInstrucaoImagem,
+@@ -76,7 +76,7 @@
+         usarLegenda: config.usarLegenda
+       });
+     } catch (erro) {
+-      registrador.warn(`Erro ao obter configurações: ${erro.message}, usando padrão`);
++      registrador.warn(`Erro ao obter configurações: ${formatarErroResultado(erro)}, usando padrão`); // Usar helper
+
+       // Configuração padrão
+       return Resultado.sucesso({
+--- a/src/adaptadores/queue/FilasCriadores.js
++++ b/src/adaptadores/queue/FilasCriadores.js
+@@ -7,7 +7,7 @@
+
+ const Queue = require('bull');
+ const _ = require('lodash/fp');
+-const { Resultado } = require('../../utilitarios/Ferrovia');
++const { Resultado, formatarErroResultado } = require('../../utilitarios/Ferrovia'); // Importar helper
+
+ /**
+  * CriadoresFilas - Funções puras para criar e configurar filas
+@@ -66,13 +66,13 @@
+
+     fila.on('failed', (job, error) => {
+       const duracao = Date.now() - (job.processedOn || job.timestamp);
+-      registrador.error(`[${nomeEtapa}] Job ${job.id} falhou após ${duracao}ms: ${error.message}`);
++      registrador.error(`[${nomeEtapa}] Job ${job.id} falhou após ${duracao}ms: ${formatarErroResultado(error)}`); // Usar helper
+
+       // Registrar falha para análise posterior
+       filaProblemas.add('falha-job', {
+         etapa: nomeEtapa,
+         jobId: job.id,
+-        erro: error.message,
++        erro: formatarErroResultado(error), // Usar o helper
+         stack: error.stack,
+         data: job.data ? _.omit(['imageData', 'tempFilename'], job.data) : null,
+         timestamp: Date.now()
+--- a/src/adaptadores/queue/FilasMonitorador.js
++++ b/src/adaptadores/queue/FilasMonitorador.js
+@@ -7,7 +7,7 @@
+  */
+
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho, ArquivoUtils } = require('../../utilitarios/Ferrovia');
++const { Resultado, Trilho, ArquivoUtils, formatarErroResultado } = require('../../utilitarios/Ferrovia'); // Importar helper
+
+ /**
+  * MonitoradorFilas - Funções para monitoramento de filas
+@@ -124,7 +124,7 @@
+                 removidos++;
+               }
+             } catch (erroTrabalho) {
+-              registrador.error(`Erro ao processar trabalho ${trabalho.id}: ${erroTrabalho.message}`);
++              registrador.error(`Erro ao processar trabalho ${trabalho.id}: ${formatarErroResultado(erroTrabalho)}`); // Usar helper
+             }
+           }
+
+@@ -140,7 +140,7 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`❌ Erro ao limpar filas: ${erro.message}`);
++      registrador.error(`❌ Erro ao limpar filas: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.sucesso(0);
+     });
+   }),
+@@ -207,7 +207,7 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`❌ Erro ao limpar filas: ${erro.message}`);
++      registrador.error(`❌ Erro ao limpar filas: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     });
+   })
+--- a/src/adaptadores/queue/FilasProcessadores.js
++++ b/src/adaptadores/queue/FilasProcessadores.js
+@@ -7,7 +7,7 @@
+  */
+
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho, ArquivoUtils, Operacoes } = require('../../utilitarios/Ferrovia');
++const { Resultado, Trilho, ArquivoUtils, Operacoes, formatarErroResultado } = require('../../utilitarios/Ferrovia'); // Importar helper
+ const FilasUtilitarios = require('./FilasUtilitarios');
+ const FilasConfiguracao = require('./FilasConfiguracao');
+ const FilasProcessadoresMidia = require('./FilasProcessadoresMidia');
+@@ -70,7 +70,7 @@
+     // Usando Operacoes.tentar
+     return Operacoes.tentar(() => callback(resultado))().then(resultadoCallback => {
+         if (!resultadoCallback.sucesso) {
+-          registrador.error(`Erro ao executar callback para ${resultado.tipo}: ${resultadoCallback.erro.message}`);
++          registrador.error(`Erro ao executar callback para ${resultado.tipo}: ${formatarErroResultado(resultadoCallback.erro)}`); // Usar helper
+         }
+         return resultadoCallback;
+       });
+@@ -117,10 +117,10 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`[Imagem] Erro no preparo: ${erro.message}`, { erro, jobId: job.id });
+-      
++      const erroFormatado = formatarErroResultado(erro);
++      registrador.error(`[Imagem] Erro no preparo (Job ${job.id}): ${erroFormatado}`);
++
+       // Notificar erro
+-      notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
++      notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName }); // Passar o erro (objeto)
+       
+       throw erro; // Rejeitar promessa para que Bull considere o job como falha
+     });
+@@ -178,10 +178,10 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`[Imagem] Erro na análise: ${erro.message}`, { erro, jobId: job.id });
+-      
++      const erroFormatado = formatarErroResultado(erro);
++      registrador.error(`[Imagem] Erro na análise (Job ${job.id}): ${erroFormatado}`);
++
+       // Notificar erro
+-      notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
++      notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName }); // Passar o erro (objeto)
+       
+       throw erro; // Rejeitar promessa para que Bull considere o job como falha
+     });
+@@ -209,10 +209,10 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`[Imagem] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
+-      
++      const erroFormatado = formatarErroResultado(erro);
++      registrador.error(`[Imagem] Erro ao redirecionar (Job ${job.id}): ${erroFormatado}`);
++
+       // Notificar erro
+-      notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
++      notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName }); // Passar erro (objeto)
+       
+       throw erro; // Rejeitar promessa para que Bull considere o job como falha
+     });
+@@ -272,10 +272,11 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`[Vídeo] Erro no upload: ${erro.message}`, { erro, jobId: job.id });
+-      
++      const erroFormatado = formatarErroResultado(erro);
++      registrador.error(`[Vídeo] Erro no upload (Job ${job.id}): ${erroFormatado}`);
++
+       // Notificar erro
+-      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
++      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName }); // Passar erro (objeto)
+       
+       // Limpar arquivo temporário em caso de erro
+       FilasUtilitarios.limparArquivo(tempFilename);
+@@ -319,7 +320,7 @@
+           const arquivo = await gerenciadorAI.gerenciadorArquivos.getFile(fileName);
+           return Resultado.sucesso({ ...dados, arquivo });
+         } catch (erroAcesso) {
+-          if (erroAcesso.message.includes('403 Forbidden')) {
++          if (String(erroAcesso.message).includes('403 Forbidden')) { // Usar String() para segurança
+             return Resultado.falha(new Error("Arquivo de vídeo inacessível (acesso negado)"));
+           }
+           return Resultado.falha(erroAcesso);
+@@ -374,10 +375,10 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`[Vídeo] Erro no processamento: ${erro.message}`, { erro, jobId: job.id });
+-      
++      const erroFormatado = formatarErroResultado(erro);
++      registrador.error(`[Vídeo] Erro no processamento (Job ${job.id}): ${erroFormatado}`);
+       // Notificar erro
+-      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
++      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName }); // Passar erro (objeto)
+       
+       // Limpar arquivo temporário
+       FilasUtilitarios.limparArquivo(tempFilename);
+@@ -419,7 +420,7 @@
+         const resultadoConfig = await obterConfig(chatId, 'video');
+         
+         if (!resultadoConfig.sucesso) {
+-          registrador.error(`Erro ao obter config: ${resultadoConfig.erro.message}, usando padrão`);
++          registrador.error(`Erro ao obter config para vídeo (Job ${job.id}): ${formatarErroResultado(resultadoConfig.erro)}, usando padrão`); // Usar helper
+           return Resultado.sucesso({
+             dados: job.data,
+             config: {
+@@ -504,10 +505,10 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`[Vídeo] Erro na análise: ${erro.message}`, { erro, jobId: job.id });
+-      
++      const erroFormatado = formatarErroResultado(erro);
++      registrador.error(`[Vídeo] Erro na análise (Job ${job.id}): ${erroFormatado}`);
+       // Notificar erro
+-      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
++      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName }); // Passar erro (objeto)
+       
+       // Limpar arquivos
+       FilasUtilitarios.limparArquivo(tempFilename);
+@@ -544,9 +545,10 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`[Vídeo] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
++      const erroFormatado = formatarErroResultado(erro);
++      registrador.error(`[Vídeo] Erro ao redirecionar (Job ${job.id}): ${erroFormatado}`);
+       
+-      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
++      notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName }); // Passar erro (objeto)
+       
+       throw erro;
+     });
+--- a/src/adaptadores/queue/FilasProcessadoresMidia.js
++++ b/src/adaptadores/queue/FilasProcessadoresMidia.js
+@@ -7,7 +7,7 @@
+  */
+
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho, ArquivoUtils } = require('../../utilitarios/Ferrovia');
++const { Resultado, Trilho, ArquivoUtils, formatarErroResultado } = require('../../utilitarios/Ferrovia'); // Importar helper
+ const FilasUtilitarios = require('./FilasUtilitarios');
+
+ /**
+@@ -137,7 +137,7 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`Erro ao processar vídeo: ${erro.message}`);
++      registrador.error(`Erro ao processar vídeo: ${formatarErroResultado(erro)}`); // Usar helper
+       
+       // Limpar arquivo local em caso de erro
+       FilasUtilitarios.limparArquivo(caminhoArquivo);
+--- a/src/adaptadores/queue/FilasUtilitarios.js
++++ b/src/adaptadores/queue/FilasUtilitarios.js
+@@ -47,8 +47,8 @@
+    * @returns {string} Mensagem amigável
+    */
+   obterMensagemErroAmigavel: _.curry((tipoMidia, erro) => {
+-    // Extrai a mensagem do erro original ou do erro enriquecido
+-    const mensagemErroOriginal = erro instanceof Error ? erro.message : (erro?.mensagem || String(erro));
++    // Acessa a mensagem da nova estrutura de erro, com fallback
++    const mensagemErroOriginal = erro?.mensagem || (erro instanceof Error ? erro.message : String(erro));
+     const mensagemErro = mensagemErroOriginal.toLowerCase();
+
+     // TODO: Considerar usar erro.contexto.tipo para mensagens mais específicas se disponível
+@@ -84,8 +84,8 @@
+    * @returns {string} Tipo de erro
+    */
+   identificarTipoErro: (erro) => {
+-    // Extrai a mensagem do erro original ou do erro enriquecido
+-    const mensagemErroOriginal = erro instanceof Error ? erro.message : (erro?.mensagem || String(erro));
++    // Acessa a mensagem da nova estrutura de erro, com fallback
++    const mensagemErroOriginal = erro?.mensagem || (erro instanceof Error ? erro.message : String(erro));
+     const mensagemErro = mensagemErroOriginal.toLowerCase();
+
+     return _.cond([
+--- a/src/adaptadores/transacoes/GerenciadorTransacoes.js
++++ b/src/adaptadores/transacoes/GerenciadorTransacoes.js
+@@ -53,13 +53,13 @@
+           await this.repoTransacoes.remover({ id: transacao.id });
+           limpas++;
+         } catch (erro) {
+-          this.registrador.error(`Erro ao remover transação incompleta ${transacao.id}: ${erro.message}`);
++          this.registrador.error(`Erro ao remover transação incompleta ${transacao.id}: ${formatarErroResultado(erro)}`); // Usar helper
+         }
+       }
+
+       this.registrador.info(`Limpas ${limpas} transações incompletas`);
+       return limpas;
+     } catch (erro) {
+-      this.registrador.error(`Erro ao limpar transações incompletas: ${erro.message}`);
++      this.registrador.error(`Erro ao limpar transações incompletas: ${formatarErroResultado(erro)}`); // Usar helper
+       return 0;
+     }
+   }
+@@ -73,13 +73,11 @@
+         this.registrador.debug(`Transação criada: ${documento.id}`);
+         // CORREÇÃO AQUI: Envolva o documento em Resultado.sucesso()
+         return Resultado.sucesso(documento);
+-      },
+-      (erro) => {
+-        this.registrador.error(`Erro ao criar transação: ${erro.message}`);
+-        // Manter o throw aqui está correto para o dobrar, mas o importante
+-        // é que o caminho de sucesso retorne um Resultado.sucesso.
+-        // Uma alternativa seria retornar Resultado.falha(erro) aqui também,
+-        // mas como o código chamador já trata o erro lançado, manter o throw funciona.
++      }, // Função aoFalhar ajustada
++      (erro) => { // Recebe o erro (objeto enriquecido)
++        this.registrador.error(`Erro ao criar transação: ${formatarErroResultado(erro)}`); // Usar helper
++        // Lança a mensagem do erro para manter compatibilidade
++        // Lança o objeto erro completo
+         throw erro;
+       }
+     );
+@@ -97,9 +95,10 @@
+         }
+         this.registrador.debug(`Dados de recuperação adicionados à transação ${transacaoId}`);
+         return true;
+-      },
+-      (erro) => {
+-        this.registrador.error(`Erro ao adicionar dados de recuperação: ${erro.message}`);
++      }, // Ajustado aoFalhar
++      (erro) => { // Recebe o erro (objeto enriquecido)
++        this.registrador.error(`Erro ao adicionar dados de recuperação: ${formatarErroResultado(erro)}`); // Usar helper
++        // Lança o objeto erro completo
+         throw erro;
+       }
+     );
+@@ -131,7 +130,7 @@
+ 
+             return contador + 1;
+           } catch (erro) {
+-            this.registrador.error(`Erro ao recuperar transação ${transacao.id}: ${erro.message}`);
++            this.registrador.error(`Erro ao recuperar transação ${transacao.id}: ${formatarErroResultado(erro)}`); // Usar helper
+             return contador;
+           }
+         }, Promise.resolve(0));
+@@ -139,9 +138,10 @@
+         this.registrador.info(`${recuperadas} transações enviadas para recuperação`);
+         return recuperadas;
+       },
+-      (erro) => {
+-        this.registrador.error(`Erro ao buscar transações para recuperação: ${erro.message}`);
++      (erro) => { // Recebe o erro (objeto enriquecido)
++        this.registrador.error(`Erro ao buscar transações para recuperação: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -163,9 +163,10 @@
+         }
+         this.registrador.debug(`Resposta adicionada à transação ${transacaoId}`);
+         return true;
+-      },
+-      (erro) => {
+-        this.registrador.error(`Erro ao adicionar resposta à transação: ${erro.message}`);
++      }, // Ajustado aoFalhar
++      (erro) => { // Recebe o erro (objeto enriquecido)
++        this.registrador.error(`Erro ao adicionar resposta à transação: ${formatarErroResultado(erro)}`); // Usar helper
++        // Lança o objeto erro completo
+         throw erro;
+       }
+     );
+@@ -211,10 +212,10 @@
+         this.registrador.warn(`Falha registrada para transação ${transacaoId}: ${erroString}`);
+         return true;
+       },
+-      (erroOperacao) => {
+-        // PROTEÇÃO: Usar String(erroOperacao) em vez de acessar .message
+-        this.registrador.error(`Erro ao registrar falha: ${String(erroOperacao)}`);
+-        throw erroOperacao;
++      (erro) => { // Recebe o erro (objeto enriquecido)
++        this.registrador.error(`Erro ao registrar falha: ${formatarErroResultado(erro)}`); // Usar helper
++        // Lança o objeto erro completo
++        throw erro;
+       }
+     );
+   }
+@@ -232,9 +233,10 @@
+         }
+         this.registrador.debug(`Status da transação ${transacaoId} atualizado para ${status}`);
+         return true;
+-      },
+-      (erro) => {
+-        this.registrador.error(`Erro ao atualizar status da transação: ${erro.message}`);
++      }, // Ajustado aoFalhar
++      (erro) => { // Recebe o erro (objeto enriquecido)
++        this.registrador.error(`Erro ao atualizar status da transação: ${formatarErroResultado(erro)}`); // Usar helper
++        // Lança o objeto erro completo
+         throw erro;
+       }
+     );
+@@ -274,8 +276,8 @@
+         await this.marcarComoEntregue(transacao.id);
+
+         this.registrador.info(`Transação ${transacao.id} reprocessada com sucesso`);
+-        return true; // Retornar sucesso
+-      } catch (erro) { // Capturar erro como antes
++        return true;
++      } catch (erro) {
+         // PROTEÇÃO: Usar String(erro) em vez de acessar .message
+         const mensagemErro = String(erro);
+         this.registrador.error(`Erro ao processar transação ${transacao.id}: ${mensagemErro}`);
+@@ -299,10 +301,10 @@
+ 
+         return numProcessadas;
+       },
+-      (erro) => {
+-        // PROTEÇÃO: Usar String(erro) em vez de acessar .message
+-        this.registrador.error(`Erro ao processar transações pendentes: ${String(erro)}`);
++      (erro) => { // Recebe o erro (objeto enriquecido)
++        this.registrador.error(`Erro ao processar transações pendentes: ${formatarErroResultado(erro)}`); // Usar helper
+         // Lança a mensagem do erro para manter compatibilidade
++        // Lança o objeto erro completo
+         throw erro;
+       }
+     );
+@@ -315,9 +317,10 @@
+     return Resultado.dobrar(
+       resultado,
+       (numRemovidas) => numRemovidas,
+-      (erro) => {
+-        this.registrador.error(`Erro ao limpar transações antigas: ${erro.message}`);
++      (erro) => { // Recebe o erro (objeto enriquecido)
++        this.registrador.error(`Erro ao limpar transações antigas: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -328,9 +331,10 @@
+     return Resultado.dobrar(
+       resultado,
+       (estatisticas) => estatisticas,
+-      (erro) => {
+-        this.registrador.error(`Erro ao obter estatísticas de transações: ${erro.message}`);
++      (erro) => { // Recebe o erro (objeto enriquecido)
++        this.registrador.error(`Erro ao obter estatísticas de transações: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -341,9 +345,10 @@
+     return Resultado.dobrar(
+       resultado,
+       (transacao) => transacao,
+-      (erro) => {
+-        this.registrador.error(`Erro ao buscar transação ${transacaoId}: ${erro.message}`);
++      (erro) => { // Recebe o erro (objeto enriquecido)
++        this.registrador.error(`Erro ao buscar transação ${transacaoId}: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+--- a/src/adaptadores/whatsapp/GerenciadorMensagens.js
++++ b/src/adaptadores/whatsapp/GerenciadorMensagens.js
+@@ -5,7 +5,7 @@
+  */
+
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../utilitarios/Ferrovia');
++const { Resultado, Trilho, formatarErroResultado } = require('../../utilitarios/Ferrovia'); // Importar helper
+ const EventEmitter = require('events');
+
+ // Importar módulos de domínio
+@@ -128,18 +128,19 @@
+       // Tratar e registrar erro global
+       const mensagemId = mensagem?.id?._serialized || 'desconhecido';
+
+-      // Usar o erro original ou a mensagem do erro enriquecido
+-      const mensagemErro = erro?.mensagem || String(erro);
++      // Usa a mensagem do erro (seja objeto enriquecido ou Error padrão)
++      const mensagemErro = erro?.mensagem || (erro instanceof Error ? erro.message : String(erro));
+ 
+       // Classificar tipos de erro para tratamento adequado
+-      if (erro.message === "Mensagem duplicada" ||
+-          erro.message === "Mensagem de sistema" ||
+-          erro.message === "Não atende critérios para resposta em grupo" ||
+-          erro.message === "Transcrição de áudio desabilitada" ||
+-          erro.message === "Descrição de imagem desabilitada" ||
+-          erro.message === "Descrição de vídeo desabilitada") {
++      if (mensagemErro === "Mensagem duplicada" ||
++          mensagemErro === "Mensagem de sistema" ||
++          mensagemErro === "Não atende critérios para resposta em grupo" ||
++          mensagemErro === "Transcrição de áudio desabilitada" ||
++          mensagemErro === "Descrição de imagem desabilitada" ||
++          mensagemErro === "Descrição de vídeo desabilitada") {
+         // Erros esperados e tratados silenciosamente
+         return false;
+       }
+-      registrador.error(`Erro ao processar mensagem ${mensagemId}: ${erro.message}`);
++      registrador.error(`Erro ao processar mensagem ${mensagemId}: ${formatarErroResultado(erro)}`); // Usar helper
+       return false;
+     }
+   };
+@@ -177,7 +178,7 @@
+ 
+       return Resultado.sucesso(false);
+     } catch (erro) {
+-      registrador.error(`Erro ao processar entrada em grupo: ${erro.message}`);
++      registrador.error(`Erro ao processar entrada em grupo: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     }
+   };
+@@ -211,7 +212,7 @@
+       registrador.info(`✅ Transação ${transacao.id} recuperada e entregue com sucesso!`);
+       return Resultado.sucesso(true);
+     } catch (erro) {
+-      registrador.error(`Falha na recuperação da transação ${transacao.id}: ${erro.message}`);
++      registrador.error(`Falha na recuperação da transação ${transacao.id}: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     }
+   };
+@@ -241,10 +242,10 @@
+         );
+ 
+         if (!resultadoEnvio.sucesso) {
+-          registrador.error(`Erro ao enviar resultado de mídia: ${resultadoEnvio.erro.message}`);
++          registrador.error(`Erro ao enviar resultado de mídia: ${formatarErroResultado(resultadoEnvio.erro)}`); // Usar helper
+         }
+       } catch (erro) {
+-        registrador.error(`Erro ao processar resultado de fila: ${erro.message}`);
++        registrador.error(`Erro ao processar resultado de fila: ${formatarErroResultado(erro)}`); // Usar helper
+       }
+     });
+ 
+--- a/src/adaptadores/whatsapp/GerenciadorMensagensRefatorado.js
++++ b/src/adaptadores/whatsapp/GerenciadorMensagensRefatorado.js
+@@ -5,7 +5,7 @@
+  */
+
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../utilitarios/Ferrovia');
++const { Resultado, Trilho, formatarErroResultado } = require('../../utilitarios/Ferrovia'); // Importar helper
+ const EventEmitter = require('events');
+
+ // Importar módulos de domínio
+@@ -128,18 +128,19 @@
+       // Tratar e registrar erro global
+       const mensagemId = mensagem?.id?._serialized || 'desconhecido';
+
+-      // Usar o erro original ou a mensagem do erro enriquecido
+-      const mensagemErro = erro?.mensagem || String(erro);
++      // Usa a mensagem do erro (seja objeto enriquecido ou Error padrão)
++      const mensagemErro = erro?.mensagem || (erro instanceof Error ? erro.message : String(erro));
+ 
+       // Classificar tipos de erro para tratamento adequado
+-      if (erro.message === "Mensagem duplicada" ||
+-          erro.message === "Mensagem de sistema" ||
+-          erro.message === "Não atende critérios para resposta em grupo" ||
+-          erro.message === "Transcrição de áudio desabilitada" ||
+-          erro.message === "Descrição de imagem desabilitada" ||
+-          erro.message === "Descrição de vídeo desabilitada") {
++      if (mensagemErro === "Mensagem duplicada" ||
++          mensagemErro === "Mensagem de sistema" ||
++          mensagemErro === "Não atende critérios para resposta em grupo" ||
++          mensagemErro === "Transcrição de áudio desabilitada" ||
++          mensagemErro === "Descrição de imagem desabilitada" ||
++          mensagemErro === "Descrição de vídeo desabilitada") {
+         // Erros esperados e tratados silenciosamente
+         return false;
+       }
+-      registrador.error(`Erro ao processar mensagem ${mensagemId}: ${erro.message}`);
++      registrador.error(`Erro ao processar mensagem ${mensagemId}: ${formatarErroResultado(erro)}`); // Usar helper
+       return false;
+     }
+   };
+@@ -177,7 +178,7 @@
+ 
+       return Resultado.sucesso(false);
+     } catch (erro) {
+-      registrador.error(`Erro ao processar entrada em grupo: ${erro.message}`);
++      registrador.error(`Erro ao processar entrada em grupo: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     }
+   };
+@@ -211,7 +212,7 @@
+       registrador.info(`✅ Transação ${transacao.id} recuperada e entregue com sucesso!`);
+       return Resultado.sucesso(true);
+     } catch (erro) {
+-      registrador.error(`Falha na recuperação da transação ${transacao.id}: ${erro.message}`);
++      registrador.error(`Falha na recuperação da transação ${transacao.id}: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     }
+   };
+@@ -241,10 +242,10 @@
+         );
+ 
+         if (!resultadoEnvio.sucesso) {
+-          registrador.error(`Erro ao enviar resultado de mídia: ${resultadoEnvio.erro.message}`);
++          registrador.error(`Erro ao enviar resultado de mídia: ${formatarErroResultado(resultadoEnvio.erro)}`); // Usar helper
+         }
+       } catch (erro) {
+-        registrador.error(`Erro ao processar resultado de fila: ${erro.message}`);
++        registrador.error(`Erro ao processar resultado de fila: ${formatarErroResultado(erro)}`); // Usar helper
+       }
+     });
+ 
+--- a/src/adaptadores/whatsapp/GerenciadorNotificacoes.js
++++ b/src/adaptadores/whatsapp/GerenciadorNotificacoes.js
+@@ -7,7 +7,7 @@
+
+ const fs = require('fs');
+ const path = require('path');
+-const _ = require('lodash/fp');
++const _ = require('lodash/fp'); // Já importado
+ const { Resultado, ArquivoUtils, Trilho, Operacoes } = require('../../utilitarios/Ferrovia');
+ const { criarDiretorio, salvarArquivoJson, listarArquivos, lerArquivoJson, removerArquivo } = ArquivoUtils;
+
+@@ -25,7 +25,7 @@
+         if (resultado.sucesso) {
+           this.registrador.info(`Diretório para notificações pronto: ${this.diretorioTemp}`);
+         } else {
+-          this.registrador.error(`Erro ao criar diretório: ${resultado.erro.message}`);
++          this.registrador.error(`Erro ao criar diretório: ${formatarErroResultado(resultado.erro)}`); // Usar helper
+         }
+       });
+   }
+@@ -67,7 +67,7 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`Erro ao salvar notificação: ${erro.message}`);
++      registrador.error(`Erro ao salvar notificação: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     });
+   }
+@@ -113,7 +113,7 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`Erro ao processar notificações pendentes: ${erro.message}`);
++      registrador.error(`Erro ao processar notificações pendentes: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.sucesso(0); // Falhas não críticas retornam 0 processadas
+     });
+   }
+@@ -164,8 +164,10 @@
+       }
+     )()
+     .catch(erro => {
++      // Usa a mensagem do erro (seja objeto enriquecido ou Error padrão)
++      const mensagemErro = erro?.mensagem || (erro instanceof Error ? erro.message : String(erro));
+       // Ignorar erros de arquivos recentes
+-      if (erro.message === "Arquivo muito recente, ignorando") {
++      if (mensagemErro === "Arquivo muito recente, ignorando") {
+         return Resultado.sucesso(false);
+       }
+       
+@@ -209,7 +211,7 @@
+               }
+             }
+           } catch (err) {
+-            registrador.error(`Erro ao limpar notificação antiga ${arquivo}: ${err.message}`);
++            registrador.error(`Erro ao limpar notificação antiga ${arquivo}: ${formatarErroResultado(err)}`); // Usar helper
+           }
+         }
+         
+@@ -221,7 +223,7 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`Erro ao limpar notificações antigas: ${erro.message}`);
++      registrador.error(`Erro ao limpar notificações antigas: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.sucesso(0);
+     });
+   }
+--- a/src/adaptadores/whatsapp/comandos/RegistroComandos.js
++++ b/src/adaptadores/whatsapp/comandos/RegistroComandos.js
+@@ -4,7 +4,7 @@
+  * RegistroComandos - Registro central de todos os comandos disponíveis
+  */
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia'); // Ajuste o caminho se necessário
++const { Resultado, Trilho, formatarErroResultado } = require('../../../utilitarios/Ferrovia'); // Importar helper
+
+ // Imports de todos os comandos
+ const criarComandoReset = require('./implementacoes/ComandoReset');
+@@ -109,7 +109,7 @@
+                     );
+                 }
+              } catch (err) {
+-                 dependencias.registrador.error(`Erro ao enviar resposta de comando não encontrado: ${err.message}`);
++                 dependencias.registrador.error(`Erro ao enviar resposta de comando não encontrado: ${formatarErroResultado(err)}`); // Usar helper
+              }
+              return Resultado.falha(new Error(erroMsg));
+         }
+@@ -127,7 +127,7 @@
+              }
+             return resultadoExecucao; // Retorna o Resultado da execução
+         } catch(erroExecucao) {
+-             dependencias.registrador.error(`Erro durante a execução do comando '${nomeComando}': ${erroExecucao.message}`, erroExecucao);
++             dependencias.registrador.error(`Erro durante a execução do comando '${nomeComando}': ${formatarErroResultado(erroExecucao)}`); // Usar helper
+              // Tenta notificar o usuário sobre o erro na execução
+              try {
+                  // Garante que servicoMensagem está disponível
+@@ -140,7 +140,7 @@
+                      dependencias.registrador.error("servicoMensagem ou enviarResposta não disponível para enviar erro de execução.");
+                  }
+              } catch(err) {
+-                 dependencias.registrador.error(`Erro ao enviar mensagem de erro de execução do comando '${nomeComando}': ${err.message}`);
++                 dependencias.registrador.error(`Erro ao enviar mensagem de erro de execução do comando '${nomeComando}': ${formatarErroResultado(err)}`); // Usar helper
+              }
+              return Resultado.falha(erroExecucao); // Retorna a falha
+         }
+--- a/src/adaptadores/whatsapp/comandos/implementacoes/ComandoAudio.js
++++ b/src/adaptadores/whatsapp/comandos/implementacoes/ComandoAudio.js
+@@ -3,7 +3,7 @@
+ /**
+  * ComandoAudio - Implementação do comando audio para ativar/desativar transcrição de áudio
+  */
+-const { Resultado } = require('../../../../utilitarios/Ferrovia');
++const { Resultado, formatarErroResultado } = require('../../../../utilitarios/Ferrovia'); // Importar helper
+ const { criarComando } = require('../ComandoBase');
+
+ const criarComandoAudio = (dependencias) => {
+@@ -43,7 +43,7 @@
+            registrador.error(`[ComandoAudio] Falha ao obter config APÓS tentativa de escrita para ${chatId}`);
+            // Não lançar erro aqui necessariamente, mas logar é crucial
+       } else if (configApos.mediaAudio !== novoValor) {
+-           registrador.error(`[ComandoAudio] *** VERIFICAÇÃO FALHOU! mediaAudio no DB para ${chatId} é ${configApos.mediaAudio}, mas deveria ser ${novoValor} (Msg ${mensagem.id._serialized}) ***`);
++           registrador.error(`[ComandoAudio] *** VERIFICAÇÃO FALHOU! mediaAudio no DB para ${chatId} é ${configApos.mediaAudio}, mas deveria ser ${novoValor} (Msg ${mensagem.id._serialized}) ***`); // Mantido igual, pois já estava bom
+            // Você pode decidir lançar um erro aqui se quiser que o comando falhe se a escrita não for confirmada
+            // throw new Error("Falha ao confirmar a escrita da configuração de áudio no DB");
+       } else {
+@@ -59,12 +59,12 @@
+ 
+     } catch (erro) {
+       // Logar o valor que foi lido e o que se tentou definir pode ajudar
+-      registrador.error(`[ComandoAudio] Erro ao executar para chat ${chatId} (Lido inicialmente: ${configAntes?.mediaAudio}, Tentado definir: ${novoValor}): ${erro.message}`, erro);
++      registrador.error(`[ComandoAudio] Erro ao executar para chat ${chatId} (Lido: ${configAntes?.mediaAudio}, Tentado: ${novoValor}): ${formatarErroResultado(erro)}`); // Usar helper
+       // Tentar enviar mensagem de erro genérica
+       try {
+         await servicoMensagem.enviarResposta(mensagem, 'Ops! Ocorreu um erro ao tentar alterar a configuração de áudio.');
+       } catch (erroEnvio) {
+-        registrador.error(`[ComandoAudio] Falha ao enviar mensagem de erro: ${erroEnvio.message}`);
++        registrador.error(`[ComandoAudio] Falha ao enviar mensagem de erro: ${formatarErroResultado(erroEnvio)}`); // Usar helper
+       }
+       return Resultado.falha(erro); // Indicar falha
+     }
+--- a/src/adaptadores/whatsapp/comandos/implementacoes/ComandoFilas.js
++++ b/src/adaptadores/whatsapp/comandos/implementacoes/ComandoFilas.js
+@@ -3,7 +3,7 @@
+  * ComandoFilas - Implementação do comando filas para gerenciar filas de processamento
+  */
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../../../utilitarios/Ferrovia');
++const { Resultado, Trilho, formatarErroResultado } = require('../../../../utilitarios/Ferrovia'); // Importar helper
+ const { criarComando } = require('../ComandoBase');
+
+ const criarComandoFilas = (dependencias) => {
+@@ -67,7 +67,7 @@
+       }
+     )()
+     .catch(erro => {
+-      registrador.error(`Erro ao processar comando filas: ${erro.message}`);
++      registrador.error(`Erro ao processar comando filas: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     });
+   };
+--- a/src/adaptadores/whatsapp/dominio/AdaptadorIA.js
++++ b/src/adaptadores/whatsapp/dominio/AdaptadorIA.js
+@@ -4,7 +4,7 @@
+  * Facilita futura migração para outros provedores como o Mistral
+  */
+ const _ = require('lodash/fp');
+-const { Trilho, Resultado } = require('../../../utilitarios/Ferrovia');
++const { Trilho, Resultado, formatarErroResultado } = require('../../../utilitarios/Ferrovia'); // Importar helper
+ const InstrucoesSistema = require('../../../config/InstrucoesSistema');
+
+ const criarAdaptadorIA = _.curry((registrador, gerenciadorAI) => {
+@@ -12,7 +12,7 @@
+   const processarTexto = _.curry((textoHistorico, config) => 
+     Trilho.dePromise(gerenciadorAI.processarTexto(textoHistorico, config))
+       .catch(erro => {
+-        registrador.error(`Erro no processamento de texto: ${erro.message}`);
++        registrador.error(`Erro no processamento de texto: ${formatarErroResultado(erro)}`); // Usar helper
+         return Resultado.falha(erro);
+       }));
+
+@@ -28,7 +28,7 @@
+     return Trilho.dePromise(
+       gerenciadorAI.processarImagem(dadosImagem, promptBase, promptUsuario)
+     ).catch(erro => {
+-      registrador.error(`Erro no processamento de imagem: ${erro.message}`);
++      registrador.error(`Erro no processamento de imagem: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     });
+   });
+@@ -37,7 +37,7 @@
+   const processarAudio = _.curry((dadosAudio, hashAudio, config) => 
+     Trilho.dePromise(gerenciadorAI.processarAudio(dadosAudio, hashAudio, config))
+       .catch(erro => {
+-        registrador.error(`Erro no processamento de áudio: ${erro.message}`);
++        registrador.error(`Erro no processamento de áudio: ${formatarErroResultado(erro)}`); // Usar helper
+         return Resultado.falha(erro);
+       }));
+
+@@ -54,7 +54,7 @@
+     return Trilho.dePromise(
+       gerenciadorAI.processarVideo(caminhoVideo, promptBase, promptUsuario)
+     ).catch(erro => {
+-      registrador.error(`Erro no processamento de vídeo: ${erro.message}`);
++        registrador.error(`Erro no processamento de vídeo: ${formatarErroResultado(erro)}`); // Usar helper
+         return Resultado.falha(erro);
+     });
+   });
+--- a/src/adaptadores/whatsapp/dominio/OperacoesChat.js
++++ b/src/adaptadores/whatsapp/dominio/OperacoesChat.js
+@@ -4,7 +4,7 @@
+  * OperacoesChat - Funções para manipulação de chats e informações de usuário
+  */
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia');
++const { Resultado, Trilho, formatarErroResultado } = require('../../../utilitarios/Ferrovia'); // Importar helper
+
+ // Obtém informações do chat
+ const obterInformacoesChat = _.curry(async (registrador, dados) => {
+@@ -20,7 +20,7 @@
+       ehGrupo
+     });
+   } catch (erro) {
+-    registrador.error(`Erro ao obter informações do chat: ${erro.message}`);
++    registrador.error(`Erro ao obter informações do chat: ${formatarErroResultado(erro)}`); // Usar helper
+     return Resultado.falha(erro);
+   }
+ });
+@@ -68,7 +68,7 @@
+       joinedAt: new Date()
+     });
+   } catch (erro) {
+-    registrador.error(`Erro ao obter informações do usuário: ${erro.message}`);
++    registrador.error(`Erro ao obter informações do usuário: ${formatarErroResultado(erro)}`); // Usar helper
+     const idSufixo = remetente.substring(0, 6).replace(/[^0-9]/g, '');
+     return Resultado.sucesso({
+       id: remetente,
+@@ -102,7 +102,7 @@
+     
+     return Resultado.sucesso(false);
+   } catch (erro) {
+-    registrador.error(`Erro na verificação de permissão: ${erro.message}`);
++    registrador.error(`Erro na verificação de permissão: ${formatarErroResultado(erro)}`); // Usar helper
+     return Resultado.sucesso(false);
+   }
+ });
+--- a/src/adaptadores/whatsapp/processadores/ProcessadorAudio.js
++++ b/src/adaptadores/whatsapp/processadores/ProcessadorAudio.js
+@@ -3,7 +3,7 @@
+  * ProcessadorAudio - Processamento específico para mensagens de áudio
+  */
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia');
++const { Resultado, Trilho, formatarErroResultado } = require('../../../utilitarios/Ferrovia'); // Importar helper
+ const crypto = require('crypto');
+ const { obterOuCriarUsuario } = require('../dominio/OperacoesChat');
+
+@@ -43,7 +43,7 @@
+         chat
+       );
+       if (!resultadoRemetente.sucesso) {
+-           registrador.error(`[ProcessadorAudio] Falha ao obter remetente para ${chatId}: ${resultadoRemetente.erro?.message}`);
++           registrador.error(`[ProcessadorAudio] Falha ao obter remetente para ${chatId}: ${formatarErroResultado(resultadoRemetente.erro)}`); // Usar helper
+            throw new Error("Falha ao obter remetente");
+       }
+       const remetente = resultadoRemetente.dados;
+@@ -60,7 +60,7 @@
+       const hashAudio = crypto.createHash('md5').update(dadosAnexo.data).digest('hex');
+       const resultadoTransacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
+        if (!resultadoTransacao.sucesso) {
+-           registrador.error(`[ProcessadorAudio] Falha ao criar transação para ${chatId}: ${resultadoTransacao.erro?.message}`);
++           registrador.error(`[ProcessadorAudio] Falha ao criar transação para ${chatId}: ${formatarErroResultado(resultadoTransacao.erro)}`); // Usar helper
+            throw new Error("Falha ao criar transação");
+        }
+       const transacao = resultadoTransacao.dados;
+@@ -69,18 +69,19 @@
+       const resultadoIA = await adaptadorIA.processarAudio(dadosAnexo, hashAudio, config);
+
+       if (!resultadoIA.sucesso) {
+-        registrador.error(`[ProcessadorAudio] Falha no adaptadorIA.processarAudio para ${transacaoId}: ${resultadoIA.erro?.message}`);
+-        if (resultadoIA.erro?.message?.includes('segurança')) {
++        registrador.error(`[ProcessadorAudio] Falha no adaptadorIA.processarAudio para ${transacaoId}: ${formatarErroResultado(resultadoIA.erro)}`); // Usar helper
++        // Acessa a mensagem do erro enriquecido
++        if (resultadoIA.erro?.mensagem?.includes('segurança')) {
+              await servicoMensagem.enviarResposta(mensagem, 'Este conteúdo não pôde ser processado por questões de segurança.', transacaoId);
+              await gerenciadorTransacoes.registrarFalhaEntrega(transacaoId, "Conteúdo bloqueado por segurança");
+              return Resultado.falha(resultadoIA.erro);
+         }
+-        throw new Error(`Falha no processamento da IA: ${resultadoIA.erro?.message}`);
++        throw new Error(`Falha no processamento da IA: ${resultadoIA.erro?.mensagem || 'Erro desconhecido da IA'}`); // Acessar .mensagem
+       }
+       const resposta = resultadoIA.dados; // A transcrição
+       registrador.info(`[ProcessadorAudio] Transcrição recebida da IA para ${transacaoId}. Tamanho: ${resposta?.length || 0}`);
+       await gerenciadorTransacoes.adicionarRespostaTransacao(transacao.id, resposta);
+       const resultadoEnvio = await servicoMensagem.enviarResposta(mensagem, resposta, transacao.id);
+       if (!resultadoEnvio.sucesso) {
+-           registrador.error(`[ProcessadorAudio] Falha reportada por servicoMensagem ao enviar resposta para ${transacaoId}: ${resultadoEnvio.erro?.message}`);
++           registrador.error(`[ProcessadorAudio] Falha reportada por servicoMensagem ao enviar resposta para ${transacaoId}: ${formatarErroResultado(resultadoEnvio.erro)}`); // Usar helper
+            // Não lançar erro aqui, pois a IA pode ter funcionado. O problema foi o envio.
+       } else {
+            registrador.info(`[ProcessadorAudio] Resposta (transcrição) enviada com sucesso para ${transacaoId}`);
+@@ -88,15 +89,16 @@
+       return Resultado.sucesso({ transacao, resposta });
+
+     } catch (erro) {
+-      registrador.error(`[ProcessadorAudio] ERRO GERAL no processamento para msg ${mensagem?.id?._serialized} / chat ${chatId} / transação ${transacaoId}: ${erro.message}`, erro);
++      registrador.error(`[ProcessadorAudio] ERRO GERAL no processamento para msg ${mensagem?.id?._serialized} / chat ${chatId} / transação ${transacaoId}: ${formatarErroResultado(erro)}`); // Usar helper
+
+       if (transacaoId) {
+           try {
+-              await gerenciadorTransacoes.registrarFalhaEntrega(transacaoId, `Erro processamento áudio: ${erro.message}`);
++              // Usa erro.message pois pode ser um erro lançado manualmente ('Falha ao obter remetente', etc.)
++              await gerenciadorTransacoes.registrarFalhaEntrega(transacaoId, `Erro processamento áudio: ${erro.message || String(erro)}`);
+           } catch (errTransacao) {
+-               registrador.error(`[ProcessadorAudio] Falha ao registrar erro na transação ${transacaoId}: ${errTransacao.message}`);
++               registrador.error(`[ProcessadorAudio] Falha ao registrar erro na transação ${transacaoId}: ${formatarErroResultado(errTransacao)}`); // Usar helper
+           }
+       }
+-
++      // Usa erro.message aqui também
+       const msgErroLower = erro.message?.toLowerCase() || "";
+       if (!msgErroLower.includes('desabilitada') && !msgErroLower.includes('grande') && !msgErroLower.includes('segurança')) {
+          try {
+@@ -105,7 +107,7 @@
+                'Desculpe, ocorreu um erro inesperado ao tentar transcrever o áudio.'
+             );
+          } catch (erroEnvio) {
+-            registrador.error(`[ProcessadorAudio] Falha ao enviar mensagem de erro geral: ${erroEnvio.message}`);
++            registrador.error(`[ProcessadorAudio] Falha ao enviar mensagem de erro geral: ${formatarErroResultado(erroEnvio)}`); // Usar helper
+          }
+       }
+ 
+--- a/src/adaptadores/whatsapp/processadores/ProcessadorComandos.js
++++ b/src/adaptadores/whatsapp/processadores/ProcessadorComandos.js
+@@ -3,7 +3,7 @@
+  * ProcessadorComandos - Processamento de mensagens de comando
+  */
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia');
++const { Resultado, Trilho, formatarErroResultado } = require('../../../utilitarios/Ferrovia'); // Importar helper
+ const { verificarPermissaoComando } = require('../dominio/OperacoesChat');
+
+ const criarProcessadorComandos = (dependencias) => {
+@@ -64,14 +64,14 @@
+       return await registroComandos.executarComando(comando.toLowerCase(), mensagem, args, chatId);
+       
+     } catch (erro) {
+-      registrador.error(`Erro ao processar comando: ${erro.message}`);
++      registrador.error(`Erro ao processar comando: ${formatarErroResultado(erro)}`); // Usar helper
+       
+       try {
+         await servicoMensagem.enviarResposta(
+           mensagem,
+           'Eita! Encontrei um probleminha ao processar seu comando. Pode tentar de novo?'
+         );
+       } catch (erroEnvio) {
+-        registrador.error(`Não foi possível enviar mensagem de erro: ${erroEnvio.message}`);
++        registrador.error(`Não foi possível enviar mensagem de erro: ${formatarErroResultado(erroEnvio)}`); // Usar helper
+       }
+       
+       return Resultado.falha(erro);
+--- a/src/adaptadores/whatsapp/processadores/ProcessadorImagem.js
++++ b/src/adaptadores/whatsapp/processadores/ProcessadorImagem.js
+@@ -3,7 +3,7 @@
+  * ProcessadorImagem - Processamento específico para mensagens com imagens
+  */
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia');
++const { Resultado, Trilho, formatarErroResultado } = require('../../../utilitarios/Ferrovia'); // Importar helper
+ const { obterOuCriarUsuario } = require('../dominio/OperacoesChat');
+
+ const criarProcessadorImagem = (dependencias) => {
+@@ -37,7 +37,7 @@
+       )(mensagem.author || mensagem.from, chat);
+       
+       if (!resultadoRemetente.sucesso) {
+-        registrador.error(`Falha ao obter remetente: ${resultadoRemetente.erro?.message}`);
++        registrador.error(`Falha ao obter remetente: ${formatarErroResultado(resultadoRemetente.erro)}`); // Usar helper
+         return resultadoRemetente;
+       }
+       
+@@ -77,11 +77,11 @@
+       return Resultado.sucesso({ transacao });
+       
+     } catch (erro) {
+-      registrador.error(`Erro ao processar mensagem de imagem: ${erro.message}`);
++      registrador.error(`Erro ao processar mensagem de imagem: ${formatarErroResultado(erro)}`); // Usar helper
+       
+-      // Verificar se é um erro de segurança
+-      if (erro.message.includes('SAFETY') || erro.message.includes('safety') ||
+-          erro.message.includes('blocked') || erro.message.includes('Blocked')) {
++      // Acessa a mensagem do erro (seja objeto enriquecido ou Error padrão)
++      const mensagemErro = erro?.mensagem || (erro instanceof Error ? erro.message : String(erro));
++      if (mensagemErro.includes('SAFETY') || mensagemErro.includes('safety') || mensagemErro.includes('blocked') || mensagemErro.includes('Blocked')) {
+         
+         registrador.warn(`⚠️ Conteúdo de imagem bloqueado por políticas de segurança`);
+         
+@@ -91,7 +91,7 @@
+             'Este conteúdo não pôde ser processado por questões de segurança.'
+           );
+         } catch (erroEnvio) {
+-          registrador.error(`Não foi possível enviar mensagem de erro: ${erroEnvio.message}`);
++          registrador.error(`Não foi possível enviar mensagem de erro: ${formatarErroResultado(erroEnvio)}`); // Usar helper
+         }
+       } else {
+         try {
+@@ -100,7 +100,7 @@
+             'Desculpe, ocorreu um erro ao processar sua imagem.'
+           );
+         } catch (erroEnvio) {
+-          registrador.error(`Não foi possível enviar mensagem de erro: ${erroEnvio.message}`);
++          registrador.error(`Não foi possível enviar mensagem de erro: ${formatarErroResultado(erroEnvio)}`); // Usar helper
+         }
+       }
+       
+--- a/src/adaptadores/whatsapp/processadores/ProcessadorMidia.js
++++ b/src/adaptadores/whatsapp/processadores/ProcessadorMidia.js
+@@ -3,7 +3,7 @@
+  * ProcessadorMidia - Orquestrador central para processamento de mensagens com mídia
+  */
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia');
++const { Resultado, Trilho, formatarErroResultado } = require('../../../utilitarios/Ferrovia'); // Importar helper
+ const crypto = require('crypto');
+
+ const criarProcessadorMidia = (dependencias) => {
+@@ -81,7 +81,7 @@
+         return Resultado.falha(new Error(`Tipo de mídia não suportado: ${mimeType}`));
+       }
+     } catch (erro) {
+-      registrador.error(`Erro ao processar mídia: ${erro.message}`);
++      registrador.error(`Erro ao processar mídia: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     }
+   };
+--- a/src/adaptadores/whatsapp/processadores/ProcessadorTexto.js
++++ b/src/adaptadores/whatsapp/processadores/ProcessadorTexto.js
+@@ -3,7 +3,7 @@
+  * ProcessadorTexto - Processamento de mensagens de texto
+  */
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia');
++const { Resultado, Trilho, formatarErroResultado } = require('../../../utilitarios/Ferrovia'); // Importar helper
+ const { obterOuCriarUsuario } = require('../dominio/OperacoesChat');
+
+ const criarProcessadorTexto = (dependencias) => {
+@@ -21,7 +21,7 @@
+       registrador.debug(`Nova transação criada: ${transacao.id} para mensagem de ${remetente.name}`);
+       return Resultado.sucesso(transacao);
+     } catch (erro) {
+-      registrador.error(`Erro ao criar transação: ${erro.message}`);
++      registrador.error(`Erro ao criar transação: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     }
+   };
+@@ -33,7 +33,7 @@
+       await gerenciadorTransacoes.adicionarDadosRecuperacao(transacaoId, dados);
+       return Resultado.sucesso(true);
+     } catch (erro) {
+-      registrador.error(`Erro ao adicionar dados de recuperação: ${erro.message}`);
++      registrador.error(`Erro ao adicionar dados de recuperação: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.sucesso(false); // Continuar mesmo assim
+     }
+   };
+@@ -114,7 +114,7 @@
+       return Resultado.sucesso({ transacao, resposta });
+       
+     } catch (erro) {
+-      registrador.error(`Erro ao processar mensagem de texto: ${erro.message}`, erro);
++      registrador.error(`Erro ao processar mensagem de texto: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     }
+   };
+--- a/src/adaptadores/whatsapp/processadores/ProcessadorVideo.js
++++ b/src/adaptadores/whatsapp/processadores/ProcessadorVideo.js
+@@ -3,7 +3,7 @@
+  * ProcessadorVideo - Processamento específico para mensagens com vídeos
+  */
+ const _ = require('lodash/fp');
+-const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia');
++const { Resultado, Trilho, formatarErroResultado } = require('../../../utilitarios/Ferrovia'); // Importar helper
+ const { obterOuCriarUsuario } = require('../dominio/OperacoesChat');
+ const fs = require('fs');
+ const path = require('path');
+@@ -49,7 +49,7 @@
+       registrador.debug(`✅ Arquivo de vídeo salvo com sucesso: ${arquivoTemporario} (${Math.round(videoBuffer.length / 1024)} KB)`);
+       return Resultado.sucesso(arquivoTemporario);
+     } catch (erro) {
+-      registrador.error(`Erro ao salvar arquivo temporário: ${erro.message}`);
++      registrador.error(`Erro ao salvar arquivo temporário: ${formatarErroResultado(erro)}`); // Usar helper
+       return Resultado.falha(erro);
+     }
+   });
+@@ -96,7 +96,7 @@
+       )(mensagem.author || mensagem.from, chat);
+       
+       if (!resultadoRemetente.sucesso) {
+-        registrador.error(`Falha ao obter remetente: ${resultadoRemetente.erro?.message}`);
++        registrador.error(`Falha ao obter remetente: ${formatarErroResultado(resultadoRemetente.erro)}`); // Usar helper
+         return resultadoRemetente;
+       }
+       
+@@ -168,16 +168,17 @@
+       return Resultado.sucesso({ transacao });
+       
+     } catch (erro) {
+-      registrador.error(`❌ Erro ao processar vídeo: ${erro.message}`);
++      registrador.error(`❌ Erro ao processar vídeo: ${formatarErroResultado(erro)}`); // Usar helper
+       
+       // Limpar arquivo temporário se existir
+       if (arquivoTemporario && fs.existsSync(arquivoTemporario)) {
+         fs.promises.unlink(arquivoTemporario).catch(err => {
+-          registrador.error(`Erro ao remover arquivo temporário: ${err.message}`);
++          registrador.error(`Erro ao remover arquivo temporário: ${formatarErroResultado(err)}`); // Usar helper
+         });
+         registrador.info(`Arquivo temporário ${arquivoTemporario} removido após erro`);
+       }
+       
++      const mensagemErro = erro?.mensagem || (erro instanceof Error ? erro.message : String(erro));
+       // Enviar mensagem amigável baseada no tipo de erro
+       let mensagemAmigavel = 'Desculpe, ocorreu um erro ao adicionar seu vídeo à fila de processamento.';
+       
+@@ -191,7 +192,7 @@
+       try {
+         await servicoMensagem.enviarResposta(mensagem, mensagemAmigavel);
+       } catch (erroEnvio) {
+-        registrador.error(`Não foi possível enviar mensagem de erro: ${erroEnvio.message}`);
++        registrador.error(`Não foi possível enviar mensagem de erro: ${formatarErroResultado(erroEnvio)}`); // Usar helper
+       }
+       
+       return Resultado.falha(erro);
+--- a/src/bancodedados/RepositorioNeDB.js
++++ b/src/bancodedados/RepositorioNeDB.js
+@@ -8,7 +8,7 @@
+  */
+
+ const Datastore = require('nedb');
+-const { Repositorio, Resultado } = require('./Repositorio');
++const { Repositorio, Resultado } = require('./Repositorio'); // Resultado já está aqui
+ const fs = require('fs');
+ const path = require('path');
+
+@@ -29,7 +29,7 @@
+       filename: caminhoBanco, 
+       autoload: true,
+       onload: (err) => {
+-        if (err) registrador.error(`Erro ao carregar banco: ${err.message}`);
++        if (err) registrador.error(`Erro ao carregar banco NeDB (${path.basename(caminhoBanco)}): ${err.message}`); // Log mais específico
+       }
+     });
+     this.registrador = registrador;
+@@ -47,7 +47,7 @@
+     return new Promise(resolver => {
+       this.bancoDados.findOne(consulta, (erro, documento) => {
+         if (erro) {
+-          this.registrador.error(`Erro ao buscar documento: ${erro.message}`);
++          this.registrador.error(`Erro NeDB findOne (${this.bancoDados.filename}): ${erro.message}`);
+           resolver(Resultado.falha(erro));
+         } else {
+           resolver(Resultado.sucesso(documento));
+@@ -71,7 +71,7 @@
+       
+       cursor.exec((erro, documentos) => {
+         if (erro) {
+-          this.registrador.error(`Erro ao buscar documentos: ${erro.message}`);
++          this.registrador.error(`Erro NeDB find (${this.bancoDados.filename}): ${erro.message}`);
+           resolver(Resultado.falha(erro));
+         } else {
+           // Imutabilidade - cria cópias profundas dos documentos
+@@ -94,7 +94,7 @@
+     return new Promise(resolver => {
+       this.bancoDados.insert(copiaDocumento, (erro, novoDoc) => {
+         if (erro) {
+-          this.registrador.error(`Erro ao inserir documento: ${erro.message}`);
++          this.registrador.error(`Erro NeDB insert (${this.bancoDados.filename}): ${erro.message}`);
+           resolver(Resultado.falha(erro));
+         } else {
+           resolver(Resultado.sucesso(novoDoc));
+@@ -112,7 +112,7 @@
+     return new Promise(resolver => {
+       this.bancoDados.update(consulta, atualizacao, opcoes, (erro, numAfetados, documentosAfetados, upsert) => {
+         if (erro) {
+-          this.registrador.error(`Erro ao atualizar documentos: ${erro.message}`);
++          this.registrador.error(`Erro NeDB update (${this.bancoDados.filename}): ${erro.message}`);
+           resolver(Resultado.falha(erro));
+         } else {
+           resolver(Resultado.sucesso({ 
+@@ -133,7 +133,7 @@
+     return new Promise(resolver => {
+       this.bancoDados.remove(consulta, opcoes, (erro, numRemovidos) => {
+         if (erro) {
+-          this.registrador.error(`Erro ao remover documentos: ${erro.message}`);
++          this.registrador.error(`Erro NeDB remove (${this.bancoDados.filename}): ${erro.message}`);
+           resolver(Resultado.falha(erro));
+         } else {
+           resolver(Resultado.sucesso(numRemovidos));
+@@ -150,7 +150,7 @@
+     return new Promise(resolver => {
+       this.bancoDados.count(consulta, (erro, contagem) => {
+         if (erro) {
+-          this.registrador.error(`Erro ao contar documentos: ${erro.message}`);
++          this.registrador.error(`Erro NeDB count (${this.bancoDados.filename}): ${erro.message}`);
+           resolver(Resultado.falha(erro));
+         } else {
+           resolver(Resultado.sucesso(contagem));
+@@ -168,7 +168,7 @@
+     return new Promise(resolver => {
+       this.bancoDados.ensureIndex({ fieldName: nomeCampo, ...opcoes }, (erro) => {
+         if (erro) {
+-          this.registrador.error(`Erro ao criar índice: ${erro.message}`);
++          this.registrador.error(`Erro NeDB ensureIndex (${this.bancoDados.filename}): ${erro.message}`);
+           resolver(Resultado.falha(erro));
+         } else {
+           resolver(Resultado.sucesso(true));
+--- a/src/bancodedados/RepositorioTransacoes.js
++++ b/src/bancodedados/RepositorioTransacoes.js
+@@ -7,7 +7,7 @@
+  */
+
+ const RepositorioNeDB = require('./RepositorioNeDB');
+-const { Resultado } = require('./Repositorio');
++const { Resultado } = require('./Repositorio'); // Resultado já importado
+ const crypto = require('crypto');
+
+ class RepositorioTransacoes extends RepositorioNeDB {
+@@ -131,7 +131,8 @@
+       
+       return this.atualizar(
+         { id: idTransacao },
+-        { 
++        {
++          // $set continua igual
+           $set: { 
+             status: novoStatus,
+             ultimaAtualizacao: agora,
+@@ -139,12 +140,13 @@
+             ultimoErro: erro
+           },
+           $push: {
++            // histórico continua igual
+             historico: {
+               data: agora,
+               status: novoStatus,
+               detalhes: `Falha na entrega: ${erro}`
+             }
+-          }
++          } // Fim do $push
+         }
+       );
+     });
+@@ -191,7 +193,7 @@
+                     await processador(transacao);
+                     return { sucesso: true, id: transacao.id };
+                 } catch (erro) {
+-                    this.registrador.error(`Erro ao reprocessar transação ${transacao.id}: ${erro.message}`);
++                    this.registrador.error(`Erro ao reprocessar transação ${transacao.id}: ${erro.message || String(erro)}`); // Loga a mensagem ou o erro
+                     return { sucesso: false, id: transacao.id, erro };
+                 }
+             })
+--- a/src/config/ConfigManager.js
++++ b/src/config/ConfigManager.js
+@@ -34,9 +34,10 @@
+         this.registrador.debug(`Configuração ${param}=${valor} definida para ${chatId}`);
+         return true;
+       },
+-      (erro) => {
+-        this.registrador.error(`Erro ao definir configuração: ${erro.message}`);
++      (erro) => { // Recebe erro (objeto enriquecido)
++        this.registrador.error(`Erro ao definir configuração: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -67,9 +68,10 @@
+   
+         return config;
+       },
+-      (erro) => {
+-        this.registrador.error(`Erro ao obter configuração: ${erro.message}`);
++      (erro) => { // Recebe erro (objeto enriquecido)
++        this.registrador.error(`Erro ao obter configuração: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -89,9 +91,10 @@
+         this.registrador.info(`Configurações resetadas para ${chatId}`);
+         return true;
+       },
+-      (erro) => {
+-        this.registrador.error(`Erro ao resetar configuração: ${erro.message}`);
++      (erro) => { // Recebe erro (objeto enriquecido)
++        this.registrador.error(`Erro ao resetar configuração: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -104,9 +107,10 @@
+         this.registrador.debug(`Prompt ${nome} definido para ${chatId}`);
+         return true;
+       },
+-      (erro) => {
+-        this.registrador.error(`Erro ao definir prompt: ${erro.message}`);
++      (erro) => { // Recebe erro (objeto enriquecido)
++        this.registrador.error(`Erro ao definir prompt: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -117,9 +121,10 @@
+     return Resultado.dobrar(
+       resultado,
+       (prompt) => prompt,
+-      (erro) => {
+-        this.registrador.error(`Erro ao obter prompt: ${erro.message}`);
++      (erro) => { // Recebe erro (objeto enriquecido)
++        this.registrador.error(`Erro ao obter prompt: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -130,9 +135,10 @@
+     return Resultado.dobrar(
+       resultado,
+       (prompts) => prompts,
+-      (erro) => {
+-        this.registrador.error(`Erro ao listar prompts: ${erro.message}`);
++      (erro) => { // Recebe erro (objeto enriquecido)
++        this.registrador.error(`Erro ao listar prompts: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -149,7 +155,7 @@
+       this.registrador.warn(`Prompt ${nomePrompt} não encontrado para ${chatId}`);
+       return false;
+     } catch (erro) {
+-      this.registrador.error(`Erro ao definir prompt ativo: ${erro.message}`);
++      this.registrador.error(`Erro ao definir prompt ativo: ${formatarErroResultado(erro)}`); // Usar helper
+       return false;
+     }
+   }
+@@ -160,7 +166,7 @@
+       this.registrador.debug(`Prompt ativo removido para ${chatId}`);
+       return true;
+     } catch (erro) {
+-      this.registrador.error(`Erro ao limpar prompt ativo: ${erro.message}`);
++      this.registrador.error(`Erro ao limpar prompt ativo: ${formatarErroResultado(erro)}`); // Usar helper
+       return false;
+     }
+   }
+@@ -178,9 +184,10 @@
+           return false;
+         }
+       },
+-      (erro) => {
+-        this.registrador.error(`Erro ao excluir prompt: ${erro.message}`);
++      (erro) => { // Recebe erro (objeto enriquecido)
++        this.registrador.error(`Erro ao excluir prompt: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -191,9 +198,10 @@
+     return Resultado.dobrar(
+       resultado,
+       (grupo) => grupo,
+-      (erro) => {
+-        this.registrador.error(`Erro ao processar grupo: ${erro.message}`);
++      (erro) => { // Recebe erro (objeto enriquecido)
++        this.registrador.error(`Erro ao processar grupo: ${formatarErroResultado(erro)}`); // Usar helper
+         throw erro;
++        // Lança o objeto erro completo
+       }
+     );
+   }
+@@ -204,9 +212,9 @@
+     return Resultado.dobrar(
+       resultado,
+       (usuario) => usuario,
+-      (erro) => {
+-        this.registrador.error(`Erro ao processar usuário: ${erro.message}`);
++      (erro) => { // Recebe erro (objeto enriquecido)
++        this.registrador.error(`Erro ao processar usuário: ${formatarErroResultado(erro)}`); // Usar helper
+         
+         // Criar um usuário básico em caso de erro
+         const idSufixo = remetente.substring(0, 6);
+--- a/src/servicos/ServicoMensagem.js
++++ b/src/servicos/ServicoMensagem.js
+@@ -7,7 +7,7 @@
+  */
+
+ const fs = require('fs');
+-const path = require('path'); // Já importado
++const path = require('path');
+
+ // Versão simples do padrão Railway para fluxo de erros
+ const Resultado = {
+@@ -19,6 +19,8 @@
+   // Manipuladores de resultado
+   dobrar: (resultado, aoSucesso, aoFalhar) => 
+     resultado.sucesso ? aoSucesso(resultado.dados) : aoFalhar(resultado.erro)
++
++  // Nota: Não importamos formatarErroResultado aqui para evitar dependência cíclica, mas ele será usado
+ };
+
+ /**
+@@ -43,7 +45,7 @@
+  */
+ const obterRespostaSegura = (texto) => {
+   if (!texto || typeof texto !== 'string' || texto.trim() === '') {
+-    return Resultado.falha(new Error("Texto de resposta inválido ou vazio"));
++    return Resultado.falha("Texto de resposta inválido ou vazio"); // Passa string direto para falha
+   }
+   return Resultado.sucesso(limparTextoResposta(texto));
+ };
+@@ -62,7 +64,7 @@
+ const capturarSnapshotMensagem = async (mensagemOriginal, cliente, registrador) => {
+   try {
+     if (!mensagemOriginal) {
+-      return Resultado.falha(new Error("Mensagem original não fornecida"));
++      return Resultado.falha("Mensagem original não fornecida");
+     }
+     
+     // Extrair dados essenciais da mensagem
+@@ -143,7 +145,8 @@
+     
+     return Resultado.sucesso(snapshot);
+   } catch (erro) {
+-    registrador.error(`Erro ao capturar snapshot de mensagem: ${erro.message}`);
++    // Não usar formatarErroResultado aqui, pois pode causar ciclo. Log simples.
++    registrador.error(`Erro ao capturar snapshot de mensagem: ${erro.message || String(erro)}`);
+     return Resultado.falha(erro);
+   }
+ };
+@@ -169,7 +172,8 @@
+     
+     return Resultado.sucesso(textoContexto);
+   } catch (erro) {
+-    return Resultado.falha(erro);
++    // Não usar formatarErroResultado aqui.
++    return Resultado.falha(erro); // Já é um erro
+   }
+ };
+ 
+@@ -182,22 +186,22 @@
+ const verificarMensagemUtilizavel = async (mensagem, registrador) => {
+   try {
+     if (!mensagem) {
+-      return Resultado.falha(new Error("Mensagem não fornecida"));
++      return Resultado.falha("Mensagem não fornecida");
+     }
+     
+     // Verificar propriedades básicas
+     if (!mensagem.id || !mensagem.from) {
+-      return Resultado.falha(new Error("Mensagem sem propriedades essenciais"));
++      return Resultado.falha("Mensagem sem propriedades essenciais");
+     }
+     
+     // Verificar se o método reply está acessível
+     if (typeof mensagem.reply !== 'function') {
+-      return Resultado.falha(new Error("Método reply não disponível na mensagem"));
++      return Resultado.falha("Método reply não disponível na mensagem");
+     }
+     
+     // Tentar acessar o chat associado (operação que falha se a mensagem expirou)
+     if (typeof mensagem.getChat === 'function') {
+-      try { // Await adicionado aqui
++      try {
+         await mensagem.getChat();
+       } catch (erroChatAcesso) {
+         return Resultado.falha(new Error(`Não foi possível acessar o chat: ${erroChatAcesso.message}`));
+@@ -206,7 +210,8 @@
+     
+     return Resultado.sucesso(true);
+   } catch (erro) {
+-    registrador.debug(`Erro ao verificar mensagem: ${erro.message}`);
++    // Não usar formatarErroResultado aqui.
++    registrador.debug(`Erro ao verificar mensagem: ${erro.message || String(erro)}`);
+     return Resultado.falha(erro);
+   }
+ };
+@@ -226,7 +231,8 @@
+     await mensagemOriginal.reply(textoSeguro);
+     return Resultado.sucesso({ metodoUsado: 'reply_direto' });
+   } catch (erroReply) {
+-    registrador.warn(`❗ Falha no método reply direto: ${erroReply.message}`);
++    // Não usar formatarErroResultado aqui.
++    registrador.warn(`❗ Falha no método reply direto: ${erroReply.message || String(erroReply)}`);
+     return Resultado.falha(erroReply);
+   }
+ };
+@@ -249,7 +255,8 @@
+     );
+     return Resultado.sucesso({ metodoUsado: 'citacao_id' });
+   } catch (erroCitacao) {
+-    registrador.warn(`Falha na citação via ID: ${erroCitacao.message}`);
++    // Não usar formatarErroResultado aqui.
++    registrador.warn(`Falha na citação via ID: ${erroCitacao.message || String(erroCitacao)}`);
+     return Resultado.falha(erroCitacao);
+   }
+ };
+@@ -275,13 +282,14 @@
+         await clienteWhatsApp.cliente.sendMessage(destinatario, conteudoComContexto);
+         return Resultado.sucesso({ metodoUsado: 'contexto_snapshot' });
+       },
+-      (erro) => {
+-        registrador.error(`Erro ao gerar contexto: ${erro.message}`);
++      (erro) => { // Recebe erro (já enriquecido por gerarTextoContexto)
++        // Não usar formatarErroResultado aqui.
++        registrador.error(`Erro ao gerar contexto no snapshot: ${erro.mensagem || String(erro)}`);
+         return Resultado.falha(erro);
+       }
+     );
+   } catch (erroSnapshot) {
+-    registrador.error(`Falha no envio com snapshot: ${erroSnapshot.message}`);
++    registrador.error(`Falha no envio com snapshot: ${erroSnapshot.message || String(erroSnapshot)}`);
+     return Resultado.falha(erroSnapshot);
+   }
+ };
+@@ -300,7 +308,8 @@
+     await clienteWhatsApp.cliente.sendMessage(destinatario, textoSeguro);
+     return Resultado.sucesso({ metodoUsado: 'direto_sem_contexto' });
+   } catch (erroDireto) {
+-    registrador.error(`Falha no envio direto: ${erroDireto.message}`);
++    // Não usar formatarErroResultado aqui.
++    registrador.error(`Falha no envio direto: ${erroDireto.message || String(erroDireto)}`);
+     return Resultado.falha(erroDireto);
+   }
+ };
+@@ -322,7 +331,7 @@
+ const salvarComoNotificacaoPendente = async (clienteWhatsApp, destinatario, texto, snapshot, transacaoId, registrador) => {
+   try {
+     if (!destinatario) {
+-      return Resultado.falha(new Error("Destinatário não fornecido"));
++      return Resultado.falha("Destinatário não fornecido");
+     }
+     
+     // Se temos snapshot, salvar com contexto reconstruído
+@@ -349,7 +358,8 @@
+     
+     return resultadoFinal;
+   } catch (erro) {
+-    registrador.error(`Erro ao salvar notificação pendente: ${erro.message}`);
++    // Não usar formatarErroResultado aqui.
++    registrador.error(`Erro ao salvar notificação pendente: ${erro.message || String(erro)}`);
+     return Resultado.falha(erro);
+   }
+ };
+@@ -373,13 +383,14 @@
+       await gerenciadorTransacoes.marcarComoEntregue(transacaoId);
+       registrador.debug(`Transação ${transacaoId} marcada como entregue`);
+     } else if (erro) {
+-      // Passa a mensagem do erro original ou enriquecido
++      // Passa a mensagem do erro (seja objeto enriquecido ou Error padrão)
+       await gerenciadorTransacoes.registrarFalhaEntrega(
+         transacaoId,
+-        `Erro ao enviar: ${erro.message}`
++        `Erro ao enviar: ${erro.mensagem || (erro instanceof Error ? erro.message : String(erro))}`
+       );
+-      registrador.debug(`Falha registrada para transação ${transacaoId}: ${erro.message}`);
+-    }
+-    return Resultado.sucesso({ transacaoAtualizada: true });
++      registrador.debug(`Falha registrada para transação ${transacaoId}: ${erro.mensagem || (erro instanceof Error ? erro.message : String(erro))}`);
++    }
++    return Resultado.sucesso({ transacaoAtualizada: true }); // Retorna sucesso mesmo se falhou em enviar, pois a transação foi atualizada
+   } catch (erroTransacao) {
+     registrador.error(`Erro ao atualizar transação: ${erroTransacao.message}`);
+     return Resultado.falha(erroTransacao);
+@@ -394,6 +405,9 @@
+  * @returns {Object} Serviço de mensagens com métodos públicos
+  */
+ const criarServicoMensagem = (registrador, clienteWhatsApp, gerenciadorTransacoes = null) => {
++
++  // Importar formatador localmente se necessário, ou assumir que quem chama o erro já o formatou
++  // const { formatarErroResultado } = require('../utilitarios/Ferrovia'); // CUIDADO: Dependência cíclica se Ferrovia importar ServicoMensagem
+   
+   /**
+    * Função central para envio de mensagens com estratégias em fallback
+@@ -408,7 +422,8 @@
+     const resultadoTexto = obterRespostaSegura(texto);
+     
+     if (!resultadoTexto.sucesso) {
+-      registrador.error(`Texto inválido: ${resultadoTexto.erro.message}`);
++      // Usa mensagem do erro (objeto ou string)
++      registrador.error(`Texto inválido para envio: ${resultadoTexto.erro.mensagem || String(resultadoTexto.erro)}`);
+       return resultadoTexto;
+     }
+     
+@@ -491,12 +506,13 @@
+    * @returns {Promise<Resultado>} Resultado do envio
+    */
+   const enviarMensagemDireta = async (destinatario, texto, opcoes = {}) => {
+-    // Obter texto seguro
++    // Obter e limpar texto
+     const resultadoTexto = obterRespostaSegura(texto);
+     
+     if (!resultadoTexto.sucesso) {
+-      registrador.error(`Texto inválido: ${resultadoTexto.erro.message}`);
++      // Usa mensagem do erro (objeto ou string)
++      registrador.error(`Texto inválido para envio direto: ${resultadoTexto.erro.mensagem || String(resultadoTexto.erro)}`);
+       return resultadoTexto;
+     }
+     
+@@ -512,7 +528,7 @@
+       
+       return Resultado.sucesso({ metodoUsado: 'envio_direto' });
+     } catch (erro) {
+-      registrador.error(`Erro no envio direto para ${destinatario}: ${erro.message}`);
++      registrador.error(`Erro no envio direto para ${destinatario}: ${erro.message || String(erro)}`); // Log simples
+       
+       // Atualizar transação se fornecida
+       if (opcoes.transacaoId) {
+@@ -532,7 +548,7 @@
+       const notificacoesProcessadas = await clienteWhatsApp.processarNotificacoesPendentes();
+       return Resultado.sucesso({ notificacoesProcessadas });
+     } catch (erro) {
+-      registrador.error(`Erro ao processar notificações pendentes: ${erro.message}`);
++      registrador.error(`Erro ao processar notificações pendentes: ${erro.message || String(erro)}`); // Log simples
+       return Resultado.falha(erro);
+     }
+   };
+@@ -547,8 +563,8 @@
+       const resultado = await capturarSnapshotMensagem(msg, clienteWhatsApp.cliente, registrador);
+       return Resultado.dobrar(
+         resultado,
+-        (dados) => dados,
+-        (erro) => {
++        (dados) => dados, // Sucesso: retorna os dados
++        (erro) => { // Falha: loga o erro (que já está enriquecido) e retorna null
+           registrador.error(`Erro ao capturar snapshot: ${erro.message}`);
+           return null;
+         }
+@@ -559,8 +575,8 @@
+       const resultado = gerarTextoContexto(snapshot);
+       return Resultado.dobrar(
+         resultado,
+-        (dados) => dados,
+-        (erro) => {
++        (dados) => dados, // Sucesso: retorna os dados
++        (erro) => { // Falha: loga o erro (enriquecido) e retorna string vazia
+           registrador.error(`Erro ao gerar texto de contexto: ${erro.message}`);
+           return "";
+         }
+

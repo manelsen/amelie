@@ -1,0 +1,54 @@
+/src/index.js
++++ b/src/index.js
+@@ -9,6 +9,7 @@
+ const dotenv = require('dotenv');
+ const fs = require('fs');
+ const path = require('path');
++const { formatarErroResultado } = require('./utilitarios/Ferrovia'); // Importar helper
+
+ // Carregar variáveis de ambiente
+ dotenv.config();
+@@ -103,7 +104,7 @@
+     });
+
+     if (!resultado.sucesso) {
+-      this.registrador.error(`Erro ao buscar transações incompletas: ${resultado.erro.message}`);
++      this.registrador.error(`Erro ao buscar transações incompletas: ${formatarErroResultado(resultado.erro)}`); // Usar helper
+       return 0;
+     }
+
+@@ -117,13 +118,13 @@
+       try {
+         await this.repoTransacoes.remover({ id: transacao.id });
+         this.registrador.info(`Transação ${transacao.id} removida com sucesso`);
+-        limpas++;
++        limpas++; // Incrementa o contador de transações limpas
+       } catch (erroRemocao) { // Renomeado para evitar conflito com 'erro' do escopo externo
+-        this.registrador.error(`Erro ao remover transação ${transacao.id}: ${erro.message}`);
++        this.registrador.error(`Erro ao remover transação ${transacao.id}: ${formatarErroResultado(erroRemocao)}`); // Usar helper
+       }
+     }
+
+-    this.registrador.info(`Limpas ${limpas} transações incompletas`);
++    this.registrador.info(`Limpas ${limpas} de ${transacoes.length} transações incompletas encontradas`);
+     return limpas;
+   } catch (erro) {
+     this.registrador.error(`Erro ao limpar transações incompletas: ${erro.message}`);
+@@ -200,7 +201,7 @@
+         logger.info(`Processamento periódico: ${notificacoesProcessadas} notificações, ${transacoesProcessadas} transações`);
+       }
+     } catch (erro) {
+-      logger.error(`Erro no processamento periódico: ${erro.message}`);
++      logger.error(`Erro no processamento periódico: ${formatarErroResultado(erro)}`); // Usar helper
+     }
+   }
+ }, 5000); // A cada cinco segundos
+@@ -223,7 +224,7 @@
+       // Limpar trabalhos pendentes na fila
+       await filasMidia.limparTrabalhosPendentes();
+     } catch (erro) {
+-      logger.error(`Erro na limpeza periódica: ${erro.message}`);
++      logger.error(`Erro na limpeza periódica: ${formatarErroResultado(erro)}`); // Usar helper
+     }
+   }
+ }, 24 * 60 * 60 * 1000); // Uma vez por dia
