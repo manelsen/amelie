@@ -16,7 +16,7 @@ Posso:
 
 Para falar comigo:
 
-1. Me adicione como contato: (31) 99334-0000
+1. Me adicione como contato: (31) 99740 2728
 2. Me envie uma mensagem no WhatsApp
 3. Use o comando `.ajuda` para ver todas as minhas funcionalidades
 
