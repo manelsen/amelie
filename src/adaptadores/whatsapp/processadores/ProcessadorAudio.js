@@ -33,7 +33,7 @@ const criarProcessadorAudio = (dependencias) => {
       const config = await gerenciadorConfig.obterConfig(chatId);
 
       if (!config || !config.mediaAudio) {
-        registrador.info(`[ProcessadorAudio] Transcrição de áudio DESABILITADA para ${chatId}. Ignorando áudio.`);
+        registrador.debug(`[ProcessadorAudio] Transcrição de áudio DESABILITADA para ${chatId}. Ignorando áudio.`);
         return Resultado.falha(new Error("Transcrição de áudio desabilitada"));
       }
 

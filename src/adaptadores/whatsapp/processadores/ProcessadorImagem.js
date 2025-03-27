@@ -27,7 +27,7 @@ const criarProcessadorImagem = (dependencias) => {
       
       // Verificar se descrição de imagem está habilitada
       if (!config.mediaImage) {
-        registrador.debug(`Descrição de imagem desabilitada para o chat ${chatId}. Ignorando mensagem de imagem.`);
+        registrador.debug(`[ProcessadorImagem] Descrição de imagem desabilitada para o chat ${chatId}. Ignorando mensagem de imagem.`);
         return Resultado.falha(new Error("Descrição de imagem desabilitada"));
       }
       

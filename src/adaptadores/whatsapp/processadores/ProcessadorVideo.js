@@ -93,7 +93,7 @@ const criarProcessadorVideo = (dependencias) => {
       
       // Verificar se processamento de vídeo está habilitado
       if (!config.mediaVideo) {
-        registrador.debug(`Descrição de vídeo desabilitada para o chat ${chatId}. Ignorando mensagem de vídeo.`);
+        registrador.debug(`[ProcessadorVideo] Descrição de vídeo desabilitada para o chat ${chatId}. Ignorando mensagem de vídeo.`);
         return Resultado.falha(new Error("Descrição de vídeo desabilitada"));
       }
       
