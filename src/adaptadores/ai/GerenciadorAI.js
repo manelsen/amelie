@@ -20,21 +20,21 @@ const {
   obterInstrucaoImagem,
   obterInstrucaoDocumento,
   obterPromptVideoLegenda,
-  obterInstrucaoImagemCurta // Assumindo que existe ou será criada
+  obterInstrucaoImagemCurta
 } = require('../../config/InstrucoesSistema');
 const { salvarConteudoBloqueado } = require('../../utilitarios/ArquivoUtils');
-const { Resultado } = require('../../utilitarios/Ferrovia'); // Para consistência, embora não usado diretamente aqui
+const { Resultado } = require('../../utilitarios/Ferrovia');
 
 // --- Constantes e Configurações ---
-const DEFAULT_MODEL = "gemini-1.5-flash"; // Modelo padrão atualizado
+const DEFAULT_MODEL = "gemini-2.0-flash";
 const CACHE_TTL_SEGUNDOS = 3600; // 1 hora
 const CACHE_MAX_ENTRADAS = 500;
-const RATE_LIMITER_MAX_CONCORRENTE = 5;
+const RATE_LIMITER_MAX_CONCORRENTE = 20;
 const RATE_LIMITER_MIN_TEMPO_MS = 1000 / 30; // Aproximadamente 30 QPM (ajustar conforme necessário)
 const TIMEOUT_API_GERAL_MS = 90000; // 90 segundos
 const TIMEOUT_API_UPLOAD_MS = 180000; // 3 minutos para uploads/processamento de arquivos
-const MAX_TENTATIVAS_API = 3;
-const TEMPO_ESPERA_BASE_MS = 2000;
+const MAX_TENTATIVAS_API = 5;
+const TEMPO_ESPERA_BASE_MS = 5000;
 const CIRCUIT_BREAKER_LIMITE_FALHAS = 5;
 const CIRCUIT_BREAKER_TEMPO_RESET_MS = 60000; // 1 minuto
 
@@ -319,7 +319,7 @@ const criarAdaptadorAI = (dependencias) => {
       registrador.info(`[Cache HIT] ${tipo}: ${chaveCache}`);
       return cacheHit;
     }
-    registrador.info(`[Cache MISS] ${tipo}: ${chaveCache}`);
+    registrador.debug(`[Cache MISS] ${tipo}: ${chaveCache}`);
 
     try {
       const modelo = obterOuCriarModelo(config);
@@ -341,7 +341,7 @@ const criarAdaptadorAI = (dependencias) => {
       registrador.info(`[Cache HIT] ${tipo}: ${chaveCache}`);
       return cacheHit;
     }
-     registrador.info(`[Cache MISS] ${tipo}: ${chaveCache}`);
+     registrador.debug(`[Cache MISS] ${tipo}: ${chaveCache}`);
 
     try {
       // Ajustar instrução com base no modo (curto/longo)
@@ -372,7 +372,7 @@ const criarAdaptadorAI = (dependencias) => {
       registrador.info(`[Cache HIT] ${tipo}: ${chaveCache}`);
       return cacheHit;
     }
-    registrador.info(`[Cache MISS] ${tipo}: ${chaveCache}`);
+    registrador.debug(`[Cache MISS] ${tipo}: ${chaveCache}`);
 
     try {
       const configAI = {
@@ -406,7 +406,7 @@ const criarAdaptadorAI = (dependencias) => {
       registrador.info(`[Cache HIT] ${tipo} (${tipoDocLog}): ${chaveCache}`);
       return cacheHit;
     }
-    registrador.info(`[Cache MISS] ${tipo} (${tipoDocLog}): ${chaveCache}`);
+    registrador.debug(`[Cache MISS] ${tipo} (${tipoDocLog}): ${chaveCache}`);
 
     try {
       const configAI = {
@@ -448,7 +448,7 @@ const criarAdaptadorAI = (dependencias) => {
         registrador.info(`[Cache HIT] ${tipo} (${tipoDocLog}): ${chaveCache}`);
         return cacheHit;
       }
-      registrador.info(`[Cache MISS] ${tipo} (${tipoDocLog}): ${chaveCache}`);
+      registrador.debug(`[Cache MISS] ${tipo} (${tipoDocLog}): ${chaveCache}`);
     } catch (err) {
       registrador.warn(`[Cache] Erro ao gerar chave para ${tipo} ${caminhoDocumento}: ${err.message}. Cache desativado para esta requisição.`);
       chaveCache = null; // Desativa cache se não puder gerar chave
@@ -551,7 +551,7 @@ const criarAdaptadorAI = (dependencias) => {
          registrador.info(`[Cache HIT] ${tipo}: ${chaveCache}`);
          return cacheHit;
        }
-       registrador.info(`[Cache MISS] ${tipo}: ${chaveCache}`);
+       registrador.debug(`[Cache MISS] ${tipo}: ${chaveCache}`);
      } catch (err) {
        registrador.warn(`[Cache] Erro ao gerar chave para ${tipo} ${caminhoVideo}: ${err.message}. Cache desativado.`);
        chaveCache = null;
@@ -726,17 +726,14 @@ const criarAdaptadorAI = (dependencias) => {
     processarImagem,
     processarAudio,
     processarDocumentoInline,
-    processarDocumentoArquivo, // Mantém, mas internamente usará as novas funções
-    processarVideo, // Mantém, mas internamente usará as novas funções
+    processarDocumentoArquivo,
+    processarVideo,
 
     // Funções de gerenciamento de arquivos expostas para as filas
     uploadArquivoGoogle,
     deleteArquivoGoogle,
     getArquivoGoogle,
-    gerarConteudoDeArquivoUri, // <<< NOVA FUNÇÃO EXPOSTA
-
-    // Não expor mais gerenciadorArquivosGoogle diretamente
-    // Adicionar outras funções se necessário
+    gerarConteudoDeArquivoUri,
   };
 };
 
