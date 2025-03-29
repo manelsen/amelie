@@ -1,29 +1,42 @@
 /**
- * ProcessadorDocumento - Lida com o processamento de mensagens contendo documentos textuais (PDF, TXT, HTML, etc.)
+ * ProcessadorDocumento - Lida com o processamento de mensagens contendo documentos.
+ * Usa extração local com pandoc para DOCX e processamento inline para outros tipos suportados.
  */
+// Reintroduzir dependências completas
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
-const { exec } = require('child_process'); // Importar exec
-const util = require('util'); // Para promisify
-const { Resultado } = require('../../../utilitarios/Ferrovia');
 const crypto = require('crypto');
-const { obterInstrucaoDocumento } = require('../../../config/InstrucoesSistema'); // Importar instrução
+const { exec } = require('child_process');
+const util = require('util');
+const { Resultado } = require('../../../utilitarios/Ferrovia');
+const { obterInstrucaoDocumento } = require('../../../config/InstrucoesSistema'); // Manter instrução
 
-const execPromise = util.promisify(exec); // Criar versão Promise de exec
+// Reintroduzir execPromise
+const execPromise = util.promisify(exec);
 
-// Mapeamento de extensões para nomes de arquivo temporários (melhora identificação)
-const EXTENSOES_MAP = {
-  'application/pdf': '.pdf',
-  'text/plain': '.txt',
-  'text/html': '.html',
-  'text/markdown': '.md',
-  'text/csv': '.csv',
-  'text/xml': '.xml',
-  'application/rtf': '.rtf',
-  'text/rtf': '.rtf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx' // Adicionar docx
+// Mapa de extensões para MimeTypes suportados pela API Gemini Inline (excluindo DOCX)
+const EXTENSAO_PARA_MIMETYPE_INLINE = {
+  '.pdf': 'application/pdf', // Verificar se PDF inline funciona, senão remover
+  '.txt': 'text/plain',
+  '.html': 'text/html',
+  '.htm': 'text/html',
+  '.md': 'text/markdown',
+  '.csv': 'text/csv',
+  '.xml': 'text/xml',
+  '.rtf': 'application/rtf',
+  '.json': 'application/json',
+  '.py': 'text/x-python',
+  '.js': 'text/javascript',
+  '.java': 'text/x-java-source',
+  '.c': 'text/x-c',
+  '.cpp': 'text/x-c++',
+  '.cs': 'text/x-csharp'
+  // DOCX será tratado separadamente
 };
+
+// Mimetype específico do DOCX para checagem
+const MIMETYPE_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 const criarProcessadorDocumento = (dependencias) => {
   const { registrador, servicoMensagem, gerenciadorAI, gerenciadorConfig } = dependencias;
@@ -35,13 +48,31 @@ const criarProcessadorDocumento = (dependencias) => {
    */
   const processarMensagemDocumento = async (dados) => {
     const { mensagem, chatId, dadosAnexo } = dados;
-    let caminhoDocTemporario = null;
+    let caminhoDocTemporario = null; // Necessário para DOCX
     const LIMITE_TAMANHO_DOC_BYTES = 20 * 1024 * 1024; // 20 MB (mantido)
-    const mimeType = dadosAnexo.mimetype; // Obter o mimetype real
-    const isDocx = mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    let mimeType = dadosAnexo.mimetype; // Obter o mimetype inicial
 
     try {
-      registrador.info(`[ProcessadorDocumento] Recebido documento (${mimeType}) de ${chatId}. Iniciando processamento.`);
+      // Tentar inferir mimetype se for octet-stream (ANTES de checar se é DOCX)
+      const nomeArquivo = mensagem.filename || mensagem._data?.filename; // Obter nome do arquivo
+      if (mimeType === 'application/octet-stream' && nomeArquivo) {
+        const extensao = path.extname(nomeArquivo).toLowerCase();
+        // Tentar inferir primeiro para DOCX, depois para inline
+        if (extensao === '.docx') {
+           mimeType = MIMETYPE_DOCX;
+           registrador.info(`[ProcessadorDocumento] Mimetype original 'octet-stream' para '${nomeArquivo}'. Inferido como DOCX.`);
+        } else {
+            const mimeTypeInferidoInline = EXTENSAO_PARA_MIMETYPE_INLINE[extensao];
+            if (mimeTypeInferidoInline) {
+              registrador.info(`[ProcessadorDocumento] Mimetype original 'octet-stream' para '${nomeArquivo}'. Inferido como '${mimeTypeInferidoInline}' para processamento inline.`);
+              mimeType = mimeTypeInferidoInline;
+            } else {
+              registrador.warn(`[ProcessadorDocumento] Mimetype 'octet-stream' para '${nomeArquivo}', mas não foi possível inferir um tipo suportado (extensão '${extensao}'). A API pode rejeitar.`);
+            }
+        }
+      }
+
+      registrador.info(`[ProcessadorDocumento] Recebido documento (Mimetype final: ${mimeType}) de ${chatId}. Verificando método de processamento.`);
 
       // Verificação de tamanho
       const tamanhoBytes = Buffer.from(dadosAnexo.data, 'base64').length;
@@ -53,7 +84,7 @@ const criarProcessadorDocumento = (dependencias) => {
         return Resultado.falha(new Error(`Documento excede o limite de tamanho de ${LIMITE_TAMANHO_DOC_BYTES} bytes`));
       }
 
-      // Obter configurações e prompt ANTES de decidir o fluxo
+      // Obter configurações e prompt
       const configUsuario = await gerenciadorConfig.obterConfig(chatId);
       const promptUsuario = mensagem.body || null; // Usar legenda como prompt, se houver
 
@@ -73,28 +104,33 @@ const criarProcessadorDocumento = (dependencias) => {
 
       let respostaAI;
 
-      // *** NOVO: Fluxo para DOCX usando pandoc ***
-      if (isDocx) {
-        registrador.info(`[ProcessadorDocumento] Processando DOCX localmente com pandoc.`);
+      // *** LÓGICA CONDICIONAL: Pandoc para DOCX, Inline para outros ***
+      if (mimeType === MIMETYPE_DOCX) {
+        // --- Processamento DOCX via Pandoc + processarTexto ---
+        registrador.info(`[ProcessadorDocumento] Mimetype é DOCX. Usando extração local com pandoc.`);
+
         // 1. Salvar DOCX temporariamente
-        const extensao = EXTENSOES_MAP[mimeType] || '.docx';
-        const nomeArquivo = `${crypto.randomBytes(16).toString('hex')}${extensao}`;
-        caminhoDocTemporario = path.join(os.tmpdir(), nomeArquivo);
+        const nomeTemp = `${crypto.randomBytes(16).toString('hex')}.docx`;
+        caminhoDocTemporario = path.join(os.tmpdir(), nomeTemp);
         await fs.writeFile(caminhoDocTemporario, dadosAnexo.data, { encoding: 'base64' });
         registrador.debug(`[ProcessadorDocumento] DOCX salvo temporariamente em: ${caminhoDocTemporario}`);
 
         // 2. Executar pandoc para extrair texto
         let textoExtraido;
         try {
+          registrador.debug(`[ProcessadorDocumento] Executando pandoc para extrair texto de ${caminhoDocTemporario}`);
           const { stdout, stderr } = await execPromise(`pandoc "${caminhoDocTemporario}" -t plain`);
           if (stderr) {
-            registrador.warn(`[ProcessadorDocumento] Pandoc stderr: ${stderr}`);
+            registrador.warn(`[ProcessadorDocumento] Pandoc stderr ao processar DOCX: ${stderr}`);
           }
           textoExtraido = stdout;
-          registrador.info(`[ProcessadorDocumento] Texto extraído do DOCX via pandoc. Tamanho: ${textoExtraido.length}`);
+          registrador.info(`[ProcessadorDocumento] Texto extraído do DOCX via pandoc. Tamanho: ${textoExtraido?.length || 0}`);
+          if (!textoExtraido || textoExtraido.trim().length === 0) {
+             throw new Error("Pandoc não extraiu texto do DOCX.");
+          }
         } catch (pandocError) {
-          registrador.error(`[ProcessadorDocumento] Erro ao executar pandoc: ${pandocError.message}`);
-          throw new Error(`Falha ao converter DOCX com pandoc: ${pandocError.message}`);
+          registrador.error(`[ProcessadorDocumento] Erro ao executar pandoc para ${caminhoDocTemporario}: ${pandocError.message}`);
+          throw new Error(`Falha ao extrair texto do DOCX com pandoc: ${pandocError.message}`); // Lança erro para o catch principal
         }
 
         // 3. Combinar prompt do usuário (se houver) com texto extraído
@@ -102,71 +138,82 @@ const criarProcessadorDocumento = (dependencias) => {
           ? `${promptUsuario}\n\n---\n\n${textoExtraido}`
           : textoExtraido;
 
-        // 4. Chamar processarTexto da IA, **explicitamente passando a instrução de documento**
+        // 4. Chamar processarTexto da IA
         registrador.info(`[ProcessadorDocumento] Chamando gerenciadorAI.processarTexto para texto extraído do DOCX.`);
         const configParaTextoDocx = {
           ...configBaseAI,
-          systemInstruction: obterInstrucaoDocumento() // Definir a instrução correta
+          systemInstruction: obterInstrucaoDocumento() // Usar instrução de documento
         };
         respostaAI = await gerenciadorAI.processarTexto(textoParaIA, configParaTextoDocx);
         // Adicionar prefixo manualmente, pois processarTexto não adiciona
-        respostaAI = `📄 *Análise do seu documento (docx):*\n\n${respostaAI}`;
+        // Verificar se a resposta da IA já é uma mensagem de erro
+         if (!respostaAI.startsWith("Desculpe,")) {
+            respostaAI = `📄 *Análise do seu documento (docx):*\n\n${respostaAI}`;
+         } else {
+            registrador.warn(`[ProcessadorDocumento] Erro retornado por processarTexto para DOCX: ${respostaAI}`);
+            // Não adicionar prefixo se for erro
+         }
 
       } else {
-        // *** Fluxo existente para outros tipos de documento (PDF, TXT, HTML, etc.) ***
-        registrador.info(`[ProcessadorDocumento] Processando ${mimeType} via upload para Google AI.`);
-        // 1. Salvar Documento temporariamente
-        const extensao = EXTENSOES_MAP[mimeType] || '.tmp';
-        const nomeArquivo = `${crypto.randomBytes(16).toString('hex')}${extensao}`;
-        caminhoDocTemporario = path.join(os.tmpdir(), nomeArquivo);
-        await fs.writeFile(caminhoDocTemporario, dadosAnexo.data, { encoding: 'base64' });
-        registrador.debug(`[ProcessadorDocumento] Documento salvo temporariamente em: ${caminhoDocTemporario}`);
+        // --- Processamento Inline (para outros tipos) ---
+        registrador.info(`[ProcessadorDocumento] Mimetype ${mimeType}. Tentando processamento INLINE.`);
 
-        // 2. Chamar o GerenciadorAI (método de upload de arquivo)
-        const configUploadAI = {
-          ...configBaseAI,
-          mimeType: mimeType // Passar o mimetype original para o método de upload
+        const dadosAnexoCorrigido = {
+          ...dadosAnexo,
+          mimetype: mimeType // Usar o mimetype final (original ou inferido)
         };
-        registrador.info(`[ProcessadorDocumento] Chamando gerenciadorAI.processarDocumentoArquivo para ${caminhoDocTemporario}`);
-        respostaAI = await gerenciadorAI.processarDocumentoArquivo(caminhoDocTemporario, promptUsuario, configUploadAI);
+
+        respostaAI = await gerenciadorAI.processarDocumentoInline(
+          dadosAnexoCorrigido,
+          promptUsuario,
+          configBaseAI
+        );
+        // A função processarDocumentoInline já lida com erros e formata a resposta/erro
       }
 
-      // 5. Enviar resposta (comum a ambos os fluxos)
+      // Verificar se a resposta da IA indica um erro (comum a ambos os fluxos)
+      if (respostaAI.includes("não pôde ser processado") || respostaAI.startsWith("Desculpe,")) {
+         registrador.warn(`[ProcessadorDocumento] Erro retornado pela IA para ${chatId} (Mimetype: ${mimeType}): ${respostaAI}`);
+         await servicoMensagem.enviarResposta(mensagem, respostaAI);
+         const erroMsg = respostaAI.split('\n\n')[1] || respostaAI;
+         return Resultado.falha(new Error(erroMsg));
+      }
+
+      // 5. Enviar resposta (se não houve erro da IA)
       const resultadoEnvio = await servicoMensagem.enviarResposta(mensagem, respostaAI);
       if (!resultadoEnvio.sucesso) {
         registrador.error(`[ProcessadorDocumento] Falha ao enviar resposta AI para ${chatId}: ${resultadoEnvio.erro.message}`);
       } else {
-        registrador.info(`[ProcessadorDocumento] Resposta da análise do documento enviada para ${chatId}. Método: ${resultadoEnvio.dados.metodoUsado}`);
+        registrador.info(`[ProcessadorDocumento] Resposta da análise do documento enviada para ${chatId}.`);
       }
 
       return Resultado.sucesso({ resposta: respostaAI });
 
     } catch (erro) {
-      registrador.error(`[ProcessadorDocumento] Erro ao processar documento (${mimeType}) de ${chatId}: ${erro.message}`, erro.stack);
-      // Tentar enviar mensagem de erro genérica
+      registrador.error(`[ProcessadorDocumento] Erro GERAL ao processar documento (Mimetype: ${mimeType}, Caminho Temp: ${caminhoDocTemporario || 'N/A'}) de ${chatId}: ${erro.message}`, erro.stack);
       try {
         await servicoMensagem.enviarMensagemDireta(chatId, `❌ Desculpe, ocorreu um erro ao processar o documento (${mimeType}). Tente novamente.`);
       } catch (erroEnvio) {
-        registrador.error(`[ProcessadorDocumento] Falha crítica ao tentar notificar erro para ${chatId}: ${erroEnvio.message}`);
+        registrador.error(`[ProcessadorDocumento] Falha crítica ao tentar notificar erro GERAL para ${chatId}: ${erroEnvio.message}`);
       }
       return Resultado.falha(erro);
 
     } finally {
-      // 6. Limpar arquivo temporário (se foi criado)
+      // Limpar arquivo temporário APENAS se foi criado (para DOCX)
       if (caminhoDocTemporario) {
         try {
           await fs.unlink(caminhoDocTemporario);
-          registrador.debug(`[ProcessadorDocumento] Arquivo temporário removido: ${caminhoDocTemporario}`);
+          registrador.debug(`[ProcessadorDocumento] Arquivo temporário DOCX removido: ${caminhoDocTemporario}`);
         } catch (erroLimpeza) {
-          registrador.warn(`[ProcessadorDocumento] Falha ao remover arquivo temporário ${caminhoDocTemporario}: ${erroLimpeza.message}`);
+          registrador.warn(`[ProcessadorDocumento] Falha ao remover arquivo temporário DOCX ${caminhoDocTemporario}: ${erroLimpeza.message}`);
         }
       }
     }
   };
 
   return {
-    processarMensagemDocumento // Exportar a função renomeada
+    processarMensagemDocumento
   };
 };
 
-module.exports = criarProcessadorDocumento; // Exportar o criador renomeado
+module.exports = criarProcessadorDocumento;

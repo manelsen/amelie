@@ -487,7 +487,134 @@ async processarAudio(audioData, audioId, config) {
       return "Desculpe, o serviço de IA está temporariamente indisponível. Por favor, tente novamente em alguns instantes.";
     }
   }
-}
+  }
+
+  /**
+   * Implementação do método processarDocumentoInline (NOVO)
+   * Processa um documento diretamente do buffer de dados.
+   * @param {Object} documentoData - Dados do documento { data: string (base64), mimetype: string }
+   * @param {string} prompt - Instruções de processamento (pode vir da legenda)
+   * @param {Object} config - Configurações de processamento
+   * @returns {Promise<string>} Resposta gerada
+   */
+  async processarDocumentoInline(documentoData, prompt, config) {
+    let tentativas = 0;
+    const maxTentativas = 5; // Manter consistência com outros métodos
+    const tempoEspera = 5000; // Aumentar um pouco para documentos, podem ser maiores
+    const mimeType = documentoData.mimetype || 'application/octet-stream';
+    const tipoDoc = mimeType.split('/')[1]?.split('+')[0] || mimeType.split('/')[1] || 'documento'; // Extrair tipo para logs, tratando application/vnd.openxmlformats-officedocument...
+
+    while (tentativas < maxTentativas) {
+      try {
+        this.registrador.info(`[GerenciadorAI] Iniciando processamento INLINE de ${tipoDoc} (Mimetype: ${mimeType}). Tentativa ${tentativas + 1}/${maxTentativas}`);
+
+        const modeloConfig = {
+          ...config,
+          // Usar a instrução específica para documentos
+          systemInstruction: config.systemInstruction || obterInstrucaoDocumento()
+        };
+        const modelo = this.obterOuCriarModelo(modeloConfig);
+
+        // Preparar partes de conteúdo com inlineData
+        const partesConteudo = [
+          {
+            inlineData: {
+              mimeType: mimeType,
+              data: documentoData.data // Passar o buffer base64 diretamente
+            }
+          },
+          {
+            // Usar o prompt fornecido ou um prompt genérico se vazio
+            text: prompt || `Analise este documento (${tipoDoc}) e forneça um resumo.`
+          }
+        ];
+
+        // Adicionar timeout para a chamada à IA (manter 3 minutos como no upload)
+        const timeoutMs = 180000;
+        this.registrador.debug(`[GerenciadorAI] Chamando modelo Gemini para ${tipoDoc} INLINE com timeout de ${timeoutMs}ms`);
+        const promessaRespostaIA = modelo.generateContent(partesConteudo);
+        const promessaTimeoutIA = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Tempo esgotado (${timeoutMs}ms) na análise INLINE de ${tipoDoc}`)), timeoutMs)
+        );
+
+        const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
+
+        // Verificar safety blocks na resposta (pode vir no promptFeedback)
+        if (resultado.response?.promptFeedback?.blockReason) {
+           const blockReason = resultado.response.promptFeedback.blockReason;
+           this.registrador.warn(`⚠️ Conteúdo de ${tipoDoc} INLINE bloqueado por políticas de segurança: ${blockReason}`);
+           // const origemInfo = config.dadosOrigem ? `[Origem: ${config.dadosOrigem.tipo} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : '[Origem desconhecida]';
+           // console.warn(`Safety block detectado para ${tipoDoc} ${origemInfo}`); // Log adicional
+           return "Este conteúdo não pôde ser processado por questões de segurança.";
+        }
+
+        let resposta = resultado.response.text();
+
+        if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
+          this.registrador.warn(`[GerenciadorAI] Resposta vazia ou inválida recebida para ${tipoDoc} INLINE.`);
+          // Tentar obter informações de erro da resposta, se disponíveis
+          const finishReason = resultado.response?.candidates?.[0]?.finishReason;
+          const safetyRatings = resultado.response?.candidates?.[0]?.safetyRatings;
+          if (finishReason === 'SAFETY') {
+             this.registrador.warn(`⚠️ Conteúdo de ${tipoDoc} INLINE bloqueado por políticas de segurança (finishReason: SAFETY). Ratings: ${JSON.stringify(safetyRatings)}`);
+             return "Este conteúdo não pôde ser processado por questões de segurança.";
+          }
+          // Se não for safety, lançar erro para tentar novamente
+          throw new Error(`Resposta vazia ou inválida da IA para ${tipoDoc} INLINE. Finish Reason: ${finishReason || 'N/A'}`);
+        }
+
+        this.registrador.info(`[GerenciadorAI] Resposta recebida com sucesso para ${tipoDoc} INLINE.`);
+        this.disjuntor.registrarSucesso(); // Registrar sucesso
+
+        // Usar um emoji genérico de documento
+        const respostaFinal = `📄 *Análise do seu documento (${tipoDoc}):*\n\n${this.limparResposta(resposta)}`;
+        return respostaFinal; // Retornar sucesso
+
+      } catch (erro) {
+        tentativas++;
+        const origemInfo = config.dadosOrigem ? `[Origem: ${config.dadosOrigem.tipo} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : '[Origem desconhecida]';
+
+        // Verificar explicitamente erros de safety que podem não ser capturados acima
+        if (erro.message.includes('SAFETY') || erro.message.includes('safety') ||
+            erro.message.includes('blocked') || erro.message.includes('Blocked') ||
+            (erro.status && erro.status === 400 && erro.message.includes('user location'))) { // Erro 400 de localização é comum
+          this.registrador.warn(`⚠️ Conteúdo de ${tipoDoc} INLINE bloqueado por políticas de segurança (Erro Capturado): ${erro.message} ${origemInfo}`);
+          return "Este conteúdo não pôde ser processado por questões de segurança.";
+        }
+
+        // Verificar erro 503 (Serviço Indisponível)
+        if (erro.message.includes('503 Service Unavailable') || (erro.status && erro.status === 503)) {
+          this.registrador.warn(`[GerenciadorAI] API do Google indisponível (503) para ${tipoDoc} INLINE, tentativa ${tentativas}/${maxTentativas}. ${origemInfo}`);
+          if (tentativas < maxTentativas) {
+            const tempoEsperaAtual = tempoEspera * Math.pow(2, tentativas - 1);
+            this.registrador.info(`[GerenciadorAI] Aguardando ${tempoEsperaAtual}ms antes da próxima tentativa...`);
+            await new Promise(resolve => setTimeout(resolve, tempoEsperaAtual));
+            continue; // Tentar novamente
+          } else {
+             this.registrador.error(`[GerenciadorAI] Máximo de tentativas (503) atingido para ${tipoDoc} INLINE. ${origemInfo}`);
+             this.disjuntor.registrarFalha(); // Registrar falha persistente
+             // Não retornar aqui ainda, deixar o fluxo cair para o erro final fora do loop
+          }
+        } else {
+           // Outros erros
+           this.registrador.error(`[GerenciadorAI] Erro ao processar ${tipoDoc} INLINE (Tentativa ${tentativas}/${maxTentativas}): ${erro.message} ${origemInfo}`, erro.stack);
+           this.disjuntor.registrarFalha(); // Registrar falha
+           // Se ainda houver tentativas, esperar e continuar
+           if (tentativas < maxTentativas) {
+              const tempoEsperaAtual = tempoEspera * Math.pow(2, tentativas - 1);
+              this.registrador.info(`[GerenciadorAI] Erro inesperado. Aguardando ${tempoEsperaAtual}ms antes da tentativa ${tentativas + 1}...`);
+              await new Promise(resolve => setTimeout(resolve, tempoEsperaAtual));
+              continue; // Tentar novamente
+           }
+        }
+      } // fim catch
+    } // fim while
+
+    // Se saiu do loop sem sucesso após todas as tentativas
+    const origemInfoFinal = config.dadosOrigem ? `[Origem: ${config.dadosOrigem.tipo} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : '[Origem desconhecida]';
+    this.registrador.error(`[GerenciadorAI] Falha definitiva ao processar ${tipoDoc} INLINE após ${maxTentativas} tentativas. ${origemInfoFinal}`);
+    return `Desculpe, não foi possível processar o ${tipoDoc} após múltiplas tentativas. O serviço pode estar instável ou o conteúdo pode ser inválido.`;
+  }
 
 
   /**
