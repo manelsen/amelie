@@ -98,7 +98,7 @@ const verificarTipoMensagem = _.curry((registrador, dados) => {
     
     // Log do resultado
     if (ehValido) {
-      registrador.info(`✅ Comando válido detectado: ${comando}`);
+      registrador.info(`Comando detectado: ${comando}`);
     } else {
       registrador.debug(`❌ Comando não reconhecido: ${comando}`);
     }
