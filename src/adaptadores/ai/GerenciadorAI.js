@@ -504,13 +504,22 @@ async processarAudio(audioData, audioId, config) {
 
     try {
       this.registrador.info(`Iniciando processamento de ${tipoDoc}: ${caminhoDocumento}`);
+
+      // *** ATUALIZADO: Forçar mimetype para text/plain APENAS para octet-stream ***
+      let mimeTypeParaUpload = mimeType;
+      if (mimeType === 'application/octet-stream') {
+        mimeTypeParaUpload = 'text/plain';
+        this.registrador.info(`Forçando mimetype para 'text/plain' durante upload para Google AI (original: ${mimeType})`);
+      }
+      // *** FIM: Forçar mimetype ***
+
       // Fazer upload para o Google AI
       const respostaUpload = await this.gerenciadorArquivos.uploadFile(caminhoDocumento, {
-        mimeType: mimeType, // Usar o mimetype correto
+        mimeType: mimeTypeParaUpload, // Usar o mimetype ajustado para upload
         displayName: path.basename(caminhoDocumento) || `${tipoDoc.toUpperCase()} Enviado`
       });
       nomeArquivoGoogle = respostaUpload.file.name; // Guardar nome para limpeza
-      this.registrador.info(`${tipoDoc.toUpperCase()} enviado para Google AI com nome: ${nomeArquivoGoogle}`);
+      this.registrador.info(`${tipoDoc.toUpperCase()} enviado para Google AI com nome: ${nomeArquivoGoogle} (Mimetype Upload: ${mimeTypeParaUpload})`);
 
       // Aguardar processamento
       let arquivo = await this.gerenciadorArquivos.getFile(nomeArquivoGoogle);

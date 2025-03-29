@@ -60,9 +60,10 @@ const criarComandoAudio = (dependencias) => {
       const mensagemStatus = novoValor ? 'ativada' : 'desativada';
       const feedbackMsg = `A transcrição de áudio foi ${mensagemStatus} para este chat.`;
 
-      registrador.debug(`[ComandoAudio] Enviando feedback para ${chatId}: "${feedbackMsg}"`);
+      // *** Adicionar log INFO antes de tentar enviar ***
+      registrador.info(`[ComandoAudio] Preparando para enviar feedback para ${chatId}: "${feedbackMsg}"`);
       await servicoMensagem.enviarResposta(mensagem, feedbackMsg);
-      registrador.debug(`[ComandoAudio] Feedback enviado com sucesso para ${chatId}`);
+      registrador.info(`[ComandoAudio] Feedback enviado com sucesso para ${chatId}`); // Mudar para info também
 
       return Resultado.sucesso(true); // Indicar sucesso da execução do comando
 

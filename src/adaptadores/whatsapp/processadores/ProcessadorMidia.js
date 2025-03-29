@@ -94,11 +94,12 @@ const criarProcessadorMidia = (dependencias) => {
         mimeType === 'text/xml' || // WhatsApp pode não enviar este
         mimeType === 'application/rtf' || // Mimetype comum para RTF
         mimeType === 'text/rtf' ||
-        mimeType === 'application/octet-stream' // *** Adicionar octet-stream aqui ***
+        mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || // *** Adicionar DOCX ***
+        mimeType === 'application/octet-stream' // Manter octet-stream como fallback
       ) {
-        // Log ligeiramente diferente para octet-stream para sabermos que foi um fallback
-        const logMsg = mimeType === 'application/octet-stream'
-          ? `[ProcessadorMidia] Direcionando documento (detectado como octet-stream) para ProcessadorDocumento para ${chatId}`
+        // Log ligeiramente diferente APENAS para octet-stream
+        const logMsg = (mimeType === 'application/octet-stream')
+          ? `[ProcessadorMidia] Direcionando documento (detectado como octet-stream, será tratado como texto) para ProcessadorDocumento para ${chatId}`
           : `[ProcessadorMidia] Direcionando documento (${mimeType}) para ProcessadorDocumento para ${chatId}`;
         registrador.info(logMsg);
         return await processadorDocumento.processarMensagemDocumento({ mensagem, chatId, dadosAnexo });

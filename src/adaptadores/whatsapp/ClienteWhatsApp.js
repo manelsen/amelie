@@ -497,36 +497,59 @@ class ClienteWhatsApp extends EventEmitter {
    * @returns {Promise<boolean>} Verdadeiro se deve responder
    */
   async deveResponderNoGrupo(msg, chat) {
+    const chatId = chat.id._serialized;
+    const msgId = msg.id._serialized;
+    this.registrador.debug(`[deveResponderNoGrupo] Verificando msg ${msgId} no grupo ${chatId}`); // Revert to debug
+
+    // Log inicial das propriedades da mensagem
+    this.registrador.debug(`[deveResponderNoGrupo] msg.body: "${msg.body}" (Tipo: ${typeof msg.body})`); // Revert to debug
+    this.registrador.debug(`[deveResponderNoGrupo] msg.hasMedia: ${msg.hasMedia}`); // Revert to debug
+    this.registrador.debug(`[deveResponderNoGrupo] msg.hasQuotedMsg: ${msg.hasQuotedMsg}`); // Revert to debug
+
     // Se for uma mensagem com comando
-    if (msg.body && msg.body.startsWith('.')) {
-      this.registrador.debug("Respondendo porque é um comando");
+    if (typeof msg.body === 'string' && msg.body.startsWith('.')) {
+      this.registrador.debug(`[deveResponderNoGrupo] TRUE: É um comando (${msg.body.split(' ')[0]}) em ${chatId}.`); // Revert to debug
       return true;
     }
 
+    // Se tiver mídia
     if (msg.hasMedia) {
-      this.registrador.debug(`Respondendo porque é mídia do tipo ${msg.type} em grupo`);
+      this.registrador.debug(`[deveResponderNoGrupo] TRUE: É mídia (tipo ${msg.type}) em ${chatId}.`); // Revert to debug
       return true;
     }
 
-    const mencoes = await msg.getMentions();
-    const botMencionado = mencoes.some(mencao => 
-      mencao.id._serialized === this.cliente.info.wid._serialized
-    );
-    
-    if (botMencionado) {
-      this.registrador.debug("Respondendo porque o bot foi mencionado");
-      return true;
-    }
-
-    if (msg.hasQuotedMsg) {
-      const msgCitada = await msg.getQuotedMessage();
-      if (msgCitada.fromMe) {
-        this.registrador.debug("Respondendo porque é uma resposta ao bot");
+    // Verificar menções
+    try {
+      const mencoes = await msg.getMentions();
+      const botMencionado = mencoes.some(mencao =>
+        mencao.id._serialized === this.cliente.info.wid._serialized
+      );
+      this.registrador.debug(`[deveResponderNoGrupo] Verificação de menção concluída. Bot mencionado: ${botMencionado}`); // Revert to debug
+      if (botMencionado) {
+        this.registrador.debug(`[deveResponderNoGrupo] TRUE: Bot foi mencionado em ${chatId}.`); // Revert to debug
         return true;
+      }
+    } catch (errorMencao) {
+      this.registrador.warn(`[deveResponderNoGrupo] Erro ao verificar menções para msg ${msgId}: ${errorMencao.message}`);
+      // Continuar a verificação mesmo se houver erro aqui
+    }
+
+    // Verificar citação de mensagem do bot
+    if (msg.hasQuotedMsg) {
+      try {
+        const msgCitada = await msg.getQuotedMessage();
+        this.registrador.debug(`[deveResponderNoGrupo] Verificação de citação concluída. Mensagem citada é do bot: ${msgCitada.fromMe}`); // Revert to debug
+        if (msgCitada.fromMe) {
+          this.registrador.debug(`[deveResponderNoGrupo] TRUE: É uma resposta a uma mensagem do bot em ${chatId}.`); // Revert to debug
+          return true;
+        }
+      } catch (errorCitacao) {
+        this.registrador.warn(`[deveResponderNoGrupo] Erro ao verificar mensagem citada para msg ${msgId}: ${errorCitacao.message}`);
+        // Continuar mesmo se houver erro aqui
       }
     }
 
-    this.registrador.debug("Não é nenhum caso especial e não vou responder");
+    this.registrador.debug(`[deveResponderNoGrupo] FALSE: Nenhuma condição atendida para msg ${msgId} em ${chatId}.`); // Revert to debug
     return false;
   }
 }
