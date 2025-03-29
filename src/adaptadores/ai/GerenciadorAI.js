@@ -12,9 +12,11 @@ const IAPort = require('../../portas/IAPort');
 const fs = require('fs');
 const path = require('path');
 const { 
-  obterInstrucaoPadrao, 
+  obterInstrucaoPadrao,
   obterInstrucaoAudio,
-  obterInstrucaoImagem,  
+  obterInstrucaoImagem,
+  obterInstrucaoDocumento, // Importar a função renomeada/generalizada
+  obterPromptVideoLegenda // Mantendo import existente
 } = require('../../config/InstrucoesSistema');
 const { salvarConteudoBloqueado } = require('../../utilitarios/ArquivoUtils');
 
@@ -486,6 +488,164 @@ async processarAudio(audioData, audioId, config) {
     }
   }
 }
+
+
+  /**
+   * Implementação do método processarDocumentoArquivo da interface IAPort (generalizado)
+   * @param {string} caminhoDocumento - Caminho para o arquivo (PDF, TXT, HTML, etc.)
+   * @param {string} prompt - Instruções de processamento (pode vir da legenda)
+   * @param {Object} config - Configurações de processamento (inclui mimeType)
+   * @returns {Promise<string>} Resposta gerada
+   */
+  async processarDocumentoArquivo(caminhoDocumento, prompt, config) {
+    let nomeArquivoGoogle = null; // Para garantir a limpeza
+    const mimeType = config.mimeType || 'application/octet-stream'; // Obter mimetype do config
+    const tipoDoc = mimeType.split('/')[1] || 'documento'; // Extrair tipo para logs
+
+    try {
+      this.registrador.info(`Iniciando processamento de ${tipoDoc}: ${caminhoDocumento}`);
+      // Fazer upload para o Google AI
+      const respostaUpload = await this.gerenciadorArquivos.uploadFile(caminhoDocumento, {
+        mimeType: mimeType, // Usar o mimetype correto
+        displayName: path.basename(caminhoDocumento) || `${tipoDoc.toUpperCase()} Enviado`
+      });
+      nomeArquivoGoogle = respostaUpload.file.name; // Guardar nome para limpeza
+      this.registrador.info(`${tipoDoc.toUpperCase()} enviado para Google AI com nome: ${nomeArquivoGoogle}`);
+
+      // Aguardar processamento
+      let arquivo = await this.gerenciadorArquivos.getFile(nomeArquivoGoogle);
+      let tentativas = 0;
+      const maxTentativasEspera = 15; // Manter espera
+      const tempoEspera = 10000; // 10 segundos
+
+      while (arquivo.state === "PROCESSING" && tentativas < maxTentativasEspera) {
+        this.registrador.info(`${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}] ainda em processamento, aguardando... (tentativa ${tentativas + 1}/${maxTentativasEspera})`);
+        await new Promise(resolve => setTimeout(resolve, tempoEspera));
+        arquivo = await this.gerenciadorArquivos.getFile(nomeArquivoGoogle);
+        tentativas++;
+      }
+
+      if (arquivo.state === "FAILED") {
+        this.registrador.error(`Falha no processamento do ${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}] pelo Google AI. Estado: ${arquivo.state}`);
+        throw new Error(`Falha no processamento do ${tipoDoc.toUpperCase()} pelo Google AI`);
+      }
+
+      // Estados válidos para prosseguir: SUCCEEDED ou ACTIVE
+      if (arquivo.state !== "SUCCEEDED" && arquivo.state !== "ACTIVE") {
+        this.registrador.error(`Estado inesperado do arquivo ${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}]: ${arquivo.state}`);
+        throw new Error(`Estado inesperado do arquivo ${tipoDoc.toUpperCase()}: ${arquivo.state}`);
+      }
+
+      this.registrador.info(`${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}] pronto para análise. Estado: ${arquivo.state}`);
+
+      // Obter modelo, usando instrução de DOCUMENTO padrão (que será renomeada)
+      const modeloConfig = {
+        ...config,
+        // Usaremos obterInstrucaoDocumento que será renomeada/criada
+        systemInstruction: config.systemInstruction || obterInstrucaoDocumento()
+      };
+      const modelo = this.obterOuCriarModelo(modeloConfig);
+
+      // Preparar partes de conteúdo
+      const partesConteudo = [
+        {
+          fileData: {
+            mimeType: arquivo.mimeType,
+            fileUri: arquivo.uri
+          }
+        },
+        {
+          // Usar o prompt fornecido ou um prompt genérico se vazio
+          text: prompt || `Analise este documento (${tipoDoc}) e forneça um resumo.`
+        }
+      ];
+
+      // Adicionar timeout para a chamada à IA
+      const timeoutMs = 180000; // 3 minutos (manter)
+      this.registrador.info(`Chamando modelo Gemini para ${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}] com timeout de ${timeoutMs}ms`);
+      const promessaRespostaIA = modelo.generateContent(partesConteudo);
+      const promessaTimeoutIA = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Tempo esgotado (${timeoutMs}ms) na análise de ${tipoDoc}`)), timeoutMs)
+      );
+
+      const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
+      let resposta = resultado.response.text();
+
+      if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
+        this.registrador.warn(`Resposta vazia ou inválida recebida para ${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}]`);
+        resposta = `Não consegui gerar uma resposta clara para este ${tipoDoc}.`;
+      } else {
+        this.registrador.info(`Resposta recebida com sucesso para ${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}]`);
+      }
+
+      // Limpar o arquivo do Google ANTES de retornar
+      this.registrador.info(`Tentando deletar ${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}] do Google AI.`);
+      await this.gerenciadorArquivos.deleteFile(nomeArquivoGoogle);
+      this.registrador.info(`${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}] deletado com sucesso.`);
+      nomeArquivoGoogle = null; // Marcar como deletado
+
+      // Usar um emoji genérico de documento
+      const respostaFinal = `📄 *Análise do seu documento (${tipoDoc}):*\n\n${this.limparResposta(resposta)}`;
+      return respostaFinal;
+
+    } catch (erro) {
+      const origemInfo = config.dadosOrigem ?
+        `[Origem: ${config.dadosOrigem.tipo === 'grupo' ? 'Grupo' : 'Usuário'} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` :
+        '[Origem desconhecida]';
+
+      // Verificar se é erro de safety
+      if (erro.message.includes('SAFETY') || erro.message.includes('safety') ||
+          erro.message.includes('blocked') || erro.message.includes('Blocked')) {
+
+        this.registrador.warn(`⚠️ Conteúdo de ${tipoDoc.toUpperCase()} bloqueado por políticas de segurança ${origemInfo}. Arquivo Google: ${nomeArquivoGoogle || 'N/A'}`);
+
+        // Salvar conteúdo bloqueado para auditoria (generalizado)
+        const diretorioBloqueados = path.join(process.cwd(), 'blocked');
+        const salvarDocBloqueado = salvarConteudoBloqueado(tipoDoc, diretorioBloqueados); // Usar tipoDoc
+
+        salvarDocBloqueado({
+          origemInfo: config.dadosOrigem,
+          prompt,
+          mimeType: mimeType, // Usar mimetype correto
+          caminhoDocumento // Usar caminho correto
+        }, erro).then(resultado => {
+          if (resultado.sucesso) {
+            this.registrador.info(`Diagnóstico de ${tipoDoc.toUpperCase()} bloqueado salvo: ${resultado.dados.caminhoJson}`);
+          }
+        }).catch(erroSalvar => {
+          this.registrador.error(`Erro ao salvar diagnóstico de ${tipoDoc.toUpperCase()} bloqueado: ${erroSalvar.message}`);
+        });
+
+        // Limpar o arquivo do Google se ainda existir
+        if (nomeArquivoGoogle) {
+          try {
+            this.registrador.warn(`Tentando deletar ${tipoDoc.toUpperCase()} bloqueado [${nomeArquivoGoogle}] do Google AI.`);
+            await this.gerenciadorArquivos.deleteFile(nomeArquivoGoogle);
+            this.registrador.info(`${tipoDoc.toUpperCase()} bloqueado [${nomeArquivoGoogle}] deletado.`);
+          } catch (deleteError) {
+            this.registrador.error(`Erro ao deletar ${tipoDoc.toUpperCase()} bloqueado [${nomeArquivoGoogle}] do Google AI: ${deleteError.message}`);
+          }
+        }
+
+        return "Este conteúdo não pôde ser processado por questões de segurança.";
+      }
+
+      this.registrador.error(`Erro ao processar ${tipoDoc.toUpperCase()}: ${erro.message} ${origemInfo}. Arquivo Google: ${nomeArquivoGoogle || 'N/A'}`);
+
+      // Limpar o arquivo do Google em caso de outros erros
+      if (nomeArquivoGoogle) {
+        try {
+          this.registrador.error(`Tentando deletar ${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}] do Google AI após erro.`);
+          await this.gerenciadorArquivos.deleteFile(nomeArquivoGoogle);
+          this.registrador.info(`${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}] deletado após erro.`);
+        } catch (deleteError) {
+          this.registrador.error(`Erro ao deletar ${tipoDoc.toUpperCase()} [${nomeArquivoGoogle}] do Google AI após erro: ${deleteError.message}`);
+        }
+      }
+
+      return `Desculpe, ocorreu um erro ao processar este ${tipoDoc}. Por favor, tente novamente.`;
+    }
+  }
 
   /**
  * Implementação do método processarVideo da interface IAPort

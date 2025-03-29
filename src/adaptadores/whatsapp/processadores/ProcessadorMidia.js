@@ -9,10 +9,11 @@ const criarProcessadorMidia = (dependencias) => {
   const { 
     registrador, 
     servicoMensagem,
-    // Recebendo os processadores específicos como dependências 
+    // Recebendo os processadores específicos como dependências
     processadorAudio,
     processadorImagem,
-    processadorVideo
+    processadorVideo,
+    processadorDocumento // Usar o processador generalizado
   } = dependencias;
 
   // Infere o MIME type de um buffer de dados
@@ -38,13 +39,18 @@ const criarProcessadorMidia = (dependencias) => {
       [hex => hex.startsWith('4f676753'), _.constant('audio/ogg')],
 
       // Tipos de vídeo
-      [hex => hex.includes('66747970'), _.constant('video/mp4')],
-      [hex => hex.startsWith('1a45dfa3'), _.constant('video/webm')],
-      [hex => hex.startsWith('52494646') && hex.includes('41564920'), _.constant('video/avi')],
-      [hex => hex.startsWith('3026b275'), _.constant('video/x-ms-wmv')],
+      [hex => hex.includes('66747970'), _.constant('video/mp4')], // ftyp
+      [hex => hex.startsWith('1a45dfa3'), _.constant('video/webm')], // EBML
+      [hex => hex.startsWith('52494646') && hex.includes('41564920'), _.constant('video/avi')], // RIFF AVI
+      [hex => hex.startsWith('3026b275'), _.constant('video/x-ms-wmv')], // ASF/WMV
+
+      // Tipos de Documento (Adicionar mais se necessário, mas confiar no mimetype da mensagem primeiro)
+      [hex => hex.startsWith('25504446'), _.constant('application/pdf')], // %PDF
+      // Outros tipos de texto (TXT, HTML, CSV, XML, MD, RTF) são difíceis de detectar confiavelmente por magic bytes.
+      // Confiaremos no mimetype fornecido pela mensagem para esses.
 
       // Tipo padrão para qualquer outro caso
-      [_.stubTrue, _.constant('application/octet-stream')]
+      [_.stubTrue, _.constant('application/octet-stream')] // Fallback
     ]);
 
     return verificarTipo(bytesHex);
@@ -79,8 +85,33 @@ const criarProcessadorMidia = (dependencias) => {
         return await processadorImagem.processarMensagemImagem({ mensagem, chatId, dadosAnexo });
       } else if (mimeType.startsWith('video/')) {
         return await processadorVideo.processarMensagemVideo({ mensagem, chatId, dadosAnexo });
+      } else if (
+        mimeType === 'application/pdf' ||
+        mimeType === 'text/plain' ||
+        mimeType === 'text/html' ||
+        mimeType === 'text/markdown' || // WhatsApp pode não enviar este, mas adicionamos por segurança
+        mimeType === 'text/csv' ||
+        mimeType === 'text/xml' || // WhatsApp pode não enviar este
+        mimeType === 'application/rtf' || // Mimetype comum para RTF
+        mimeType === 'text/rtf' ||
+        mimeType === 'application/octet-stream' // *** Adicionar octet-stream aqui ***
+      ) {
+        // Log ligeiramente diferente para octet-stream para sabermos que foi um fallback
+        const logMsg = mimeType === 'application/octet-stream'
+          ? `[ProcessadorMidia] Direcionando documento (detectado como octet-stream) para ProcessadorDocumento para ${chatId}`
+          : `[ProcessadorMidia] Direcionando documento (${mimeType}) para ProcessadorDocumento para ${chatId}`;
+        registrador.info(logMsg);
+        return await processadorDocumento.processarMensagemDocumento({ mensagem, chatId, dadosAnexo });
       } else {
-        registrador.info(`Tipo de mídia não suportado: ${mimeType}`);
+        // Este bloco agora só será atingido por tipos explicitamente não listados (e não octet-stream)
+        registrador.warn(`[ProcessadorMidia] Tipo de mídia/documento explicitamente não suportado: ${mimeType} para ${chatId}`);
+        // Informar o usuário que o tipo não é suportado - Usar enviarMensagemDireta
+        try {
+          await servicoMensagem.enviarMensagemDireta(chatId, `⚠️ Desculpe, ainda não consigo processar arquivos do tipo "${mimeType}".`);
+        } catch (errEnvio) {
+          // O erro já foi logado por enviarMensagemDireta, apenas registrar contexto adicional se necessário
+          registrador.error(`[ProcessadorMidia] Falha crítica ao tentar notificar tipo não suportado para ${chatId}: ${errEnvio.message}`);
+        }
         return Resultado.falha(new Error(`Tipo de mídia não suportado: ${mimeType}`));
       }
     } catch (erro) {

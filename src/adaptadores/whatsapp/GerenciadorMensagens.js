@@ -19,6 +19,7 @@ const criarProcessadorComandos = require('./processadores/ProcessadorComandos');
 const criarProcessadorAudio = require('./processadores/ProcessadorAudio');
 const criarProcessadorImagem = require('./processadores/ProcessadorImagem');
 const criarProcessadorVideo = require('./processadores/ProcessadorVideo');
+const criarProcessadorDocumento = require('./processadores/ProcessadorDocumento'); // Importar o processador generalizado
 const criarProcessadorMidia = require('./processadores/ProcessadorMidia');
 
 // Importar utilitários
@@ -71,14 +72,21 @@ const criarGerenciadorMensagens = (dependencias) => {
     ...dependencias,
     adaptadorIA
   });
+
+  // Criar o processador de Documento (generalizado)
+  const processadorDocumento = criarProcessadorDocumento({
+    ...dependencias,
+    adaptadorIA // Passar dependências necessárias
+  });
   
   // Agora sim criamos o processador de mídia injetando os processadores específicos
   const processadorMidia = criarProcessadorMidia({
     ...dependencias,
-    adaptadorIA,
+    adaptadorIA, // Passar adaptadorIA se ProcessadorMidia precisar
     processadorAudio,
     processadorImagem,
-    processadorVideo
+    processadorVideo,
+    processadorDocumento // Injetar o processador de Documento
   });
   
   // Criar processador de texto e comandos normalmente

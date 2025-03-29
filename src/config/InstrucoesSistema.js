@@ -175,6 +175,13 @@ Siga estas diretrizes:
 
 Mantenha o foco absoluto na transcrição precisa, com timecodes e indicações sonoras. Esta é uma ferramenta de acessibilidade essencial para pessoas surdas.`;
 
+// Generalizado: Adicionar prompt específico para Documentos (PDF, TXT, HTML, etc.)
+const PROMPT_ESPECIFICO_DOCUMENTO = `Você é um assistente de IA especializado em processar documentos. Sua tarefa é analisar o conteúdo do documento fornecido.
+
+1.  **Se o usuário fornecer uma pergunta ou instrução específica junto com o documento (na legenda da mensagem):** Responda à pergunta ou siga a instrução baseando-se *exclusivamente* no conteúdo do documento. Seja preciso e direto.
+2.  **Se o usuário *não* fornecer nenhuma instrução específica:** Gere um resumo conciso do documento, destacando os principais pontos, tópicos abordados e informações chave.
+3.  **Formato:** Responda sempre em português brasileiro. Evite informações externas ao documento. Se não conseguir encontrar a informação solicitada no documento, informe isso claramente.`;
+
 // Funções para obter as instruções completas
 const obterInstrucaoPadrao = () => INSTRUCAO_BASE;
 
@@ -211,6 +218,9 @@ const obterInstrucaoVideoLegenda = () =>
   //`${INSTRUCAO_BASE}\n\n${PROMPT_ESPECIFICO_VIDEO_LEGENDA}`;
     `${PROMPT_ESPECIFICO_VIDEO_LEGENDA}`;
 
+// Generalizado: Função para obter instrução de Documento
+const obterInstrucaoDocumento = () => PROMPT_ESPECIFICO_DOCUMENTO;
+
 // Funções para obter apenas os prompts específicos
 const obterPromptImagem = () => PROMPT_ESPECIFICO_IMAGEM;
 const obterPromptImagemCurto = () => PROMPT_ESPECIFICO_IMAGEM_CURTO;
@@ -236,5 +246,6 @@ module.exports = {
   obterPromptImagemCurto,
   obterPromptVideo,
   obterPromptVideoCurto,
-  obterPromptVideoLegenda
+  obterPromptVideoLegenda,
+  obterInstrucaoDocumento // Exportar a função generalizada
 };
