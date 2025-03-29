@@ -29,47 +29,26 @@ const FilasProcessadoresMidia = {
       return Promise.resolve(Resultado.falha(new Error("Dados da imagem inválidos ou ausentes")));
     }
     
-    registrador.debug(`Processando imagem com modo ${config.modoDescricao}`);
-    
-    // Obter modelo com as configurações apropriadas
-    const modelo = gerenciadorAI.obterOuCriarModelo({
-      ...config,
-      systemInstruction: config.systemInstructions
-    });
-    
-    // Preparar componentes da requisição
-    const parteImagem = {
-      inlineData: {
-        data: imageData.data,
-        mimeType: imageData.mimetype
-      }
-    };
-    
-    const partesConteudo = [
-      parteImagem,
-      { text: prompt }
-    ];
-    
-    // Adicionar timeout de 90 segundos
-    const promessaResultado = modelo.generateContent(partesConteudo);
-    const promessaTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Tempo esgotado na análise da imagem")), 90000)
-    );
-    
-    // Usar Trilho para transformar a Promise em Resultado
-    return Trilho.dePromise(Promise.race([promessaResultado, promessaTimeout]))
-      .then(resultado => {
-        if (!resultado.sucesso) {
-          return Resultado.falha(resultado.erro);
+    registrador.debug(`Delegando processamento da imagem para gerenciadorAI.processarImagem com modo ${config.modoDescricao}`);
+
+    // Delegar diretamente para a função processarImagem do adaptadorAI refatorado
+    // A função gerenciadorAI.processarImagem já lida com:
+    // - Obtenção/criação do modelo
+    // - Construção das partes do conteúdo
+    // - Chamada à API com resiliência (timeout, retry, circuit breaker)
+    // - Tratamento de erros (incluindo safety)
+    // - Limpeza da resposta
+    // - Cache e Rate Limiting
+    return Trilho.dePromise(gerenciadorAI.processarImagem(imageData, prompt, config))
+      .then(respostaOuErro => {
+        // A função processarImagem retorna a string de resposta ou uma string de erro
+        // Precisamos verificar se é uma mensagem de erro padrão para retornar falha
+        if (typeof respostaOuErro === 'string' && (respostaOuErro.startsWith("Desculpe,") || respostaOuErro.startsWith("Este conteúdo"))) {
+          registrador.warn(`[FilasProcessadoresMidia] Erro retornado por gerenciadorAI.processarImagem: ${respostaOuErro}`);
+          return Resultado.falha(new Error(respostaOuErro)); // Retorna falha com a mensagem de erro
         }
-        
-        const textoResposta = resultado.dados.response.text();
-        
-        if (!textoResposta) {
-          return Resultado.falha(new Error('Resposta vazia gerada pelo modelo'));
-        }
-        
-        return Resultado.sucesso(gerenciadorAI.limparResposta(textoResposta));
+        // Se não for erro, é a resposta de sucesso
+        return Resultado.sucesso(respostaOuErro);
       });
   }),
 
@@ -83,114 +62,34 @@ const FilasProcessadoresMidia = {
    * @returns {Promise<Resultado>} Resultado do processamento
    */
   processarVideo: _.curry((gerenciadorAI, registrador, caminhoArquivo, prompt, config) => {
-    // 1. Verificar arquivo
-    return Trilho.encadear(
-      // Verificar se o arquivo existe
-      () => ArquivoUtils.verificarArquivoExiste(caminhoArquivo)
-        .then(resultado => {
-          if (!resultado.sucesso || !resultado.dados) {
-            return Resultado.falha(new Error("Arquivo de vídeo não encontrado"));
-          }
-          return Resultado.sucesso(caminhoArquivo);
-        }),
-      
-      // 2. Fazer upload para o Google AI
-      (caminhoValido) => {
-        return Trilho.dePromise(
-          gerenciadorAI.gerenciadorArquivos.uploadFile(caminhoValido, {
-            mimeType: config.mimeType || 'video/mp4',
-            displayName: "Vídeo Enviado"
-          })
-        );
-      },
-      
-      // 3. Aguardar processamento
-      (respostaUpload) => {
-        return Trilho.encadear(
-          async () => {
-            let arquivo;
-            let tentativas = 0;
-            const maxTentativas = 10;
-            
-            while (tentativas < maxTentativas) {
-              arquivo = await gerenciadorAI.gerenciadorArquivos.getFile(respostaUpload.file.name);
-              
-              if (arquivo.state === "SUCCEEDED" || arquivo.state === "ACTIVE") {
-                return Resultado.sucesso({ arquivo, respostaUpload });
-              }
-              
-              if (arquivo.state === "FAILED") {
-                return Resultado.falha(new Error("Falha no processamento do vídeo pelo Google AI"));
-              }
-              
-              // Ainda em processamento, aguardar
-              registrador.info(`Vídeo ainda em processamento, aguardando... (tentativa ${tentativas + 1}/${maxTentativas})`);
-              await new Promise(resolve => setTimeout(resolve, 10000)); // 10 segundos
-              tentativas++;
-            }
-            
-            return Resultado.falha(new Error("Tempo máximo de processamento excedido"));
-          }
-        )();
-      },
-      
-      // 4. Analisar o vídeo
-      (dadosProcessados) => {
-        const { arquivo, respostaUpload } = dadosProcessados;
-        
-        // Obter modelo
-        const modelo = gerenciadorAI.obterOuCriarModelo(config);
-        
-        // Preparar partes de conteúdo
-        const partesConteudo = [
-          {
-            fileData: {
-              mimeType: arquivo.mimeType,
-              fileUri: arquivo.uri
-            }
-          },
-          {
-            text: prompt
-          }
-        ];
-        
-        // Adicionar timeout para a chamada à IA
-        const promessaRespostaIA = modelo.generateContent(partesConteudo);
-        const promessaTimeoutIA = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 120000)
-        );
-        
-        return Trilho.dePromise(Promise.race([promessaRespostaIA, promessaTimeoutIA]))
-          .then(resultado => {
-            if (!resultado.sucesso) {
-              return Resultado.falha(resultado.erro);
-            }
-            
-            let resposta = resultado.dados.response.text();
-            
-            if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
-              resposta = "Não consegui gerar uma descrição clara para este vídeo.";
-            }
-            
-            // Limpar arquivo remoto e retornar resposta
-            return Trilho.dePromise(gerenciadorAI.gerenciadorArquivos.deleteFile(respostaUpload.file.name))
-              .then(() => Resultado.sucesso(resposta))
-              .catch(() => {
-                // Se falhar ao limpar, ainda retornamos a resposta
-                registrador.warn(`Não foi possível limpar arquivo remoto após processamento`);
-                return Resultado.sucesso(resposta);
-              });
-          });
-      }
-    )()
-    .catch(erro => {
-      registrador.error(`Erro ao processar vídeo: ${erro.message}`);
-      
-      // Limpar arquivo local em caso de erro
-      FilasUtilitarios.limparArquivo(caminhoArquivo);
-      
-      return Resultado.falha(erro);
-    });
+    registrador.debug(`Delegando processamento do vídeo ${caminhoArquivo} para gerenciadorAI.processarVideo`);
+
+    // Delegar diretamente para a função processarVideo do adaptadorAI refatorado
+    // A função gerenciadorAI.processarVideo já lida com:
+    // - Upload, espera, análise, limpeza de arquivos Google
+    // - Chamada à API com resiliência (timeout, retry, circuit breaker)
+    // - Tratamento de erros (incluindo safety)
+    // - Limpeza da resposta
+    // - Cache e Rate Limiting
+    return Trilho.dePromise(gerenciadorAI.processarVideo(caminhoArquivo, prompt, config))
+      .then(respostaOuErro => {
+        // A função processarVideo retorna a string de resposta ou uma string de erro
+        if (typeof respostaOuErro === 'string' && (respostaOuErro.startsWith("Desculpe,") || respostaOuErro.startsWith("Este conteúdo"))) {
+          registrador.warn(`[FilasProcessadoresMidia] Erro retornado por gerenciadorAI.processarVideo: ${respostaOuErro}`);
+          // Limpar arquivo local em caso de erro retornado pelo adaptador
+          FilasUtilitarios.limparArquivo(caminhoArquivo);
+          return Resultado.falha(new Error(respostaOuErro));
+        }
+        // Limpar arquivo local em caso de sucesso também (já foi processado)
+        FilasUtilitarios.limparArquivo(caminhoArquivo);
+        return Resultado.sucesso(respostaOuErro);
+      })
+      .catch(erro => {
+         // Captura erros inesperados durante a chamada ao adaptador
+         registrador.error(`[FilasProcessadoresMidia] Erro GERAL ao chamar gerenciadorAI.processarVideo: ${erro.message}`, erro);
+         FilasUtilitarios.limparArquivo(caminhoArquivo); // Garante limpeza
+         return Resultado.falha(erro);
+      });
   })
 };
 

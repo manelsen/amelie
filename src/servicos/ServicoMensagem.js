@@ -37,9 +37,10 @@ const limparTextoResposta = (texto) => {
   if (!texto || typeof texto !== 'string') {
     return "Não foi possível gerar uma resposta válida.";
   }
+  // Apenas remover prefixo e trim, pois a normalização de nova linha pode causar problemas
+  // com respostas já formatadas pelo AdaptadorAI (que usa \n\n).
   let textoLimpo = texto
-    .replace(/^(?:amélie|amelie):[\s]*/gi, '')
-    .replace(/\r\n?|\n{2,}|\*/g, '\n')
+    .replace(/^(?:amélie|amelie):[\s]*/gi, '') // Remove prefixo
     .trim();
   return textoLimpo;
 };
@@ -50,10 +51,17 @@ const limparTextoResposta = (texto) => {
  * @returns {Resultado} Resultado com texto processado
  */
 const obterRespostaSegura = (texto) => {
-  if (!texto || typeof texto !== 'string' || texto.trim() === '') {
-    return Resultado.falha(new Error("Texto de resposta inválido ou vazio"));
+  if (!texto || typeof texto !== 'string') {
+     // Ainda checar se o texto original é nulo ou não string
+    return Resultado.falha(new Error("Texto de resposta nulo ou não é string"));
   }
-  return Resultado.sucesso(limparTextoResposta(texto));
+  // Limpar primeiro
+  const textoLimpo = limparTextoResposta(texto);
+  // Checar se o texto *limpo* está vazio
+  if (textoLimpo.trim() === '') {
+    return Resultado.falha(new Error("Texto de resposta inválido ou vazio após limpeza"));
+  }
+  return Resultado.sucesso(textoLimpo);
 };
 
 /**

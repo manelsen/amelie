@@ -21,7 +21,7 @@ dotenv.config();
 const ConfigManager = require('./config/ConfigManager');
 
 const ClienteWhatsApp = require('./adaptadores/whatsapp/ClienteWhatsApp');
-const GerenciadorAI = require('./adaptadores/ai/GerenciadorAI');
+const criarAdaptadorAI = require('./adaptadores/ai/GerenciadorAI'); // Importar a fábrica
 const GerenciadorMensagens = require('./adaptadores/whatsapp/AdaptadorGerenciadorMensagens');
 const GerenciadorNotificacoes = require('./adaptadores/whatsapp/GerenciadorNotificacoes');
 const inicializarFilasMidia = require('./adaptadores/queue/FilasMidia');
@@ -205,8 +205,8 @@ logger.info('📱 Cliente WhatsApp inicializado');
 const gerenciadorNotificacoes = new GerenciadorNotificacoes(logger, './temp');
 logger.info('🔔 Gerenciador de notificações inicializado');
 
-// 4. Inicializar o gerenciador de IA
-const gerenciadorAI = new GerenciadorAI(logger, API_KEY);
+// 4. Inicializar o gerenciador de IA usando a fábrica
+const gerenciadorAI = criarAdaptadorAI({ registrador: logger, apiKey: API_KEY });
 logger.info('🧠 Gerenciador de IA inicializado');
 
 // 5. Inicializar o gerenciador de transações

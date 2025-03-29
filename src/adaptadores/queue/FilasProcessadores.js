@@ -193,12 +193,19 @@ const FilasProcessadores = {
       },
       
       // Enviar resultado
-      (resposta) => {
+      (resultadoAnalise) => { // Renomeado para clareza
+        if (!resultadoAnalise.sucesso) {
+           // Se processarImagem falhou, o erro já foi logado, apenas lançar para o catch
+           throw resultadoAnalise.erro;
+        }
+        const respostaTexto = resultadoAnalise.dados; // Obter a string de resposta
+
         // Enviar resultado bem-sucedido
         registrador.debug(`[Imagem] Análise concluída com sucesso (Job ${job.id})`);
-        
+
+        // Construir o objeto esperado por processarResultado
         processarResultado({
-          resposta,
+          resposta: respostaTexto, // Passar a string na propriedade 'resposta'
           chatId,
           messageId,
           senderNumber,
@@ -280,9 +287,18 @@ const FilasProcessadores = {
           });
       },
       
-      // Fazer upload para o Google AI
+      // Fazer upload para o Google AI usando a função do adaptador
       async (dados) => {
-        const respostaUpload = await gerenciadorAI.gerenciadorArquivos.uploadFile(tempFilename, {
+        // DEBUG LOGGING START
+        registrador.debug(`[Vídeo Upload] Type of gerenciadorAI: ${typeof gerenciadorAI}`);
+        if (gerenciadorAI && typeof gerenciadorAI === 'object') {
+           registrador.debug(`[Vídeo Upload] Keys of gerenciadorAI: ${Object.keys(gerenciadorAI).join(', ')}`);
+           registrador.debug(`[Vídeo Upload] Has uploadArquivoGoogle: ${typeof gerenciadorAI.uploadArquivoGoogle === 'function'}`);
+        } else {
+           registrador.error('[Vídeo Upload] gerenciadorAI is undefined or not an object!');
+        }
+        // DEBUG LOGGING END
+        const respostaUpload = await gerenciadorAI.uploadArquivoGoogle(tempFilename, {
           mimeType: mimeType || 'video/mp4',
           displayName: "Vídeo Enviado"
         });
@@ -358,10 +374,10 @@ const FilasProcessadores = {
         return Resultado.sucesso(job.data);
       },
       
-      // Obter estado atual do arquivo
+      // Obter estado atual do arquivo usando a função do adaptador
       async (dados) => {
         try {
-          const arquivo = await gerenciadorAI.gerenciadorArquivos.getFile(fileName);
+          const arquivo = await gerenciadorAI.getArquivoGoogle(fileName);
           return Resultado.sucesso({ ...dados, arquivo });
         } catch (erroAcesso) {
           if (erroAcesso.message.includes('403 Forbidden')) {
@@ -425,7 +441,7 @@ const FilasProcessadores = {
         ).then(() => Resultado.sucesso({ success: true, status: arquivo.state }));
       }
     )()
-    .catch(erro => {
+    .catch(async (erro) => { // Make catch handler async
       registrador.error(`[Vídeo] Erro no processamento: ${erro.message}`, { erro, jobId: job.id });
       
       // Notificar erro
@@ -434,16 +450,15 @@ const FilasProcessadores = {
       // Limpar arquivo temporário
       FilasUtilitarios.limparArquivo(tempFilename);
       
-      // Tentar excluir o arquivo do Google AI
+      // Tentar excluir o arquivo do Google AI usando a função do adaptador (make handler async)
       if (fileName) {
-        gerenciadorAI.gerenciadorArquivos.deleteFile(fileName)
-          .catch(errDelete => {
-            registrador.warn(`Não foi possível excluir o arquivo remoto: ${errDelete.message}`);
-          });
+        // Adicionar log antes de deletar
+        registrador.warn(`[Vídeo] Tentando excluir arquivo Google ${fileName} após erro no processamento.`);
+        await gerenciadorAI.deleteArquivoGoogle(fileName);
       }
       
       throw erro; // Rejeitar promessa para que Bull considere o job como falha
-    });
+    }); // Make the catch handler async
   }),
 
   /**
@@ -490,53 +505,45 @@ const FilasProcessadores = {
         });
       },
       
-      // Preparar prompt e analisar vídeo
-      (contexto) => {
+      // Preparar prompt e analisar vídeo usando a nova função do adaptador
+      async (contexto) => {
         const { dados, config } = contexto;
-        
+        const { fileUri, fileMimeType, userPrompt, remetenteName, transacaoId } = dados; // Extrair dados necessários
+
         // Preparar prompt
         const promptFinal = prepararPrompt('video', userPrompt, config.modoDescricao);
-        
-        // Obter modelo
-        const modelo = gerenciadorAI.obterOuCriarModelo(config);
-        
-        // Preparar partes de conteúdo
-        const partesConteudo = [
-          {
-            fileData: {
-              mimeType: fileMimeType,
-              fileUri: fileUri
-            }
-          },
-          {
-            text: promptFinal
+
+        // Adicionar dados de origem à configuração para logging/tratamento de erro no adaptador
+        const configComOrigem = {
+          ...config,
+          tipoMidia: 'video', // Informar o tipo para a função gerarConteudoDeArquivoUri
+          dadosOrigem: { // Informações para rastreamento e tratamento de erro
+            tipo: 'Fila Vídeo Análise',
+            nome: remetenteName || 'Desconhecido',
+            id: transacaoId || 'sem_id'
           }
-        ];
-        
-        // Adicionar timeout para a chamada à IA
-        const promessaRespostaIA = modelo.generateContent(partesConteudo);
-        const promessaTimeoutIA = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 120000)
+        };
+
+        // Chamar a função exposta pelo adaptador AI
+        const respostaOuErro = await gerenciadorAI.gerarConteudoDeArquivoUri(
+          fileUri,
+          fileMimeType,
+          promptFinal,
+          configComOrigem // Passar a config com dados de origem
         );
-        
-        return Trilho.dePromise(Promise.race([promessaRespostaIA, promessaTimeoutIA]))
-          .then(resultado => {
-            if (!resultado.sucesso) {
-              return Resultado.falha(resultado.erro);
-            }
-            
-            let resposta = resultado.dados.response.text();
-            
-            if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
-              resposta = "Não consegui gerar uma descrição clara para este vídeo.";
-            }
-            
-            return Resultado.sucesso({
-              dados,
-              config,
-              resposta
-            });
-          });
+
+        // Verificar se o adaptador retornou uma string de erro padrão
+        if (typeof respostaOuErro === 'string' && (respostaOuErro.startsWith("Desculpe,") || respostaOuErro.startsWith("Este conteúdo"))) {
+          registrador.warn(`[Vídeo Análise] Erro retornado por gerenciadorAI.gerarConteudoDeArquivoUri: ${respostaOuErro}`);
+          return Resultado.falha(new Error(respostaOuErro)); // Retorna falha com a mensagem de erro
+        }
+
+        // Se não for erro, é a resposta de sucesso (já formatada com prefixo pelo adaptador)
+        return Resultado.sucesso({
+          dados,
+          config,
+          resposta: respostaOuErro // A resposta já vem pronta do adaptador
+        });
       },
       
       // Limpar recursos e enviar resposta
@@ -546,8 +553,8 @@ const FilasProcessadores = {
         // Limpar o arquivo temporário
         await FilasUtilitarios.limparArquivo(tempFilename);
         
-        // Limpar o arquivo do Google
-        await gerenciadorAI.gerenciadorArquivos.deleteFile(fileName);
+        // Limpar o arquivo do Google usando a função do adaptador
+        await gerenciadorAI.deleteArquivoGoogle(fileName);
         
         // Enviar resposta via callback
         registrador.debug(`[Vídeo] Análise concluída com sucesso (Job ${job.id})`);
@@ -565,7 +572,7 @@ const FilasProcessadores = {
         return Resultado.sucesso({ success: true });
       }
     )()
-    .catch(erro => {
+    .catch(async (erro) => { // Make catch handler async
       registrador.error(`[Vídeo] Erro na análise: ${erro.message}`, { erro, jobId: job.id });
       
       // Notificar erro
@@ -574,15 +581,15 @@ const FilasProcessadores = {
       // Limpar arquivos
       FilasUtilitarios.limparArquivo(tempFilename);
       
+      // Tentar excluir o arquivo do Google AI usando a função do adaptador (make handler async)
       if (fileName) {
-        gerenciadorAI.gerenciadorArquivos.deleteFile(fileName)
-          .catch(errDelete => {
-            registrador.warn(`Não foi possível excluir o arquivo remoto: ${errDelete.message}`);
-          });
+         // Adicionar log antes de deletar
+        registrador.warn(`[Vídeo] Tentando excluir arquivo Google ${fileName} após erro na análise.`);
+        await gerenciadorAI.deleteArquivoGoogle(fileName);
       }
       
       throw erro; // Rejeitar promessa para que Bull considere o job como falha
-    });
+    }); // Make the catch handler async
   }),
 
   /**

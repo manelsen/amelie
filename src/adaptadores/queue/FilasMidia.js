@@ -63,6 +63,12 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
       return Resultado.falha(new Error(`Dados de resposta ${tipo} incompletos`));
     }
 
+    // DEBUG LOGGING START
+    registrador.debug(`[CallbackPadrão ${tipo}] Recebido resultado para ${resultado.transacaoId || 'sem_id'}.`);
+    registrador.debug(`[CallbackPadrão ${tipo}] Tipo da resposta: ${typeof resultado.resposta}`);
+    registrador.debug(`[CallbackPadrão ${tipo}] Conteúdo da resposta (primeiros 100 chars): ${String(resultado.resposta).substring(0, 100)}`);
+    // DEBUG LOGGING END
+
     registrador.debug(`Processando resultado de ${tipo} com callback padrão: ${resultado.transacaoId || 'sem_id'}`);
 
     // Criar mensagem simulada mais completa
