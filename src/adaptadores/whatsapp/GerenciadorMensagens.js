@@ -13,14 +13,8 @@ const criarAdaptadorIA = require('./dominio/AdaptadorIA');
 const { validarMensagem, verificarMensagemSistema, verificarTipoMensagem } = require('./dominio/Validadores');
 const { obterInformacoesChat, verificarRespostaGrupo } = require('./dominio/OperacoesChat');
 
-// Importar processadores
-const criarProcessadorTexto = require('./processadores/ProcessadorTexto');
-const criarProcessadorComandos = require('./processadores/ProcessadorComandos');
-const criarProcessadorAudio = require('./processadores/ProcessadorAudio');
-const criarProcessadorImagem = require('./processadores/ProcessadorImagem');
-const criarProcessadorVideo = require('./processadores/ProcessadorVideo');
-const criarProcessadorDocumento = require('./processadores/ProcessadorDocumento'); // Importar o processador generalizado
-const criarProcessadorMidia = require('./processadores/ProcessadorMidia');
+// Importar fábrica de processadores
+const criarProcessadores = require('./fabricas/FabricaProcessadores');
 
 // Importar utilitários
 const criarGerenciadorCache = require('./util/CacheMensagens');
@@ -32,6 +26,26 @@ const criarRegistroComandos = require('./comandos/RegistroComandos');
  * Função principal para criar o gerenciador
  */
 const criarGerenciadorMensagens = (dependencias) => {
+  // --- Constantes para mensagens de grupo em Português ---
+  const NOME_PADRAO_BOT = 'Amélie';
+  const LINK_PADRAO_GRUPO = 'https://chat.whatsapp.com/C0Ys7pQ6lZH5zqDD9A8cLp';
+  const MENSAGEM_PADRAO_BOAS_VINDAS = 'Olá a todos! Estou aqui para ajudar. Aqui estão alguns comandos que vocês podem usar:';
+  const TEMPLATE_PADRAO_TEXTO_AJUDA =
+`Olá! Eu sou a {botName}, sua assistente de AI multimídia acessível integrada ao WhatsApp.
+Esses são meus comandos disponíveis para configuração.
+
+Use com um ponto antes da palavra de comando, sem espaço, e todas as letras são minúsculas.
+
+Comandos:
+
+{commandList}
+
+Minha idealizadora é a Belle Utsch. 
+Se quiser conhecer, fala com ela em https://beacons.ai/belleutsch
+Quer entrar no grupo oficial da Amélie? O link é {groupLink}
+Meu repositório fica em https://github.com/manelsen/amelie`;
+  // --- Fim das Constantes ---
+
   const {
     registrador,
     clienteWhatsApp,
@@ -55,59 +69,23 @@ const criarGerenciadorMensagens = (dependencias) => {
   
   // Criar registro de comandos
   const registroComandos = criarRegistroComandos(dependencias);
-  
-  // AQUI ESTÁ A MUDANÇA NA ORDEM DE CRIAÇÃO 🌟
-  // Primeiro criamos os processadores específicos
-  const processadorAudio = criarProcessadorAudio({
-    ...dependencias,
-    adaptadorIA
-  });
-  
-  const processadorImagem = criarProcessadorImagem({
-    ...dependencias,
-    adaptadorIA
-  });
-  
-  const processadorVideo = criarProcessadorVideo({
-    ...dependencias,
-    adaptadorIA
+
+  // Criar todos os processadores usando a fábrica
+  const processadores = criarProcessadores({
+    ...dependencias, // Passa todas as dependências originais
+    adaptadorIA,     // Passa o adaptadorIA criado aqui
+    registroComandos // Passa o registroComandos criado aqui
   });
 
-  // Criar o processador de Documento (generalizado)
-  const processadorDocumento = criarProcessadorDocumento({
-    ...dependencias,
-    adaptadorIA // Passar dependências necessárias
-  });
-  
-  // Agora sim criamos o processador de mídia injetando os processadores específicos
-  const processadorMidia = criarProcessadorMidia({
-    ...dependencias,
-    adaptadorIA, // Passar adaptadorIA se ProcessadorMidia precisar
-    processadorAudio,
-    processadorImagem,
-    processadorVideo,
-    processadorDocumento // Injetar o processador de Documento
-  });
-  
-  // Criar processador de texto e comandos normalmente
-  const processadorTexto = criarProcessadorTexto({
-    ...dependencias,
-    adaptadorIA
-  });
-  
-  const processadorComandos = criarProcessadorComandos({
-    ...dependencias,
-    registroComandos
-  });
-
-  // Direcionar mensagem conforme o tipo
+  // Direcionar mensagem conforme o tipo usando os processadores da fábrica
   const direcionarPorTipo = (dados) => {
     const { tipo } = dados;
-    
+
+    // Usar os processadores retornados pela fábrica
     const mapeadorTipos = {
-      'comando': () => processadorComandos.processarComando(dados),
-      'midia': () => processadorMidia.processarMensagemComMidia(dados),
-      'texto': () => processadorTexto.processarMensagemTexto(dados)
+      'comando': () => processadores.processadorComandos.processarComando(dados),
+      'midia': () => processadores.processadorMidia.processarMensagemComMidia(dados),
+      'texto': () => processadores.processadorTexto.processarMensagemTexto(dados)
     };
     
     const processador = mapeadorTipos[tipo];
@@ -175,35 +153,40 @@ const criarGerenciadorMensagens = (dependencias) => {
     try {
       if (notificacao.recipientIds.includes(clienteWhatsApp.cliente.info.wid._serialized)) {
         const chat = await notificacao.getChat();
+        const chatId = chat.id._serialized;
 
-        const BOT_NAME = process.env.BOT_NAME || 'Amélie';
-        const LINK_GRUPO_OFICIAL = process.env.LINK_GRUPO_OFICIAL || 'https://chat.whatsapp.com/C0Ys7pQ6lZH5zqDD9A8cLp';
+        // Obter configuração específica do chat para pegar o nome do bot correto
+        let nomeBot = NOME_PADRAO_BOT; // Começa com o padrão
+        try {
+          const config = await gerenciadorConfig.obterConfig(chatId);
+          // Usa o nome da config se disponível, senão mantém o padrão
+          nomeBot = config?.botName || NOME_PADRAO_BOT;
+        } catch (erroConfig) {
+          registrador.warn(`Não foi possível obter config para ${chatId} em processarEntradaGrupo. Usando nome padrão. Erro: ${erroConfig.message}`);
+        }
 
-        // Obter texto de ajuda com os comandos disponíveis
+        // Usar as constantes definidas no início da função
+        const linkGrupoOficial = LINK_PADRAO_GRUPO; // Usar constante
+        const mensagemBoasVindas = MENSAGEM_PADRAO_BOAS_VINDAS; // Usar constante
+        const templateTextoAjuda = TEMPLATE_PADRAO_TEXTO_AJUDA; // Usar constante
+
+        // Obter lista de comandos formatada
         const comandos = registroComandos.listarComandos();
         const listaComandos = comandos
           .map(cmd => `.${cmd.nome} - ${cmd.descricao}`)
           .join('\n\n');
 
-        const textoAjuda = `Olá! Eu sou a Amélie, sua assistente de AI multimídia acessível integrada ao WhatsApp.
-Esses são meus comandos disponíveis para configuração.
+        // Montar texto de ajuda usando o template e as configurações/constantes
+        const textoAjuda = templateTextoAjuda
+          .replace('{botName}', nomeBot) // Usar nomeBot obtido da config ou padrão
+          .replace('{commandList}', listaComandos)
+          .replace('{groupLink}', linkGrupoOficial); // Usar constante
 
-Use com um ponto antes da palavra de comando, sem espaço, e todas as letras são minúsculas.
-
-Comandos:
-
-${listaComandos}
-
-Minha idealizadora é a Belle Utsch. 
-Se quiser conhecer, fala com ela em https://beacons.ai/belleutsch
-Quer entrar no grupo oficial da Amélie? O link é ${LINK_GRUPO_OFICIAL}
-Meu repositório fica em https://github.com/manelsen/amelie`;
-
-        // Enviar mensagem de boas-vindas
-        await chat.sendMessage('Olá a todos! Estou aqui para ajudar. Aqui estão alguns comandos que vocês podem usar:');
+        // Enviar mensagem de boas-vindas e ajuda usando as constantes
+        await chat.sendMessage(mensagemBoasVindas); // Usar constante
         await chat.sendMessage(textoAjuda);
 
-        registrador.info(`Bot foi adicionado ao grupo "${chat.name}" (${chat.id._serialized}) e enviou a saudação.`);
+        registrador.info(`Bot ${nomeBot} foi adicionado ao grupo "${chat.name}" (${chatId}) e enviou a saudação.`);
         return Resultado.sucesso(true);
       }
 
@@ -249,71 +232,81 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
     }
   };
 
+  // Função auxiliar para processar o resultado da fila de mídia
+  const _processarResultadoFilaMidia = async (resultado) => {
+    // *** LOG DE ENTRADA NO CALLBACK ***
+    // Este log é crucial para saber se esta função está sendo chamada
+    registrador.info(`[CallbackFila] INICIANDO CALLBACK para resultado: ${JSON.stringify(resultado)}`);
+    let transacaoIdParaLog = resultado?.transacaoId || 'ID_DESCONHECIDO_NA_ENTRADA';
+
+    try {
+      // Verificação básica do resultado recebido
+      if (!resultado || !resultado.senderNumber || !resultado.transacaoId) {
+        registrador.warn(`[CallbackFila] Resultado de fila inválido, incompleto ou sem ID de transação. Saindo.`);
+        return; // Sair se dados essenciais faltam
+      }
+
+      // Atualizar ID para logs futuros se estava faltando inicialmente
+      transacaoIdParaLog = resultado.transacaoId;
+      const { resposta, senderNumber, remetenteName, tipo } = resultado;
+      const tipoMidiaStr = tipo || 'mídia'; // Usar 'mídia' como padrão se tipo não vier
+
+      registrador.debug(`[CallbackFila] Processando resultado final para ${tipoMidiaStr} (Transação ${transacaoIdParaLog})`);
+
+      // *** LOG ANTES DO ENVIO ***
+      registrador.debug(`[CallbackFila] Tentando enviar via servicoMensagem.enviarMensagemDireta para ${transacaoIdParaLog}...`);
+
+      // Chamada para o serviço de envio
+      const resultadoEnvio = await servicoMensagem.enviarMensagemDireta(
+        senderNumber,
+        resposta,
+        {
+          transacaoId: transacaoIdParaLog, // Passar o ID correto
+          remetenteName,
+          tipoMidia: tipoMidiaStr
+        }
+      );
+
+      // *** LOG DEPOIS DO ENVIO ***
+      registrador.debug(`[CallbackFila] Resultado de enviarMensagemDireta para ${transacaoIdParaLog}: ${JSON.stringify(resultadoEnvio)}`);
+
+      // Checar o resultado do envio
+      if (!resultadoEnvio || !resultadoEnvio.sucesso) {
+        registrador.error(`[CallbackFila] Erro ao enviar resultado de ${tipoMidiaStr} para ${transacaoIdParaLog}: ${resultadoEnvio?.erro?.message || 'Erro desconhecido ou resultado inválido do envio'}`);
+        // A transação deve ser marcada como falha pelo ServicoMensagem ou aqui? Revisar ServicoMensagem.
+      } else {
+        // *** ESTE É O LOG QUE VOCÊ QUER VER ***
+        registrador.info(`[CallbackFila] Resposta de ${tipoMidiaStr} enviada com sucesso para ${transacaoIdParaLog}`);
+      }
+
+    } catch (erro) {
+      registrador.error(`[CallbackFila] Erro GERAL ao processar resultado de fila (Transação ${transacaoIdParaLog}): ${erro.message}`, erro);
+      // Tentar registrar falha na transação se ocorrer erro GERAL aqui
+      if (transacaoIdParaLog && transacaoIdParaLog !== 'ID_DESCONHECIDO_NA_ENTRADA') {
+          try {
+               await gerenciadorTransacoes.registrarFalhaEntrega(transacaoIdParaLog, `Erro no callback: ${erro.message}`);
+          } catch (e) {registrador.error(`Falha ao registrar erro de callback na transação ${transacaoIdParaLog}`)}
+      }
+    } finally {
+       // *** LOG DE SAÍDA DO CALLBACK ***
+       // Este log ajuda a confirmar que o callback terminou, mesmo se houve erro
+       registrador.debug(`[CallbackFila] FINALIZANDO CALLBACK para transação ${transacaoIdParaLog}`);
+    }
+  }; // Fim de _processarResultadoFilaMidia
+
   // Configuração de callbacks para filas de mídia
   // Dentro de src/adaptadores/whatsapp/GerenciadorMensagens.js -> criarGerenciadorMensagens
 
   // Configuração de callbacks para filas de mídia
   const configurarCallbacksFilas = () => {
+    // Usar a função nomeada como callback
+    filasMidia.setCallbackRespostaUnificado(_processarResultadoFilaMidia);
+    /* O código original do callback foi movido para _processarResultadoFilaMidia
     filasMidia.setCallbackRespostaUnificado(async (resultado) => {
       // *** LOG DE ENTRADA NO CALLBACK ***
       // Este log é crucial para saber se esta função está sendo chamada
-      registrador.info(`[CallbackFila] INICIANDO CALLBACK para resultado: ${JSON.stringify(resultado)}`);
-      let transacaoIdParaLog = resultado?.transacaoId || 'ID_DESCONHECIDO_NA_ENTRADA';
+    */ // Fim do código original comentado
 
-      try {
-        // Verificação básica do resultado recebido
-        if (!resultado || !resultado.senderNumber || !resultado.transacaoId) {
-          registrador.warn(`[CallbackFila] Resultado de fila inválido, incompleto ou sem ID de transação. Saindo.`);
-          return; // Sair se dados essenciais faltam
-        }
-
-        // Atualizar ID para logs futuros se estava faltando inicialmente
-        transacaoIdParaLog = resultado.transacaoId;
-        const { resposta, senderNumber, remetenteName, tipo } = resultado;
-        const tipoMidiaStr = tipo || 'mídia'; // Usar 'mídia' como padrão se tipo não vier
-
-        registrador.debug(`[CallbackFila] Processando resultado final para ${tipoMidiaStr} (Transação ${transacaoIdParaLog})`);
-
-        // *** LOG ANTES DO ENVIO ***
-        registrador.debug(`[CallbackFila] Tentando enviar via servicoMensagem.enviarMensagemDireta para ${transacaoIdParaLog}...`);
-
-        // Chamada para o serviço de envio
-        const resultadoEnvio = await servicoMensagem.enviarMensagemDireta(
-          senderNumber,
-          resposta,
-          {
-            transacaoId: transacaoIdParaLog, // Passar o ID correto
-            remetenteName,
-            tipoMidia: tipoMidiaStr
-          }
-        );
-
-        // *** LOG DEPOIS DO ENVIO ***
-        registrador.debug(`[CallbackFila] Resultado de enviarMensagemDireta para ${transacaoIdParaLog}: ${JSON.stringify(resultadoEnvio)}`);
-
-        // Checar o resultado do envio
-        if (!resultadoEnvio || !resultadoEnvio.sucesso) {
-          registrador.error(`[CallbackFila] Erro ao enviar resultado de ${tipoMidiaStr} para ${transacaoIdParaLog}: ${resultadoEnvio?.erro?.message || 'Erro desconhecido ou resultado inválido do envio'}`);
-          // A transação deve ser marcada como falha pelo ServicoMensagem ou aqui? Revisar ServicoMensagem.
-        } else {
-          // *** ESTE É O LOG QUE VOCÊ QUER VER ***
-          registrador.info(`[CallbackFila] Resposta de ${tipoMidiaStr} enviada com sucesso para ${transacaoIdParaLog}`);
-        }
-
-      } catch (erro) {
-        registrador.error(`[CallbackFila] Erro GERAL ao processar resultado de fila (Transação ${transacaoIdParaLog}): ${erro.message}`, erro);
-        // Tentar registrar falha na transação se ocorrer erro GERAL aqui
-        if (transacaoIdParaLog && transacaoIdParaLog !== 'ID_DESCONHECIDO_NA_ENTRADA') {
-            try {
-                 await gerenciadorTransacoes.registrarFalhaEntrega(transacaoIdParaLog, `Erro no callback: ${erro.message}`);
-            } catch (e) {registrador.error(`Falha ao registrar erro de callback na transação ${transacaoIdParaLog}`)}
-        }
-      } finally {
-         // *** LOG DE SAÍDA DO CALLBACK ***
-         // Este log ajuda a confirmar que o callback terminou, mesmo se houve erro
-         registrador.debug(`[CallbackFila] FINALIZANDO CALLBACK para transação ${transacaoIdParaLog}`);
-      }
-    }); // Fim do async (resultado) => { ... }
 
     registrador.info('📬 Callback unificado de filas de mídia configurado com sucesso (com logs MUITO detalhados de envio).');
   }; // Fim de configurarCallbacksFilas
