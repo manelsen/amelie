@@ -41,7 +41,7 @@ const criarComandoLegenda = (dependencias) => {
       // Enviar mensagem de confirmação
       foiAtivada => {
         if (foiAtivada) {
-          registrador.info(`✅ MODO LEGENDA ATIVADO para ${chatId}`);
+          registrador.info(`[CmdLeg] ✅ MODO LEGENDA ATIVADO.`); // Simplificado
           
           return Trilho.dePromise(servicoMensagem.enviarResposta(
             mensagem,
@@ -50,7 +50,7 @@ const criarComandoLegenda = (dependencias) => {
             'Basta enviar seu vídeo para receber a legenda detalhada!'
           ));
         } else {
-          registrador.info(`🎬 Modo legenda DESATIVADO para ${chatId}`);
+          registrador.info(`[CmdLeg] 🎬 Modo legenda DESATIVADO.`); // Simplificado
           
           return Trilho.dePromise(servicoMensagem.enviarResposta(
             mensagem,

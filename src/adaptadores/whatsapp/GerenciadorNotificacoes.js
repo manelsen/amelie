@@ -24,9 +24,9 @@ class GerenciadorNotificacoes {
     criarDiretorio(this.diretorioTemp)
       .then(resultado => {
         if (resultado.sucesso) {
-          this.registrador.info(`Diretório para notificações pronto: ${this.diretorioTemp}`);
+          this.registrador.info(`[Notif] Diretório pronto: ${this.diretorioTemp}`); // Simplificado
         } else {
-          this.registrador.error(`Erro ao criar diretório: ${resultado.erro.message}`);
+          this.registrador.error(`[Notif] Erro ao criar diretório: ${resultado.erro.message}`); // Simplificado
         }
       });
   }
@@ -60,12 +60,12 @@ class GerenciadorNotificacoes {
       
       // Registrar sucesso e retornar caminho
       (caminho) => {
-        registrador.info(`Notificação salva: ${caminho}`);
+        registrador.info(`[Notif] Notificação salva: ${caminho}`); // Simplificado
         return Resultado.sucesso(caminho);
       }
     )()
     .catch(erro => {
-      registrador.error(`Erro ao salvar notificação: ${erro.message}`);
+      registrador.error(`[Notif] Erro ao salvar notificação: ${erro.message}`); // Simplificado
       return Resultado.falha(erro);
     });
   }
@@ -99,7 +99,7 @@ class GerenciadorNotificacoes {
           return Resultado.sucesso(0);
         }
         
-        registrador.info(`Encontradas ${notificacoes.length} notificações pendentes para processar`);
+        registrador.info(`[Notif] Encontradas ${notificacoes.length} notificações pendentes.`); // Simplificado
         let processadas = 0;
         
         // Processamento sequencial para evitar sobrecarga
@@ -111,14 +111,14 @@ class GerenciadorNotificacoes {
         }
         
         if (processadas > 0) {
-          registrador.info(`Processadas ${processadas} notificações pendentes`);
+          registrador.info(`[Notif] Processadas ${processadas} notificações pendentes.`); // Simplificado
         }
         
         return Resultado.sucesso(processadas);
       }
     )()
     .catch(erro => {
-      registrador.error(`Erro ao processar notificações pendentes: ${erro.message}`);
+      registrador.error(`[Notif] Erro ao processar notificações pendentes: ${erro.message}`); // Simplificado
       return Resultado.sucesso(0); // Falhas não críticas retornam 0 processadas
     });
   }
@@ -157,7 +157,7 @@ class GerenciadorNotificacoes {
         // Enviando mensagem
         try {
           await cliente.sendMessage(dados.senderNumber, dados.message);
-          registrador.info(`✅ Notificação pendente enviada para ${dados.senderNumber}`);
+          registrador.info(`[Notif] ✅ Notificação pendente enviada.`); // Removido senderNumber
           
           // Remover arquivo após processamento
           await removerArquivo(caminhoArquivo);
@@ -173,7 +173,7 @@ class GerenciadorNotificacoes {
         return Resultado.sucesso(false);
       }
       
-      registrador.error(`Erro ao processar arquivo de notificação ${nomeArquivo}: ${erro.message}`);
+      registrador.error(`[Notif] Erro ao processar arquivo ${nomeArquivo}: ${erro.message}`); // Simplificado
       return Resultado.sucesso(false);
     });
   }
@@ -218,14 +218,14 @@ class GerenciadorNotificacoes {
         }
         
         if (removidas > 0) {
-          registrador.info(`Removidas ${removidas} notificações antigas`);
+          registrador.info(`[Notif] Removidas ${removidas} notificações antigas.`); // Simplificado
         }
         
         return Resultado.sucesso(removidas);
       }
     )()
     .catch(erro => {
-      registrador.error(`Erro ao limpar notificações antigas: ${erro.message}`);
+      registrador.error(`[Notif] Erro ao limpar notificações antigas: ${erro.message}`); // Simplificado
       return Resultado.sucesso(0);
     });
   }

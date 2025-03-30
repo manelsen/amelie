@@ -97,21 +97,21 @@ const criarProcessadorMidia = (dependencias) => {
         mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || // *** Adicionar DOCX ***
         mimeType === 'application/octet-stream' // Manter octet-stream como fallback
       ) {
-        // Log ligeiramente diferente APENAS para octet-stream
+        // Log simplificado (confirmando [Midia])
         const logMsg = (mimeType === 'application/octet-stream')
-          ? `[ProcessadorMidia] Direcionando documento (detectado como octet-stream, será tratado como texto) para ProcessadorDocumento para ${chatId}`
-          : `[ProcessadorMidia] Direcionando documento (${mimeType}) para ProcessadorDocumento para ${chatId}`;
+          ? `[Midia] Direcionando documento (octet-stream) para processamento.`
+          : `[Midia] Direcionando documento (${mimeType}) para processamento.`;
         registrador.info(logMsg);
         return await processadorDocumento.processarMensagemDocumento({ mensagem, chatId, dadosAnexo });
       } else {
         // Este bloco agora só será atingido por tipos explicitamente não listados (e não octet-stream)
-        registrador.warn(`[ProcessadorMidia] Tipo de mídia/documento explicitamente não suportado: ${mimeType} para ${chatId}`);
+        registrador.warn(`[Midia] Tipo não suportado: ${mimeType}`); // Simplificado
         // Informar o usuário que o tipo não é suportado - Usar enviarMensagemDireta
         try {
           await servicoMensagem.enviarMensagemDireta(chatId, `⚠️ Desculpe, ainda não consigo processar arquivos do tipo "${mimeType}".`);
         } catch (errEnvio) {
           // O erro já foi logado por enviarMensagemDireta, apenas registrar contexto adicional se necessário
-          registrador.error(`[ProcessadorMidia] Falha crítica ao tentar notificar tipo não suportado para ${chatId}: ${errEnvio.message}`);
+          registrador.error(`[Midia] Falha crítica ao notificar tipo não suportado: ${errEnvio.message}`); // Simplificado
         }
         return Resultado.falha(new Error(`Tipo de mídia não suportado: ${mimeType}`));
       }

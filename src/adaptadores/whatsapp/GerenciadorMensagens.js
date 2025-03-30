@@ -148,23 +148,21 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
           // Adicionar outras falhas esperadas aqui, se necessário
         ];
 
-        if (!errosSilenciosos.includes(erroMsg)) {
-           // Logar apenas erros que não são esperados/configurados
-           const chatIdLog = dadosIniciais.mensagem?.from || 'Chat Desconhecido';
-           registrador.error(`[ProcessamentoMsg][${chatIdLog}][${msgIdLog}] Falha inesperada no pipeline: ${erroMsg}`);
-        } else {
-           // Opcional: Logar falhas esperadas como 'warn' ou 'info' se desejado para depuração
-           // const chatIdLog = dadosIniciais.mensagem?.from || 'Chat Desconhecido';
-           // registrador.warn(`[ProcessamentoMsg][${chatIdLog}][${msgIdLog}] Falha esperada no pipeline: ${erroMsg}`);
-        }
-        return false; // Indica que o processamento parou devido a uma falha (esperada ou não)
-      }
-    } catch (erro) {
-      // Tratar e registrar erro global inesperado (fora do trilho)
-      const chatIdLog = dadosIniciais.mensagem?.from || 'Chat Desconhecido';
-      registrador.error(`[ProcessamentoMsg][${chatIdLog}][${msgIdLog}] ERRO GLOBAL INESPERADO: ${erro.message}`, erro);
-      return false;
-    }
+         // Verificar se o erro não está na lista de silenciosos E se não é o erro de vídeo grande
+         if (!errosSilenciosos.includes(erroMsg) && !erroMsg?.includes("Vídeo muito grande")) {
+           // Logar apenas erros que não são esperados/configurados E não são de vídeo grande
+           registrador.error(`[MsgProc] Falha inesperada no pipeline: ${erroMsg}`); // Simplificado
+         } else {
+            // Opcional: Logar falhas esperadas como 'warn' ou 'info' se desejado para depuração
+            // registrador.warn(`[MsgProc] Falha esperada no pipeline: ${erroMsg}`);
+         }
+         return false; // Indica que o processamento parou devido a uma falha (esperada ou não)
+       }
+     } catch (erro) {
+       // Tratar e registrar erro global inesperado (fora do trilho)
+       registrador.error(`[MsgProc] ERRO GLOBAL INESPERADO: ${erro.message}`, erro); // Simplificado
+       return false;
+     }
   };
 
   // Processamento de eventos de entrada em grupo
@@ -203,35 +201,35 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
 
         // Enviar mensagem de boas-vindas e ajuda usando as constantes
         await chat.sendMessage(mensagemBoasVindas); // Usar constante
-        await chat.sendMessage(textoAjuda);
+         await chat.sendMessage(textoAjuda);
 
-        registrador.info(`Bot ${nomeBot} foi adicionado ao grupo "${chat.name}" (${chatId}) e enviou a saudação.`);
-        return Resultado.sucesso(true);
-      }
+         registrador.info(`[Grupo] Bot ${nomeBot} adicionado ao grupo "${chat.name}" (${chatId}) e enviou saudação.`); // Simplificado
+         return Resultado.sucesso(true);
+       }
 
-      return Resultado.sucesso(false);
-    } catch (erro) {
-      registrador.error(`Erro ao processar entrada em grupo: ${erro.message}`);
-      return Resultado.falha(erro);
-    }
+       return Resultado.sucesso(false);
+     } catch (erro) {
+       registrador.error(`[Grupo] Erro ao processar entrada em grupo: ${erro.message}`);
+       return Resultado.falha(erro);
+     }
   };
 
-  // Recuperação de transações
-  const recuperarTransacao = async (transacao) => {
-    try {
-      registrador.info(`⏱️ Recuperando transação ${transacao.id} após reinicialização`);
+   // Recuperação de transações
+   const recuperarTransacao = async (transacao) => {
+     try {
+       registrador.info(`[Recupera] Recuperando transação.`); // Simplificado (ID na coluna)
 
-      if (!transacao.dadosRecuperacao || !transacao.resposta) {
-        registrador.warn(`Transação ${transacao.id} não possui dados suficientes para recuperação`);
-        return Resultado.falha(new Error("Dados insuficientes para recuperação"));
-      }
+       if (!transacao.dadosRecuperacao || !transacao.resposta) {
+         registrador.warn(`[Recupera] Dados insuficientes para recuperação.`); // Simplificado (ID na coluna)
+         return Resultado.falha(new Error("Dados insuficientes para recuperação"));
+       }
 
-      const { remetenteId, chatId } = transacao.dadosRecuperacao;
+       const { remetenteId, chatId } = transacao.dadosRecuperacao;
 
-      if (!remetenteId || !chatId) {
-        registrador.warn(`Dados insuficientes para recuperar transação ${transacao.id}`);
-        return Resultado.falha(new Error("Dados de remetente ou chat ausentes"));
-      }
+       if (!remetenteId || !chatId) {
+         registrador.warn(`[Recupera] Dados de remetente ou chat ausentes.`); // Simplificado (ID na coluna)
+         return Resultado.falha(new Error("Dados de remetente ou chat ausentes"));
+       }
 
       // Enviar mensagem diretamente usando as informações persistidas
       await clienteWhatsApp.enviarMensagem(
@@ -241,42 +239,42 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
       );
 
       // Marcar como entregue
-      await gerenciadorTransacoes.marcarComoEntregue(transacao.id);
+       await gerenciadorTransacoes.marcarComoEntregue(transacao.id);
 
-      registrador.info(`✅ Transação ${transacao.id} recuperada e entregue com sucesso!`);
-      return Resultado.sucesso(true);
-    } catch (erro) {
-      registrador.error(`Falha na recuperação da transação ${transacao.id}: ${erro.message}`);
-      return Resultado.falha(erro);
-    }
+       registrador.info(`[Recupera] Transação recuperada e entregue com sucesso!`); // Simplificado (ID na coluna)
+       return Resultado.sucesso(true);
+     } catch (erro) {
+       registrador.error(`[Recupera] Falha na recuperação: ${erro.message}`); // Simplificado (ID na coluna)
+       return Resultado.falha(erro);
+     }
   };
 
   // Função auxiliar para processar o resultado da fila de mídia
   const _processarResultadoFilaMidia = async (resultado) => {
-    // *** LOG DE ENTRADA NO CALLBACK ***
-    // Este log é crucial para saber se esta função está sendo chamada
-    registrador.info(`[CallbackFila] INICIANDO CALLBACK para resultado: ${JSON.stringify(resultado)}`);
-    let transacaoIdParaLog = resultado?.transacaoId || 'ID_DESCONHECIDO_NA_ENTRADA';
+     // *** LOG DE ENTRADA NO CALLBACK ***
+     // Este log é crucial para saber se esta função está sendo chamada
+     registrador.info(`[Callback] INICIANDO CALLBACK para resultado: ${JSON.stringify(resultado)}`);
+     let transacaoIdParaLog = resultado?.transacaoId || 'ID_DESCONHECIDO_NA_ENTRADA';
 
-    try {
-      // Verificação básica do resultado recebido
-      if (!resultado || !resultado.senderNumber || !resultado.transacaoId) {
-        registrador.warn(`[CallbackFila] Resultado de fila inválido, incompleto ou sem ID de transação. Saindo.`);
-        return; // Sair se dados essenciais faltam
-      }
+     try {
+       // Verificação básica do resultado recebido
+       if (!resultado || !resultado.senderNumber || !resultado.transacaoId) {
+         registrador.warn(`[Callback] Resultado de fila inválido ou sem ID. Saindo.`); // Simplificado
+         return; // Sair se dados essenciais faltam
+       }
 
       // Atualizar ID para logs futuros se estava faltando inicialmente
-      transacaoIdParaLog = resultado.transacaoId;
-      const { resposta, senderNumber, remetenteName, tipo } = resultado;
-      const tipoMidiaStr = tipo || 'mídia'; // Usar 'mídia' como padrão se tipo não vier
+       transacaoIdParaLog = resultado.transacaoId;
+       const { resposta, senderNumber, remetenteName, tipo } = resultado;
+       const tipoMidiaStr = tipo || 'mídia'; // Usar 'mídia' como padrão se tipo não vier
 
-      registrador.debug(`[CallbackFila] Processando resultado final para ${tipoMidiaStr} (Transação ${transacaoIdParaLog})`);
+       registrador.debug(`[Callback] Processando resultado final para ${tipoMidiaStr}.`); // Simplificado (ID na coluna)
 
-      // *** LOG ANTES DO ENVIO ***
-      registrador.debug(`[CallbackFila] Tentando enviar via servicoMensagem.enviarMensagemDireta para ${transacaoIdParaLog}...`);
+       // *** LOG ANTES DO ENVIO ***
+       registrador.debug(`[Callback] Tentando enviar via servicoMensagem.enviarMensagemDireta...`); // Simplificado (ID na coluna)
 
-      // Chamada para o serviço de envio
-      const resultadoEnvio = await servicoMensagem.enviarMensagemDireta(
+       // Chamada para o serviço de envio
+       const resultadoEnvio = await servicoMensagem.enviarMensagemDireta(
         senderNumber,
         resposta,
         {
@@ -284,33 +282,33 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
           remetenteName,
           tipoMidia: tipoMidiaStr
         }
-      );
+       );
 
-      // *** LOG DEPOIS DO ENVIO ***
-      registrador.debug(`[CallbackFila] Resultado de enviarMensagemDireta para ${transacaoIdParaLog}: ${JSON.stringify(resultadoEnvio)}`);
+       // *** LOG DEPOIS DO ENVIO ***
+       registrador.debug(`[Callback] Resultado de enviarMensagemDireta: ${JSON.stringify(resultadoEnvio)}`); // Simplificado (ID na coluna)
 
-      // Checar o resultado do envio
-      if (!resultadoEnvio || !resultadoEnvio.sucesso) {
-        registrador.error(`[CallbackFila] Erro ao enviar resultado de ${tipoMidiaStr} para ${transacaoIdParaLog}: ${resultadoEnvio?.erro?.message || 'Erro desconhecido ou resultado inválido do envio'}`);
-        // A transação deve ser marcada como falha pelo ServicoMensagem ou aqui? Revisar ServicoMensagem.
-      } else {
-        // *** ESTE É O LOG QUE VOCÊ QUER VER ***
-        registrador.info(`[CallbackFila] Resposta de ${tipoMidiaStr} enviada com sucesso para ${transacaoIdParaLog}`);
-      }
+       // Checar o resultado do envio
+       if (!resultadoEnvio || !resultadoEnvio.sucesso) {
+         registrador.error(`[Callback] Erro ao enviar resultado de ${tipoMidiaStr}: ${resultadoEnvio?.erro?.message || 'Erro desconhecido ou resultado inválido do envio'}`); // Simplificado (ID na coluna)
+         // A transação deve ser marcada como falha pelo ServicoMensagem ou aqui? Revisar ServicoMensagem.
+       } else {
+         // *** ESTE É O LOG QUE VOCÊ QUER VER ***
+         registrador.info(`[Callback] Resposta de ${tipoMidiaStr} enviada com sucesso.`); // Simplificado (ID na coluna)
+       }
 
-    } catch (erro) {
-      registrador.error(`[CallbackFila] Erro GERAL ao processar resultado de fila (Transação ${transacaoIdParaLog}): ${erro.message}`, erro);
-      // Tentar registrar falha na transação se ocorrer erro GERAL aqui
-      if (transacaoIdParaLog && transacaoIdParaLog !== 'ID_DESCONHECIDO_NA_ENTRADA') {
-          try {
-               await gerenciadorTransacoes.registrarFalhaEntrega(transacaoIdParaLog, `Erro no callback: ${erro.message}`);
-          } catch (e) {registrador.error(`Falha ao registrar erro de callback na transação ${transacaoIdParaLog}`)}
-      }
-    } finally {
-       // *** LOG DE SAÍDA DO CALLBACK ***
-       // Este log ajuda a confirmar que o callback terminou, mesmo se houve erro
-       registrador.debug(`[CallbackFila] FINALIZANDO CALLBACK para transação ${transacaoIdParaLog}`);
-    }
+     } catch (erro) {
+       registrador.error(`[Callback] Erro GERAL ao processar resultado de fila: ${erro.message}`, erro); // Simplificado (ID na coluna)
+       // Tentar registrar falha na transação se ocorrer erro GERAL aqui
+       if (transacaoIdParaLog && transacaoIdParaLog !== 'ID_DESCONHECIDO_NA_ENTRADA') {
+           try {
+                await gerenciadorTransacoes.registrarFalhaEntrega(transacaoIdParaLog, `Erro no callback: ${erro.message}`);
+           } catch (e) {registrador.error(`[Callback] Falha ao registrar erro de callback na transação: ${e.message}`)} // Simplificado (ID na coluna)
+       }
+     } finally {
+        // *** LOG DE SAÍDA DO CALLBACK ***
+        // Este log ajuda a confirmar que o callback terminou, mesmo se houve erro
+        registrador.debug(`[Callback] FINALIZANDO CALLBACK.`); // Simplificado (ID na coluna)
+     }
   }; // Fim de _processarResultadoFilaMidia
 
   // Configuração de callbacks para filas de mídia
@@ -327,7 +325,7 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
     */ // Fim do código original comentado
 
 
-    registrador.info('📬 Callback unificado de filas de mídia configurado com sucesso (com logs MUITO detalhados de envio).');
+    registrador.info('[Callback] Callback unificado de filas configurado.'); // Simplificado
   }; // Fim de configurarCallbacksFilas
 
   // Inicialização do gerenciador
@@ -347,12 +345,12 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
 
     // Recuperação inicial após 10 segundos
     setTimeout(async () => {
-      await gerenciadorTransacoes.recuperarTransacoesIncompletas();
-    }, 10000);
+       await gerenciadorTransacoes.recuperarTransacoesIncompletas();
+     }, 10000);
 
-    registrador.info('🚀 GerenciadorMensagens inicializado com paradigma funcional');
-    return true;
-  };
+     registrador.info('[Init] GerenciadorMensagens inicializado.'); // Simplificado
+     return true;
+   };
 
   // Registra como handler no cliente
   const registrarComoHandler = (cliente) => {

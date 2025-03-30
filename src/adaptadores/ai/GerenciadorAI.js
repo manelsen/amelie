@@ -275,7 +275,7 @@ const criarAdaptadorAI = (dependencias) => {
     const textoResposta = resultado.response?.text();
 
     if (!textoResposta || typeof textoResposta !== 'string' || textoResposta.trim() === '') {
-      registrador.warn(`[AdaptadorAI] Resposta vazia ou inválida recebida para ${tipoConteudo}. ${origemInfo}`);
+      registrador.warn(`[AdpAI] Resposta vazia ou inválida recebida para ${tipoConteudo}. ${origemInfo}`);
       throw new Error(`Resposta vazia ou inválida da IA para ${tipoConteudo}.`);
     }
 
@@ -304,7 +304,7 @@ const criarAdaptadorAI = (dependencias) => {
     }
 
     // Outros erros
-    registrador.error(`[AdaptadorAI] Erro ao processar ${tipoConteudo}: ${erroMsg} ${origemInfo}`, erro.stack);
+    registrador.error(`[AdpAI] Erro ao processar ${tipoConteudo}: ${erroMsg} ${origemInfo}`, erro.stack);
     return `Desculpe, o serviço de IA está temporariamente indisponível ao processar ${tipoConteudo}. Por favor, tente novamente em alguns instantes.`; // Mensagem genérica
   };
 
@@ -641,7 +641,7 @@ const criarAdaptadorAI = (dependencias) => {
   // --- Funções Auxiliares para Gerenciamento de Arquivos Google ---
 
   const uploadArquivoGoogle = async (caminhoArquivo, opcoesUpload, timeoutMs = TIMEOUT_API_UPLOAD_MS) => {
-    registrador.debug(`[AdaptadorAI] Iniciando upload Google: ${caminhoArquivo}`);
+    registrador.debug(`[AdpAI] Iniciando upload Google: ${caminhoArquivo}`);
     return executarComResiliencia(
       'uploadArquivoGoogle',
       () => gerenciadorArquivosGoogle.uploadFile(caminhoArquivo, opcoesUpload),
@@ -651,22 +651,22 @@ const criarAdaptadorAI = (dependencias) => {
 
   const deleteArquivoGoogle = async (nomeArquivoGoogle, timeoutMs = TIMEOUT_API_GERAL_MS) => {
     if (!nomeArquivoGoogle) return; // Não fazer nada se não houver nome
-    registrador.debug(`[AdaptadorAI] Iniciando delete Google: ${nomeArquivoGoogle}`);
+    registrador.debug(`[AdpAI] Iniciando delete Google: ${nomeArquivoGoogle}`);
     try {
       await executarComResiliencia(
         'deleteArquivoGoogle',
         () => gerenciadorArquivosGoogle.deleteFile(nomeArquivoGoogle),
         timeoutMs
       );
-      registrador.info(`[AdaptadorAI] Arquivo Google deletado: ${nomeArquivoGoogle}`);
+      registrador.info(`[AdpAI] Arquivo Google deletado: ${nomeArquivoGoogle}`);
     } catch (erro) {
-      registrador.error(`[AdaptadorAI] Falha ao deletar arquivo Google ${nomeArquivoGoogle}: ${erro.message}`);
+      registrador.error(`[AdpAI] Falha ao deletar arquivo Google ${nomeArquivoGoogle}: ${erro.message}`);
       // Não relançar o erro para não interromper o fluxo principal se a exclusão falhar
     }
   };
 
   const getArquivoGoogle = async (nomeArquivoGoogle, timeoutMs = TIMEOUT_API_GERAL_MS) => {
-     registrador.debug(`[AdaptadorAI] Obtendo estado arquivo Google: ${nomeArquivoGoogle}`);
+     registrador.debug(`[AdpAI] Obtendo estado arquivo Google: ${nomeArquivoGoogle}`);
      return executarComResiliencia(
         'getArquivoGoogle',
         () => gerenciadorArquivosGoogle.getFile(nomeArquivoGoogle),
@@ -679,9 +679,8 @@ const criarAdaptadorAI = (dependencias) => {
    * Usado pelas filas após o upload e processamento inicial.
    */
   const gerarConteudoDeArquivoUri = async (fileUri, mimeType, prompt, config) => {
-    const tipo = config.tipoMidia || 'arquivoUri'; // 'video' ou 'documentoArquivo' etc.
-    // Cache não aplicável diretamente aqui, pois depende do URI que pode mudar
-    registrador.info(`[${tipo}] Iniciando geração de conteúdo para URI: ${fileUri}`);
+    const tipo = config.tipoMidia || 'arquivoUri';
+    registrador.debug(`[${tipo}] Iniciando geração de conteúdo: ${fileUri}`);
 
     try {
       // Determinar instrução do sistema apropriada

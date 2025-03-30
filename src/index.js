@@ -9,6 +9,7 @@
  */
 
 const winston = require('winston');
+const moment = require('moment-timezone'); // Importar moment-timezone
 const colors = require('colors/safe');
 const dotenv = require('dotenv');
 const fs = require('fs');
@@ -16,6 +17,9 @@ const path = require('path');
 
 // Carregar variáveis de ambiente
 dotenv.config();
+
+// Definir o fuso horário padrão para moment
+moment.tz.setDefault("America/Sao_Paulo");
 
 // Importar módulos da aplicação
 const ConfigManager = require('./config/ConfigManager');
@@ -43,28 +47,98 @@ for (const dir of diretorios) {
 }
 
 /**
- * Configuração de formato personalizado para o logger
+ * Configuração de formato personalizado para o logger (com colunas)
  */
+// Formato simplificado também para o console
 const meuFormato = winston.format.printf(({ timestamp, level, message, ...rest }) => {
-  const dadosExtras = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '';
+  // Formatar timestamp com moment-timezone
+  const timestampFormatado = moment(timestamp).format('DD/MM/YYYY HH:mm:ss');
 
-  // Usar expressões regulares para colorir apenas partes específicas
-  let mensagemColorida = message;
+  const contextoMatch = message.match(/^\[([^\]]+)\]\s*/);
+  const transacaoMatch = message.match(/\b(tx_\d+_[a-f0-9]+)\b/);
 
-  // Colorir apenas "Mensagem de [nome]" em verde
-  mensagemColorida = mensagemColorida.replace(
-    /(Mensagem de [^:]+):/g,
-    match => colors.green(match)
-  );
+  let contexto = 'Geral';
+  let mensagemPrincipal = message;
+  let idTransacao = '';
 
-  // Colorir apenas "Resposta:" em azul
-  mensagemColorida = mensagemColorida.replace(
-    /\b(Resposta):/g,
-    match => colors.blue(match)
-  );
+  if (contextoMatch) {
+    contexto = contextoMatch[1];
+    mensagemPrincipal = mensagemPrincipal.replace(contextoMatch[0], '');
+  }
 
-  return `${timestamp} [${colors.yellow(level)}]: ${mensagemColorida} ${dadosExtras}`;
+  if (transacaoMatch) {
+    idTransacao = transacaoMatch[1];
+    mensagemPrincipal = mensagemPrincipal.replace(transacaoMatch[0], '');
+  }
+
+  // Limpar mensagem principal
+  mensagemPrincipal = mensagemPrincipal.replace(/\s*-\s*$/, '').trim();
+  mensagemPrincipal = mensagemPrincipal.replace(/\s{2,}/g, ' ').trim();
+
+  // Formatar nível e contexto com colchetes e cor para o nível
+  const levelFormatado = `[${level.toUpperCase()}]`;
+  const levelColorido = colors.yellow(levelFormatado); // Manter cor no console
+  const contextoFormatado = `[${contexto}]`;
+
+  // Montar a string final usando o timestamp formatado
+  let logString = `${timestampFormatado} ${levelColorido} ${contextoFormatado} ${mensagemPrincipal}`;
+
+  // Adicionar ID da transação no final, se existir
+  if (idTransacao) {
+    logString += ` (ID: ${idTransacao})`;
+  }
+
+  return logString.trim();
 });
+
+
+// Novo formato de log simplificado para arquivos
+const formatoArquivo = winston.format.printf(({ timestamp, level, message, ...rest }) => {
+  // Formatar timestamp com moment-timezone
+  const timestampFormatado = moment(timestamp).format('DD/MM/YYYY HH:mm:ss');
+
+  // Não precisamos mais de dadosExtras neste formato simplificado
+  // const dadosExtras = Object.keys(rest).length ? JSON.stringify(rest) : '';
+
+  const contextoMatch = message.match(/^\[([^\]]+)\]\s*/);
+  const transacaoMatch = message.match(/\b(tx_\d+_[a-f0-9]+)\b/);
+
+  let contexto = 'Geral';
+  let mensagemPrincipal = message;
+  let idTransacao = '';
+
+  if (contextoMatch) {
+    // Usar o contexto encontrado, sem adicionar colchetes extras aqui
+    contexto = contextoMatch[1];
+    mensagemPrincipal = mensagemPrincipal.replace(contextoMatch[0], '');
+  }
+
+  if (transacaoMatch) {
+    idTransacao = transacaoMatch[1];
+    mensagemPrincipal = mensagemPrincipal.replace(transacaoMatch[0], '');
+  }
+
+  // Limpar mensagem principal
+  mensagemPrincipal = mensagemPrincipal.replace(/\s*-\s*$/, '').trim();
+  mensagemPrincipal = mensagemPrincipal.replace(/\s{2,}/g, ' ').trim();
+
+  // Formatar nível e contexto com colchetes
+  const levelFormatado = `[${level.toUpperCase()}]`;
+  const contextoFormatado = `[${contexto}]`;
+
+  // Montar a string final usando o timestamp formatado
+  let logString = `${timestampFormatado} ${levelFormatado} ${contextoFormatado} ${mensagemPrincipal}`;
+
+  // Adicionar ID da transação no final, se existir
+  if (idTransacao) {
+    logString += ` (ID: ${idTransacao})`;
+  }
+
+  // Não precisamos mais de dadosExtras, então não adicionamos
+
+  return logString.trim(); // Garantir que não haja espaços extras no final
+});
+
 
 /**
  * Configuração do logger com saída para console e arquivo
@@ -78,35 +152,25 @@ const logger = winston.createLogger({
   transports: [
     new winston.transports.Console({
       format: winston.format.combine(
-        winston.format.timestamp(
-          {
-            format: 'DD/MM/YYYY HH:mm:ss'
-          }
-        ),
+        // Timestamp agora é formatado dentro de meuFormato
         meuFormato
       )
     }),
     new winston.transports.File({
       filename: './logs/bot.log',
       format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.uncolorize(), // Remove cores para o arquivo de log
-        winston.format.printf(({ timestamp, level, message, ...rest }) => {
-          const dadosExtras = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '';
-          return `${timestamp} [${level}]: ${message} ${dadosExtras}`;
-        })
+        // Timestamp agora é formatado dentro de formatoArquivo
+        winston.format.uncolorize(), // Essencial para arquivos
+        formatoArquivo // Usar o novo formato de arquivo
       )
     }),
     new winston.transports.File({
       filename: './logs/error.log',
       level: 'error',
       format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.uncolorize(),
-        winston.format.printf(({ timestamp, level, message, ...rest }) => {
-          const dadosExtras = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '';
-          return `${timestamp} [${level}]: ${message} ${dadosExtras}`;
-        })
+        // Timestamp agora é formatado dentro de formatoArquivo
+        winston.format.uncolorize(), // Essencial para arquivos
+        formatoArquivo // Usar o novo formato de arquivo
       )
     })
   ]

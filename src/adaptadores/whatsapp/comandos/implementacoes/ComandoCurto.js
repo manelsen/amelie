@@ -24,12 +24,12 @@ const criarComandoCurto = (dependencias) => {
       
       // Enviar confirmação
       () => {
-        registrador.info(`Modo curto ativado para ${chatId}, verificando configuração...`);
+        registrador.info(`[CmdCurto] Ativando modo curto, verificando config...`); // Simplificado
         return Trilho.dePromise(gerenciadorConfig.obterConfig(chatId));
       },
       
       config => {
-        registrador.info(`Modo de descrição atual: ${config.modoDescricao}`);
+        registrador.info(`[CmdCurto] Modo de descrição atual: ${config.modoDescricao}`); // Simplificado
         return Trilho.dePromise(servicoMensagem.enviarResposta(
           mensagem, 
           'Modo de descrição curta e concisa ativado para imagens e vídeos. Toda mídia visual será descrita de forma breve e objetiva, limitado a cerca de 200 caracteres.'
@@ -38,7 +38,7 @@ const criarComandoCurto = (dependencias) => {
     )()
     .then(resultado => {
       if (resultado.sucesso) {
-        registrador.debug(`Modo de descrição curta ativado para o chat ${chatId}`);
+        registrador.debug(`[CmdCurto] Modo de descrição curta ativado.`); // Simplificado
       }
       return resultado;
     });

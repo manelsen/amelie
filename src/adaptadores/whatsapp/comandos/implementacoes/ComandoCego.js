@@ -62,7 +62,7 @@ const criarComandoCego = (dependencias) => {
     )()
     .then(resultado => {
       if (resultado.sucesso) {
-        registrador.info(`Configurações para usuários com deficiência visual aplicadas no chat ${chatId}`);
+        registrador.info(`[CmdCego] Configs para deficiência visual aplicadas.`); // Simplificado
       }
       return resultado;
     });
