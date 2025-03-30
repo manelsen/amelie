@@ -499,57 +499,83 @@ class ClienteWhatsApp extends EventEmitter {
   async deveResponderNoGrupo(msg, chat) {
     const chatId = chat.id._serialized;
     const msgId = msg.id._serialized;
-    this.registrador.debug(`[deveResponderNoGrupo] Verificando msg ${msgId} no grupo ${chatId}`); // Revert to debug
+    const botId = this.cliente?.info?.wid?._serialized;
+    const nomeGrupo = chat.name || chatId;
+    const prefixoLog = `[deveResponderNoGrupo][${nomeGrupo}]`;
+
+    this.registrador.debug(`${prefixoLog} INICIO: Verificando msg ${msgId}. Bot ID: ${botId || 'N/A'}`);
 
     // Log inicial das propriedades da mensagem
-    this.registrador.debug(`[deveResponderNoGrupo] msg.body: "${msg.body}" (Tipo: ${typeof msg.body})`); // Revert to debug
-    this.registrador.debug(`[deveResponderNoGrupo] msg.hasMedia: ${msg.hasMedia}`); // Revert to debug
-    this.registrador.debug(`[deveResponderNoGrupo] msg.hasQuotedMsg: ${msg.hasQuotedMsg}`); // Revert to debug
+    this.registrador.debug(`${prefixoLog} Propriedades: Body='${msg.body}', HasMedia=${msg.hasMedia}, HasQuotedMsg=${msg.hasQuotedMsg}, Type=${msg.type}`);
 
-    // Se for uma mensagem com comando
+    // 1. Verificar se é comando
+    this.registrador.debug(`${prefixoLog} Passo 1: Verificando se é comando...`);
     if (typeof msg.body === 'string' && msg.body.startsWith('.')) {
-      this.registrador.debug(`[deveResponderNoGrupo] TRUE: É um comando (${msg.body.split(' ')[0]}) em ${chatId}.`); // Revert to debug
+      const comando = msg.body.split(' ')[0];
+      this.registrador.debug(`${prefixoLog} RESULTADO: TRUE (É um comando: ${comando})`);
       return true;
     }
+    this.registrador.debug(`${prefixoLog} RESULTADO: FALSE (Não é comando)`);
 
-    // Se tiver mídia
+    // 2. Verificar se tem mídia
+    this.registrador.debug(`${prefixoLog} Passo 2: Verificando se tem mídia...`);
     if (msg.hasMedia) {
-      this.registrador.debug(`[deveResponderNoGrupo] TRUE: É mídia (tipo ${msg.type}) em ${chatId}.`); // Revert to debug
+      this.registrador.debug(`${prefixoLog} RESULTADO: TRUE (É mídia, tipo: ${msg.type})`);
       return true;
     }
+    this.registrador.debug(`${prefixoLog} RESULTADO: FALSE (Não tem mídia)`);
 
-    // Verificar menções
-    try {
-      const mencoes = await msg.getMentions();
-      const botMencionado = mencoes.some(mencao =>
-        mencao.id._serialized === this.cliente.info.wid._serialized
-      );
-      this.registrador.debug(`[deveResponderNoGrupo] Verificação de menção concluída. Bot mencionado: ${botMencionado}`); // Revert to debug
-      if (botMencionado) {
-        this.registrador.debug(`[deveResponderNoGrupo] TRUE: Bot foi mencionado em ${chatId}.`); // Revert to debug
-        return true;
+    // 3. Verificar menções
+    this.registrador.debug(`${prefixoLog} Passo 3: Verificando menções...`);
+    if (botId) {
+      try {
+        const mencoes = await msg.getMentions();
+        const botMencionado = mencoes.some(mencao => mencao.id._serialized === botId);
+        this.registrador.debug(`${prefixoLog} Verificação de menção concluída. Bot foi mencionado? ${botMencionado}`);
+        if (botMencionado) {
+          this.registrador.debug(`${prefixoLog} RESULTADO: TRUE (Bot foi mencionado)`);
+          return true;
+        }
+      } catch (errorMencao) {
+        // Manter como erro, pois é uma falha inesperada
+        this.registrador.error(`${prefixoLog} FALHA CRÍTICA ao verificar menções para msg ${msgId}: ${errorMencao.message}`);
+        this.registrador.debug(`${prefixoLog} RESULTADO: FALSE (Erro ao verificar menções)`);
+        return false;
       }
-    } catch (errorMencao) {
-      this.registrador.warn(`[deveResponderNoGrupo] Erro ao verificar menções para msg ${msgId}: ${errorMencao.message}`);
-      // Continuar a verificação mesmo se houver erro aqui
+    } else {
+      this.registrador.warn(`${prefixoLog} ID do bot não disponível, pulando verificação de menção.`);
     }
+    this.registrador.debug(`${prefixoLog} RESULTADO: FALSE (Bot não foi mencionado ou verificação pulada)`);
 
-    // Verificar citação de mensagem do bot
+    // 4. Verificar citação de mensagem do bot
+    this.registrador.debug(`${prefixoLog} Passo 4: Verificando citação...`);
     if (msg.hasQuotedMsg) {
       try {
         const msgCitada = await msg.getQuotedMessage();
-        this.registrador.debug(`[deveResponderNoGrupo] Verificação de citação concluída. Mensagem citada é do bot: ${msgCitada.fromMe}`); // Revert to debug
-        if (msgCitada.fromMe) {
-          this.registrador.debug(`[deveResponderNoGrupo] TRUE: É uma resposta a uma mensagem do bot em ${chatId}.`); // Revert to debug
-          return true;
+        if (msgCitada) {
+            this.registrador.debug(`${prefixoLog} Mensagem citada obtida. É do bot? ${msgCitada.fromMe}. ID da msg citada: ${msgCitada.id._serialized}`);
+            if (msgCitada.fromMe) {
+              this.registrador.debug(`${prefixoLog} RESULTADO: TRUE (É uma resposta a uma mensagem do bot)`);
+              return true;
+            } else {
+              this.registrador.debug(`${prefixoLog} Mensagem citada NÃO é do bot.`);
+            }
+        } else {
+             this.registrador.warn(`${prefixoLog} Mensagem citada retornou null/undefined.`);
         }
       } catch (errorCitacao) {
-        this.registrador.warn(`[deveResponderNoGrupo] Erro ao verificar mensagem citada para msg ${msgId}: ${errorCitacao.message}`);
-        // Continuar mesmo se houver erro aqui
+        // Manter como erro, pois é uma falha inesperada
+        this.registrador.error(`${prefixoLog} FALHA CRÍTICA ao verificar mensagem citada para msg ${msgId}: ${errorCitacao.message}`);
+        this.registrador.debug(`${prefixoLog} RESULTADO: FALSE (Erro ao verificar citação)`);
+        return false;
       }
+    } else {
+        this.registrador.debug(`${prefixoLog} Mensagem não possui citação.`);
     }
+    this.registrador.debug(`${prefixoLog} RESULTADO: FALSE (Não é resposta ao bot ou não tem citação)`);
 
-    this.registrador.debug(`[deveResponderNoGrupo] FALSE: Nenhuma condição atendida para msg ${msgId} em ${chatId}.`); // Revert to debug
+    // 5. Nenhuma condição atendida
+    this.registrador.debug(`${prefixoLog} FIM: Nenhuma condição atendida para msg ${msgId}. Não responder.`);
     return false;
   }
 }

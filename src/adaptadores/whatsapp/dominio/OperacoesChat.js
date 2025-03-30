@@ -9,7 +9,7 @@ const obterInformacoesChat = _.curry(async (registrador, dados) => {
   try {
     const { mensagem } = dados;
     const chat = await mensagem.getChat();
-    await chat.sendSeen();
+    // await chat.sendSeen(); // Removido permanentemente - causava problemas em alguns grupos
 
     const chatId = chat.id._serialized;
     const ehGrupo = chatId.endsWith('@g.us');
@@ -21,7 +21,10 @@ const obterInformacoesChat = _.curry(async (registrador, dados) => {
       ehGrupo
     });
   } catch (erro) {
-    registrador.error(`Erro ao obter informações do chat: ${erro.message}`);
+    // Usar ID da mensagem e chat inicial para log de erro, caso 'chat' não seja obtido
+    const msgId = dados?.mensagem?.id?._serialized || 'ID Indisponível';
+    const initialChatId = dados?.mensagem?.from || 'Chat Indisponível';
+    registrador.error(`[ObterInfoChat][${initialChatId}][${msgId}] Erro ao obter informações do chat: ${erro.message}`, erro);
     return Resultado.falha(erro);
   }
 });

@@ -99,51 +99,70 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
 
   // Função principal de processamento de mensagens usando composição funcional
   const processarMensagem = async (mensagem) => {
+    // Objeto de dados inicial para o pipeline, contendo a mensagem
+    const dadosIniciais = { mensagem };
+    const msgIdLog = mensagem?.id?._serialized || 'ID Desconhecido'; // Para logs de erro
+
     try {
       // Pipeline de processamento usando Railway Pattern
       const resultado = await Trilho.encadear(
         // Etapa 1: Validação e verificação de duplicação
-        () => validarMensagem(registrador, gerenciadorCache.cache, mensagem),
-        
+        (dados) => validarMensagem(registrador, gerenciadorCache.cache, dados.mensagem),
+
         // Etapa 2: Verificar se é mensagem de sistema
-        dados => verificarMensagemSistema(registrador, dados),
-        
+        (dados) => verificarMensagemSistema(registrador, dados),
+
         // Etapa 3: Obter informações do chat
-        dados => obterInformacoesChat(registrador, dados),
-        
+        (dados) => obterInformacoesChat(registrador, dados), // Adiciona chatId, chat, ehGrupo aos dados
+
         // Etapa 4: Verificar se deve responder em grupo
-        dados => {
+        async (dados) => {
           if (dados.ehGrupo) {
-            return verificarRespostaGrupo(clienteWhatsApp, dados);
+            return verificarRespostaGrupo(clienteWhatsApp, dados); // Chama a função que usa deveResponderNoGrupo
           }
-          return Resultado.sucesso(dados);
+          return Resultado.sucesso({ ...dados, deveResponder: true }); // Sempre responde se não for grupo
         },
-        
+
         // Etapa 5: Classificar tipo de mensagem
-        dados => verificarTipoMensagem(registrador, dados),
-        
+        (dados) => verificarTipoMensagem(registrador, dados), // Adiciona 'tipo' aos dados
+
         // Etapa 6: Processar conforme o tipo
-        dados => direcionarPorTipo(dados)
-      )();
-      
-      // Tratar resultado
-      return resultado.sucesso;
-    } catch (erro) {
-      // Tratar e registrar erro global
-      const mensagemId = mensagem?.id?._serialized || 'desconhecido';
+        (dados) => direcionarPorTipo(dados)
+      )(dadosIniciais); // Iniciar o pipeline com o objeto de dados inicial
 
-      // Classificar tipos de erro para tratamento adequado
-      if (erro.message === "Mensagem duplicada" ||
-          erro.message === "Mensagem de sistema" ||
-          erro.message === "Não atende critérios para resposta em grupo" ||
-          erro.message === "Transcrição de áudio desabilitada" ||
-          erro.message === "Descrição de imagem desabilitada" ||
-          erro.message === "Descrição de vídeo desabilitada") {
-        // Erros esperados e tratados silenciosamente
-        return false;
+      // Tratar resultado final do pipeline
+      if (resultado.sucesso) {
+        // Processamento bem-sucedido (ou falha esperada tratada internamente)
+        return true;
+      } else {
+        // Registrar falhas não silenciosas que pararam o trilho
+        const erroMsg = resultado.erro.message;
+        // Lista de erros esperados que não devem ser logados como erro crítico
+        const errosSilenciosos = [
+          "Mensagem duplicada",
+          "Mensagem de sistema",
+          "Não atende critérios para resposta em grupo",
+          "Transcrição de áudio desabilitada",
+          "Descrição de imagem desabilitada",
+          "Descrição de vídeo desabilitada"
+          // Adicionar outras falhas esperadas aqui, se necessário
+        ];
+
+        if (!errosSilenciosos.includes(erroMsg)) {
+           // Logar apenas erros que não são esperados/configurados
+           const chatIdLog = dadosIniciais.mensagem?.from || 'Chat Desconhecido';
+           registrador.error(`[ProcessamentoMsg][${chatIdLog}][${msgIdLog}] Falha inesperada no pipeline: ${erroMsg}`);
+        } else {
+           // Opcional: Logar falhas esperadas como 'warn' ou 'info' se desejado para depuração
+           // const chatIdLog = dadosIniciais.mensagem?.from || 'Chat Desconhecido';
+           // registrador.warn(`[ProcessamentoMsg][${chatIdLog}][${msgIdLog}] Falha esperada no pipeline: ${erroMsg}`);
+        }
+        return false; // Indica que o processamento parou devido a uma falha (esperada ou não)
       }
-
-      registrador.error(`Erro ao processar mensagem ${mensagemId}: ${erro.message}`);
+    } catch (erro) {
+      // Tratar e registrar erro global inesperado (fora do trilho)
+      const chatIdLog = dadosIniciais.mensagem?.from || 'Chat Desconhecido';
+      registrador.error(`[ProcessamentoMsg][${chatIdLog}][${msgIdLog}] ERRO GLOBAL INESPERADO: ${erro.message}`, erro);
       return false;
     }
   };
