@@ -32,7 +32,7 @@ const criarProcessadorImagem = (dependencias) => {
 
       // Verificar se descrição de imagem está habilitada
       if (!config || !config.mediaImage) {
-        registrador.info(`[Image] Descrição DESABILITADA. Ignorando.`); // Simplificado
+        registrador.debug(`[Image] Descrição DESABILITADA. Ignorando.`); // Simplificado
         return Resultado.falha(new Error("Descrição de imagem desabilitada"));
       }
       registrador.debug(`[Image] Descrição HABILITADA. Continuando...`);
@@ -77,7 +77,7 @@ const criarProcessadorImagem = (dependencias) => {
       }
 
       const transacao = resultadoTransacao.dados;
-      registrador.info(`[Image] Transação criada. ID: ${transacao?.id}`); // Simplificado
+      registrador.info(`[Image] Transação criada ${transacao?.id}`); // Simplificado
 
       if (!transacao || !transacao.id) {
           registrador.error("[Image] *** ERRO CRÍTICO: Objeto transação ou ID está faltando após criação! ***");

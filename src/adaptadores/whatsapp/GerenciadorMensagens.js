@@ -203,7 +203,7 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
         await chat.sendMessage(mensagemBoasVindas); // Usar constante
          await chat.sendMessage(textoAjuda);
 
-         registrador.info(`[Grupo] Bot ${nomeBot} adicionado ao grupo "${chat.name}" (${chatId}) e enviou saudação.`); // Simplificado
+         registrador.info(`[Grupo] Bot ${nomeBot} adicionado ao grupo "${chat.name}" (${chatId}).`);
          return Resultado.sucesso(true);
        }
 

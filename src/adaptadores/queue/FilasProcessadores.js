@@ -67,7 +67,7 @@ const FilasProcessadores = {
     const registrarConclusao = (resultado) => {
       // Verificar se o transacaoId já começa com tx_
       const idTx = resultado.transacaoId || 'sem_id';
-      registrador.info(`Resposta de ${resultado.tipo} pronta - ${idTx}`);
+      registrador.info(`${resultado.tipo} ok - ${idTx}`);
       return Resultado.sucesso(resultado);
     };
 
@@ -236,7 +236,7 @@ const FilasProcessadores = {
     return Trilho.encadear(
       () => {
         // Adicionamos esta linha para log mais informativo
-        registrador.info(`Imagem inserida na fila   - ${transacaoId || 'sem_id'}`);
+        registrador.info(`Imagem na fila   - ${transacaoId || 'sem_id'}`);
         return Resultado.sucesso(job.data);
       },
       

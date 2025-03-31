@@ -47,7 +47,7 @@ const criarProcessadorTexto = (dependencias) => {
 
       const transacao = resultadoTransacao.dados;
       // *** LOG CRÍTICO DO ID ANTES DE USAR ***
-      registrador.info(`[Texto] Transação criada. ID: ${transacao?.id}`); // Simplificado
+      registrador.info(`[Texto] Transação criada ${transacao?.id}`); // Simplificado
 
       // *** VERIFICAÇÃO CRÍTICA DO ID ***
       if (!transacao || !transacao.id) {

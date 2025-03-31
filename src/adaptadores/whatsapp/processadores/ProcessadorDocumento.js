@@ -60,26 +60,26 @@ const criarProcessadorDocumento = (dependencias) => {
         // Tentar inferir primeiro para DOCX, depois para inline
          if (extensao === '.docx') {
             mimeType = MIMETYPE_DOCX;
-            registrador.info(`[Doc] Mimetype 'octet-stream' inferido como DOCX (arquivo: ${nomeArquivo}).`);
+            registrador.info(`[Docto] Mimetype 'octet-stream' inferido como DOCX (arquivo: ${nomeArquivo}).`);
          } else {
              const mimeTypeInferidoInline = EXTENSAO_PARA_MIMETYPE_INLINE[extensao];
              if (mimeTypeInferidoInline) {
-               registrador.info(`[Doc] Mimetype 'octet-stream' inferido como '${mimeTypeInferidoInline}' (arquivo: ${nomeArquivo}).`);
+               registrador.info(`[Docto] Mimetype 'octet-stream' inferido como '${mimeTypeInferidoInline}' (arquivo: ${nomeArquivo}).`);
                mimeType = mimeTypeInferidoInline;
              } else {
-               registrador.warn(`[Doc] Mimetype 'octet-stream', tipo não inferido (ext: '${extensao}', arquivo: ${nomeArquivo}). API pode rejeitar.`);
+               registrador.warn(`[Docto] Mimetype 'octet-stream', tipo não inferido (ext: '${extensao}', arquivo: ${nomeArquivo}). API pode rejeitar.`);
              }
          }
        }
 
-       registrador.info(`[Doc] Recebido (Mimetype: ${mimeType}). Verificando método.`); // Simplificado
+       registrador.info(`[Docto] Recebido (Mimetype: ${mimeType}). Verificando método.`); // Simplificado
 
        // Verificação de tamanho
        const tamanhoBytes = Buffer.from(dadosAnexo.data, 'base64').length;
-       registrador.debug(`[Doc] Tamanho: ${tamanhoBytes} bytes.`);
+       registrador.debug(`[Docto] Tamanho: ${tamanhoBytes} bytes.`);
 
        if (tamanhoBytes > LIMITE_TAMANHO_DOC_BYTES) {
-         registrador.warn(`[Doc] Excede limite ${LIMITE_TAMANHO_DOC_BYTES / (1024 * 1024)}MB (Mimetype: ${mimeType}, Tamanho: ${tamanhoBytes} bytes).`); // Simplificado
+         registrador.warn(`[Docto] Excede limite ${LIMITE_TAMANHO_DOC_BYTES / (1024 * 1024)}MB (Mimetype: ${mimeType}, Tamanho: ${tamanhoBytes} bytes).`); // Simplificado
          await servicoMensagem.enviarMensagemDireta(chatId, `❌ Desculpe, o documento enviado é muito grande (${(tamanhoBytes / (1024 * 1024)).toFixed(1)}MB). O limite atual é de 20MB.`);
          return Resultado.falha(new Error(`Documento excede o limite de tamanho de ${LIMITE_TAMANHO_DOC_BYTES} bytes`));
       }
@@ -107,29 +107,29 @@ const criarProcessadorDocumento = (dependencias) => {
        // *** LÓGICA CONDICIONAL: Pandoc para DOCX, Inline para outros ***
        if (mimeType === MIMETYPE_DOCX) {
          // --- Processamento DOCX via Pandoc + processarTexto ---
-         registrador.info(`[Doc] Mimetype DOCX. Usando extração local com pandoc.`);
+         registrador.info(`[Docto] Mimetype DOCX. Usando extração local com pandoc.`);
 
          // 1. Salvar DOCX temporariamente
          const nomeTemp = `${crypto.randomBytes(16).toString('hex')}.docx`;
          caminhoDocTemporario = path.join(os.tmpdir(), nomeTemp);
          await fs.writeFile(caminhoDocTemporario, dadosAnexo.data, { encoding: 'base64' });
-         registrador.debug(`[Doc] DOCX salvo temporariamente em: ${caminhoDocTemporario}`);
+         registrador.debug(`[Docto] DOCX salvo temporariamente em: ${caminhoDocTemporario}`);
 
          // 2. Executar pandoc para extrair texto
          let textoExtraido;
          try {
-           registrador.debug(`[Doc] Executando pandoc para extrair texto.`);
+           registrador.debug(`[Docto] Executando pandoc para extrair texto.`);
            const { stdout, stderr } = await execPromise(`pandoc "${caminhoDocTemporario}" -t plain`);
            if (stderr) {
-             registrador.warn(`[Doc] Pandoc stderr: ${stderr}`);
+             registrador.warn(`[Docto] Pandoc stderr: ${stderr}`);
            }
            textoExtraido = stdout;
-           registrador.info(`[Doc] Texto extraído do DOCX via pandoc. Tamanho: ${textoExtraido?.length || 0}`);
+           registrador.info(`[Docto] Texto extraído do DOCX via pandoc. Tamanho: ${textoExtraido?.length || 0}`);
            if (!textoExtraido || textoExtraido.trim().length === 0) {
               throw new Error("Pandoc não extraiu texto do DOCX.");
            }
          } catch (pandocError) {
-           registrador.error(`[Doc] Erro ao executar pandoc: ${pandocError.message}`);
+           registrador.error(`[Docto] Erro ao executar pandoc: ${pandocError.message}`);
            throw new Error(`Falha ao extrair texto do DOCX com pandoc: ${pandocError.message}`); // Lança erro para o catch principal
          }
 
@@ -139,7 +139,7 @@ const criarProcessadorDocumento = (dependencias) => {
            : textoExtraido;
 
          // 4. Chamar processarTexto da IA
-         registrador.info(`[Doc] Chamando IA (processarTexto) para texto extraído do DOCX.`);
+         registrador.info(`[Docto] Chamando IA (processarTexto) para texto extraído do DOCX.`);
          const configParaTextoDocx = {
            ...configBaseAI,
            systemInstruction: obterInstrucaoDocumento() // Usar instrução de documento
@@ -150,13 +150,13 @@ const criarProcessadorDocumento = (dependencias) => {
           if (!respostaAI.startsWith("Desculpe,")) {
              respostaAI = `📄 *Análise do seu documento (docx):*\n\n${respostaAI}`;
           } else {
-             registrador.warn(`[Doc] Erro retornado por processarTexto (DOCX): ${respostaAI}`);
+             registrador.warn(`[Docto] Erro retornado por processarTexto (DOCX): ${respostaAI}`);
              // Não adicionar prefixo se for erro
           }
 
        } else {
          // --- Processamento Inline (para outros tipos) ---
-         registrador.info(`[Doc] Mimetype ${mimeType}. Tentando processamento INLINE.`);
+         registrador.info(`[Docto] Mimetype ${mimeType}. Tentando processamento INLINE.`);
 
          const dadosAnexoCorrigido = {
           ...dadosAnexo,
@@ -173,7 +173,7 @@ const criarProcessadorDocumento = (dependencias) => {
 
        // Verificar se a resposta da IA indica um erro (comum a ambos os fluxos)
        if (respostaAI.includes("não pôde ser processado") || respostaAI.startsWith("Desculpe,")) {
-          registrador.warn(`[Doc] Erro retornado pela IA (Mimetype: ${mimeType}): ${respostaAI}`);
+          registrador.warn(`[Docto] Erro retornado pela IA (Mimetype: ${mimeType}): ${respostaAI}`);
           await servicoMensagem.enviarResposta(mensagem, respostaAI);
           const erroMsg = respostaAI.split('\n\n')[1] || respostaAI;
           return Resultado.falha(new Error(erroMsg));
@@ -182,19 +182,19 @@ const criarProcessadorDocumento = (dependencias) => {
        // 5. Enviar resposta (se não houve erro da IA)
        const resultadoEnvio = await servicoMensagem.enviarResposta(mensagem, respostaAI);
        if (!resultadoEnvio.sucesso) {
-         registrador.error(`[Doc] Falha ao enviar resposta AI: ${resultadoEnvio.erro.message}`);
+         registrador.error(`[Docto] Falha ao enviar resposta AI: ${resultadoEnvio.erro.message}`);
        } else {
-         registrador.info(`[Doc] Resposta da análise enviada.`);
+         registrador.info(`[Docto] Resposta da análise enviada.`);
        }
 
        return Resultado.sucesso({ resposta: respostaAI });
 
      } catch (erro) {
-       registrador.error(`[Doc] Erro GERAL (Mimetype: ${mimeType}, Temp: ${caminhoDocTemporario || 'N/A'}): ${erro.message}`, erro.stack);
+       registrador.error(`[Docto] Erro GERAL (Mimetype: ${mimeType}, Temp: ${caminhoDocTemporario || 'N/A'}): ${erro.message}`, erro.stack);
        try {
          await servicoMensagem.enviarMensagemDireta(chatId, `❌ Desculpe, ocorreu um erro ao processar o documento (${mimeType}). Tente novamente.`);
        } catch (erroEnvio) {
-         registrador.error(`[Doc] Falha crítica ao tentar notificar erro GERAL: ${erroEnvio.message}`);
+         registrador.error(`[Docto] Falha crítica ao tentar notificar erro GERAL: ${erroEnvio.message}`);
        }
        return Resultado.falha(erro);
 
@@ -203,9 +203,9 @@ const criarProcessadorDocumento = (dependencias) => {
        if (caminhoDocTemporario) {
          try {
            await fs.unlink(caminhoDocTemporario);
-           registrador.debug(`[Doc] Arquivo temporário DOCX removido: ${caminhoDocTemporario}`);
+           registrador.debug(`[Docto] Arquivo temporário DOCX removido: ${caminhoDocTemporario}`);
          } catch (erroLimpeza) {
-           registrador.warn(`[Doc] Falha ao remover arquivo temporário DOCX ${caminhoDocTemporario}: ${erroLimpeza.message}`);
+           registrador.warn(`[Docto] Falha ao remover arquivo temporário DOCX ${caminhoDocTemporario}: ${erroLimpeza.message}`);
          }
        }
      }

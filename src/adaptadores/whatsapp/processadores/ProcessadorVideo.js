@@ -67,7 +67,7 @@ const criarProcessadorVideo = (dependencias) => {
 
       // Verificar se processamento de vídeo está habilitado
       if (!config || !config.mediaVideo) {
-        registrador.info(`[Video] Descrição DESABILITADA. Ignorando.`); // Simplificado
+        registrador.debug(`[Video] Descrição DESABILITADA. Ignorando.`); // Simplificado
         return Resultado.falha(new Error("Descrição de vídeo desabilitada"));
       }
        registrador.debug(`[Video] Descrição HABILITADA. Continuando...`);
@@ -117,7 +117,7 @@ const criarProcessadorVideo = (dependencias) => {
       }
 
       const transacao = resultadoTransacao.dados;
-      registrador.info(`[Video] Transação criada. ID: ${transacao?.id}`); // Simplificado
+      registrador.info(`[Video] Transação criada ${transacao?.id}`); // Simplificado
 
       if (!transacao || !transacao.id) {
           registrador.error("[Video] *** ERRO CRÍTICO: Objeto transação ou ID está faltando após criação! ***");
