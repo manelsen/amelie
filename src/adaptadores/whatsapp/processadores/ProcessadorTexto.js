@@ -105,7 +105,7 @@ const criarProcessadorTexto = (dependencias) => {
       // Enviar a resposta
       registrador.debug(`[Texto] Enviando resposta.`); // Simplificado
       await servicoMensagem.enviarResposta(mensagem, resposta, currentTransacaoId);
-      registrador.info(`[Texto] Resposta enviada (ou enfileirada).`); // Simplificado
+      registrador.info(`[Texto] Resposta enviada.`); // Simplificado
 
       // 'marcarComoEntregue' é provavelmente tratado por servicoMensagem
 

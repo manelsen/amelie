@@ -76,12 +76,11 @@ const meuFormato = winston.format.printf(({ timestamp, level, message, ...rest }
   mensagemPrincipal = mensagemPrincipal.replace(/\s{2,}/g, ' ').trim();
 
   // Formatar nível e contexto com colchetes e cor para o nível
-  const levelFormatado = `[${level.toUpperCase()}]`;
-  const levelColorido = colors.yellow(levelFormatado); // Manter cor no console
-  const contextoFormatado = `[${contexto}]`;
+  const levelFormatado    = colors.yellow(`[${level}]`);
+  const contextoFormatado = colors.green(`[${contexto}]`);
 
   // Montar a string final usando o timestamp formatado
-  let logString = `${timestampFormatado} ${levelColorido} ${contextoFormatado} ${mensagemPrincipal}`;
+  let logString = `${timestampFormatado} ${levelFormatado} ${contextoFormatado} ${mensagemPrincipal}`;
 
   // Adicionar ID da transação no final, se existir
   if (idTransacao) {
