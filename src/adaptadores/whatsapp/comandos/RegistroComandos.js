@@ -18,6 +18,7 @@ const criarComandoLongo = require('./implementacoes/ComandoLongo');
 const criarComandoCurto = require('./implementacoes/ComandoCurto');
 const criarComandoLegenda = require('./implementacoes/ComandoLegenda');
 const criarComandoFilas = require('./implementacoes/ComandoFilas');
+const criarComandoDoc = require('./implementacoes/ComandoDoc'); // <<< ADICIONADO
 
 /**
  * Cria o registro central de comandos.
@@ -64,7 +65,8 @@ const criarRegistroComandos = (dependencias) => {
         criarComandoLongo(dependenciasComFuncaoObterLista),
         criarComandoCurto(dependenciasComFuncaoObterLista),
         criarComandoLegenda(dependenciasComFuncaoObterLista),
-        criarComandoFilas(dependenciasComFuncaoObterLista)
+        criarComandoFilas(dependenciasComFuncaoObterLista),
+        criarComandoDoc(dependenciasComFuncaoObterLista) // <<< ADICIONADO
     ];
 
     // --- Funções Públicas do Registro ---

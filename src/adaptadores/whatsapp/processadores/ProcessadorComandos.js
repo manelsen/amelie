@@ -9,12 +9,26 @@ const criarProcessadorComandos = (dependencias) => {
   const { registrador, servicoMensagem, clienteWhatsApp, registroComandos } = dependencias;
 
   const processarComando = async (dados) => {
-    const { mensagem, chatId } = dados;
+    // Obter comandoNormalizado dos dados, que foi adicionado por verificarTipoMensagem
+    const { mensagem, chatId, comandoNormalizado } = dados;
   
     try {
-      // Extrair comando e argumentos
-      const [comando, ...args] = mensagem.body.slice(1).split(' ');
-      registrador.debug(`Processando comando: ${comando}, Argumentos: ${args.join(' ')}`);
+      // Verificar se comandoNormalizado foi passado (deve ter sido, se tipo é 'comando')
+      if (!comandoNormalizado) {
+        registrador.error(`ProcessadorComandos chamado sem comandoNormalizado nos dados! Dados: ${JSON.stringify(dados)}`);
+        return Resultado.falha(new Error("Erro interno: comandoNormalizado ausente"));
+      }
+
+      // Extrair argumentos do corpo original da mensagem (Lógica Corrigida)
+      // 1. Remove espaços extras no início/fim
+      const textoOriginalTrimmed = mensagem.body.trim();
+      // 2. Divide em palavras
+      const palavras = textoOriginalTrimmed.split(' ');
+      // 3. Remove a primeira palavra (que corresponde ao comando)
+      //    slice(1) cria um novo array a partir do segundo elemento.
+      const args = palavras.slice(1);
+
+      registrador.debug(`Processando comando normalizado: ${comandoNormalizado}, Argumentos: ${args.join(' ')}`);
   
       // Verificação crítica para registroComandos
       if (!registroComandos || typeof registroComandos.executarComando !== 'function') {
@@ -62,17 +76,11 @@ const criarProcessadorComandos = (dependencias) => {
         return Resultado.falha(new Error("Usuário sem permissão para executar comandos"));
       }
       
-      // Verificar se o comando existe antes de executá-lo
-      if (!registroComandos.comandoExiste(comando.toLowerCase())) {
-        await servicoMensagem.enviarResposta(
-          mensagem,
-          `Hmm, não conheço esse comando "${comando}". Use .ajuda para ver os comandos disponíveis!`
-        );
-        return Resultado.falha(new Error(`Comando desconhecido: ${comando}`));
-      }
+      // A verificação de existência do comando já foi feita em verificarTipoMensagem
+      // Podemos remover a verificação redundante aqui.
       
       // Executar comando
-      return await registroComandos.executarComando(comando.toLowerCase(), mensagem, args, chatId);
+      return await registroComandos.executarComando(comandoNormalizado, mensagem, args, chatId);
       
     } catch (erro) {
       registrador.error(`Erro ao processar comando: ${erro.message}`);

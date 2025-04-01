@@ -124,7 +124,7 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
         },
 
         // Etapa 5: Classificar tipo de mensagem
-        (dados) => verificarTipoMensagem(registrador, dados), // Adiciona 'tipo' aos dados
+        (dados) => verificarTipoMensagem(registrador, registroComandos, dados), // Passa registroComandos e adiciona 'tipo', 'comandoNormalizado'
 
         // Etapa 6: Processar conforme o tipo
         (dados) => direcionarPorTipo(dados)

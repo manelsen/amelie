@@ -52,6 +52,16 @@ const criarProcessadorDocumento = (dependencias) => {
     const LIMITE_TAMANHO_DOC_BYTES = 20 * 1024 * 1024; // 20 MB (mantido)
     let mimeType = dadosAnexo.mimetype; // Obter o mimetype inicial
 
+    // *** VERIFICAÇÃO DA CONFIGURAÇÃO mediaDocumento ***
+    const configUsuarioInicial = await gerenciadorConfig.obterConfig(chatId);
+    if (!configUsuarioInicial || configUsuarioInicial.mediaDocumento !== true) {
+      registrador.debug(`[Docto] Processamento de documentos desativado para chatId ${chatId}. Ignorando.`);
+      // Não retorna erro, apenas não processa. Poderia retornar um Resultado.sucesso silencioso.
+      return Resultado.sucesso({ ignorado: true, razao: 'Processamento de documentos desativado' });
+    }
+    registrador.debug(`[Docto] Processamento de documentos ATIVADO para chatId ${chatId}. Prosseguindo.`);
+    // *** FIM DA VERIFICAÇÃO ***
+
     try {
       // Tentar inferir mimetype se for octet-stream (ANTES de checar se é DOCX)
       const nomeArquivo = mensagem.filename || mensagem._data?.filename; // Obter nome do arquivo
@@ -84,8 +94,8 @@ const criarProcessadorDocumento = (dependencias) => {
          return Resultado.falha(new Error(`Documento excede o limite de tamanho de ${LIMITE_TAMANHO_DOC_BYTES} bytes`));
       }
 
-      // Obter configurações e prompt
-      const configUsuario = await gerenciadorConfig.obterConfig(chatId);
+      // Obter configurações (já lida acima para verificação, reutilizar) e prompt
+      const configUsuario = configUsuarioInicial; // Reutiliza a config já lida
       const promptUsuario = mensagem.body || null; // Usar legenda como prompt, se houver
 
       // Configurações base da IA

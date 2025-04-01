@@ -61,66 +61,77 @@ const verificarMensagemSistema = _.curry((registrador, dados) => {
   return Resultado.sucesso(dados);
 });
 
-// Verifica se é um comando
-const verificarTipoMensagem = _.curry((registrador, dados) => {
+// Função auxiliar para normalizar texto (remover acentos, minúsculas, trim)
+const normalizarTexto = (texto) => {
+  if (!texto) return '';
+  return texto
+    .toString()
+    .normalize('NFD') // Decompor caracteres acentuados
+    .replace(/[\u0300-\u036f]/g, '') // Remover diacríticos (acentos)
+    .toLowerCase() // Converter para minúsculas
+    .trim(); // Remover espaços no início/fim
+};
+
+// Verifica o tipo da mensagem (comando, midia, texto)
+const verificarTipoMensagem = _.curry((registrador, registroComandos, dados) => {
   const { mensagem } = dados;
+  let tipo = 'texto'; // Padrão
+  let comandoNormalizado = null;
 
-  // Verificação detalhada com logs para debug
-  const ehComandoValido = msg => {
-    // Primeiro verificamos se a mensagem tem corpo
-    if (!msg.body) {
-      registrador.debug(`Mensagem sem corpo: ${JSON.stringify(msg.id)}`);
-      return false;
+  // 1. Normalizar o corpo da mensagem
+  const textoOriginal = mensagem.body || '';
+  registrador.debug(`[verificarTipoMensagem] Texto Original: "${textoOriginal}"`);
+  const textoNormalizado = normalizarTexto(textoOriginal);
+  registrador.debug(`[verificarTipoMensagem] Texto Normalizado: "${textoNormalizado}"`);
+
+  // 2. Verificar se existe texto normalizado
+  if (textoNormalizado) {
+    // 3. Remover o ponto inicial, se existir, APÓS normalizar
+    let textoParaVerificar = textoNormalizado;
+    if (textoParaVerificar.startsWith('.')) {
+      textoParaVerificar = textoParaVerificar.substring(1).trim(); // Remove o ponto e espaços adjacentes
+      registrador.debug(`[verificarTipoMensagem] Texto após remover ponto: "${textoParaVerificar}"`);
     }
-    
-    // Depois se começa com ponto
-    if (!msg.body.startsWith('.')) {
-      registrador.debug(`Mensagem não inicia com ponto: ${msg.body}`);
-      return false;
-    }
-    
-    // Verificar comprimento mínimo
-    if (msg.body.length <= 1) {
-      registrador.debug(`Mensagem muito curta: ${msg.body}`);
-      return false;
-    }
-    
-    // Extrair o comando propriamente dito
-    const comando = msg.body.substring(1).split(' ')[0].toLowerCase();
-    registrador.debug(`Comando extraído: "${comando}"`);
-    
-    // Lista de comandos válidos
-    const comandosValidos = ['reset', 'ajuda', 'prompt', 'config', 'users', 'cego',
-      'audio', 'video', 'imagem', 'longo', 'curto', 'filas', 'legenda'];
-    
-    // Verificar se está na lista
-    const ehValido = comandosValidos.includes(comando);
-    
-    // Log do resultado
-    if (ehValido) {
-      registrador.info(`Comando detectado: ${comando}`);
+
+    // 4. Extrair a primeira palavra do texto ajustado
+    const primeiraPalavra = textoParaVerificar.split(' ')[0];
+    registrador.debug(`[verificarTipoMensagem] Primeira Palavra (final): "${primeiraPalavra}"`);
+
+    // 5. Verificar se a primeira palavra corresponde a um comando registrado
+    // Obtém a lista de nomes de comandos e normaliza-os da mesma forma
+    const comandosRegistrados = registroComandos.listarComandos(); // Obter objetos completos
+    const nomesComandosOriginais = comandosRegistrados.map(cmd => cmd.nome);
+    const nomesComandosRegistrados = nomesComandosOriginais.map(nome => normalizarTexto(nome));
+    registrador.debug(`[verificarTipoMensagem] Nomes Comandos Registrados (Normalizados): [${nomesComandosRegistrados.join(', ')}]`);
+
+    // Comparar a 'primeiraPalavra' (já sem ponto) com a lista normalizada
+    const ehComando = primeiraPalavra && nomesComandosRegistrados.includes(primeiraPalavra);
+    registrador.debug(`[verificarTipoMensagem] Verificando se "${primeiraPalavra}" está em [${nomesComandosRegistrados.join(', ')}]: ${ehComando}`);
+    if (ehComando) {
+      tipo = 'comando';
+      comandoNormalizado = primeiraPalavra; // Guarda o comando normalizado encontrado
+      registrador.info(`Comando detectado: ${comandoNormalizado} (Texto original: "${mensagem.body}")`);
     } else {
-      registrador.debug(`❌ Comando não reconhecido: ${comando}`);
+       registrador.debug(`Palavra "${primeiraPalavra}" não é um comando registrado.`);
     }
-    
-    return ehValido;
-  };
+  } else {
+     registrador.debug(`Mensagem sem corpo ou texto normalizado vazio.`);
+  }
 
-  // Definir tipo usando cond com logs explícitos
-  const tipo = _.cond([
-    [ehComandoValido, () => 'comando'],
-    [msg => msg.hasMedia, () => {
-      registrador.debug(`Mensagem com mídia detectada`);
-      return 'midia';
-    }],
-    [_.stubTrue, () => {
-      registrador.debug(`Mensagem de texto comum: ${mensagem.body?.substring(0, 20)}...`);
-      return 'texto';
-    }]
-  ])(mensagem);
+  // 6. Se não for comando, verificar se tem mídia
+  if (tipo !== 'comando' && mensagem.hasMedia) {
+    tipo = 'midia';
+    registrador.debug(`Mensagem com mídia detectada.`);
+  }
 
-  registrador.debug(`Mensagem classificada como: ${tipo}`);
-  return Resultado.sucesso({ ...dados, tipo });
+  // 7. Se não for comando nem mídia, é texto (ou vazia, tratada antes)
+  if (tipo === 'texto') {
+     registrador.debug(`Mensagem classificada como texto: ${mensagem.body?.substring(0, 20)}...`);
+  }
+
+  // 8. Retornar o resultado com o tipo e o comando normalizado (se houver)
+  registrador.debug(`Mensagem classificada como: ${tipo}${comandoNormalizado ? ` (${comandoNormalizado})` : ''}`);
+  return Resultado.sucesso({ ...dados, tipo, comandoNormalizado });
 });
 
 module.exports = {
