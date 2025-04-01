@@ -1,4 +1,4 @@
-/**
+/*/**
  * AdaptadorAI - Módulo funcional para interação com modelos de IA (Google Generative AI)
  *
  * Encapsula a interação com a API, incluindo cache, rate limiting,
@@ -358,7 +358,7 @@ const criarAdaptadorAI = (dependencias) => {
 
       cacheRespostas.set(chaveCache, resposta);
       // Adicionar prefixo
-      return `🖼️ *Análise da imagem:*\n\n${resposta}`;
+      return resposta;
     } catch (erro) {
       return tratarErroAPI(erro, tipo, config.dadosOrigem, { prompt, mimeType: imagemData.mimetype, config });
     }
@@ -390,7 +390,7 @@ const criarAdaptadorAI = (dependencias) => {
 
       cacheRespostas.set(chaveCache, resposta);
       // Adicionar prefixo
-      return `🔊 *Transcrição/resumo do áudio:*\n\n${resposta}`;
+      return resposta;
     } catch (erro) {
       return tratarErroAPI(erro, tipo, config.dadosOrigem, { audioId, mimeType: audioData.mimetype, config });
     }
@@ -424,7 +424,7 @@ const criarAdaptadorAI = (dependencias) => {
 
       cacheRespostas.set(chaveCache, resposta);
       // Adicionar prefixo
-      return `📄 *Análise do seu documento (${tipoDocLog}):*\n\n${resposta}`;
+      return resposta;
     } catch (erro) {
       return tratarErroAPI(erro, tipoDocLog, config.dadosOrigem, { prompt, mimeType, config });
     }
@@ -515,7 +515,7 @@ const criarAdaptadorAI = (dependencias) => {
       }
 
       // Adicionar prefixo
-      return `📄 *Análise do seu documento (${tipoDocLog}):*\n\n${resposta}`;
+      return resposta;
 
     } catch (erro) {
       return tratarErroAPI(erro, tipoDocLog, config.dadosOrigem, { caminhoDocumento, prompt, mimeType, config });
@@ -615,7 +615,7 @@ const criarAdaptadorAI = (dependencias) => {
        }
 
        // Adicionar prefixo
-       const prefixo = modoLegenda ? "📋 *Transcrição/Legenda:*\n\n" : "🎬 *Análise do vídeo:*\n\n";
+       const prefixo = modoLegenda ? "[Transcrição de Vídeo]\n\n" : "[Descrição de Vídeo]\n\n";
        return `${prefixo}${resposta}`;
 
      } catch (erro) {
@@ -705,7 +705,7 @@ const criarAdaptadorAI = (dependencias) => {
 
       // Adicionar prefixo se necessário (exemplo para vídeo)
       if (tipo === 'video') {
-        const prefixo = config.modoDescricao === 'legenda' ? "📋 *Transcrição/Legenda:*\n\n" : "🎬 *Análise do vídeo:*\n\n";
+        const prefixo = config.modoDescricao === 'legenda' ? "[Transcrição de Vídeo]\n\n" : "[Descrição de Vídeo]\n\n";
         return `${prefixo}${resposta}`;
       }
       // Adicionar prefixos para outros tipos se necessário
