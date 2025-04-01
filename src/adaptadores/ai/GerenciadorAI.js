@@ -55,6 +55,12 @@ const gerarHash = (data) => crypto.createHash('sha256').update(data || '').diges
 const limparResposta = _.pipe(
   _.toString, // Garante que é string
   _.replace(/^(?:amélie|amelie):[\s]*/gi, ''), // Remove prefixo
+  // Remover Markdown
+  _.replace(/[*_]/g, ''), // Remove asteriscos e underscores (simplificado)
+  _.replace(/^#+\s*/gm, ''), // Remove cabeçalhos (#)
+  _.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'), // Remove links, mantém texto
+  _.replace(/^[-*]\s+/gm, ''), // Remove marcadores de lista (- *)
+  // Fim da remoção de Markdown
   _.replace(/\r\n|\r|\n{2,}/g, '\n\n'), // Normaliza novas linhas (mantém duplas)
   _.trim
 );

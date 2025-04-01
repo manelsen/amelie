@@ -28,40 +28,25 @@ const Resultado = {
  * Funções puras - Processamento de texto
  */
 
-/**
- * Limpa e formata o texto de resposta
- * @param {string} texto - Texto original para limpar
- * @returns {string} Texto limpo e formatado
- */
-const limparTextoResposta = (texto) => {
-  if (!texto || typeof texto !== 'string') {
-    return "Não foi possível gerar uma resposta válida.";
-  }
-  // Apenas remover prefixo e trim, pois a normalização de nova linha pode causar problemas
-  // com respostas já formatadas pelo AdaptadorAI (que usa \n\n).
-  let textoLimpo = texto
-    .replace(/^(?:amélie|amelie):[\s]*/gi, '') // Remove prefixo
-    .trim();
-  return textoLimpo;
-};
-
+// Função limparTextoResposta removida por redundância.
+// A limpeza principal ocorre em GerenciadorAI.js.
 /**
  * Obtém texto de resposta seguro
  * @param {string} texto - Texto original
  * @returns {Resultado} Resultado com texto processado
  */
 const obterRespostaSegura = (texto) => {
+  // Verificar nulidade e tipo no texto recebido (já processado por GerenciadorAI)
   if (!texto || typeof texto !== 'string') {
-     // Ainda checar se o texto original é nulo ou não string
     return Resultado.falha(new Error("Texto de resposta nulo ou não é string"));
   }
-  // Limpar primeiro
-  const textoLimpo = limparTextoResposta(texto);
-  // Checar se o texto *limpo* está vazio
-  if (textoLimpo.trim() === '') {
-    return Resultado.falha(new Error("Texto de resposta inválido ou vazio após limpeza"));
+  // Verificar se o texto está vazio após a limpeza prévia em GerenciadorAI
+  // Usar trim() aqui apenas para a verificação de vazio.
+  if (texto.trim() === '') {
+    return Resultado.falha(new Error("Texto de resposta vazio após limpeza prévia"));
   }
-  return Resultado.sucesso(textoLimpo);
+  // Retorna o texto como está, confiando na limpeza anterior.
+  return Resultado.sucesso(texto);
 };
 
 /**
