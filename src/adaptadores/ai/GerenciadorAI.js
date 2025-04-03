@@ -316,25 +316,63 @@ const criarAdaptadorAI = (dependencias) => {
     return `Desculpe, o serviço de IA está temporariamente indisponível ao processar ${tipoConteudo}. Por favor, tente novamente em alguns instantes.`; // Mensagem genérica
   };
 
+  /**
+   * Verifica o cache para uma requisição e registra HIT ou MISS.
+   * @param {string} tipo - Tipo de processamento.
+   * @param {Object} payload - Dados para gerar a chave de cache.
+   * @param {Object} config - Configurações da IA.
+   * @param {NodeCache} cache - Instância do NodeCache.
+   * @param {Object} registrador - Instância do registrador.
+   * @param {string} [tipoLogExtra=''] - Informação extra para o log (ex: tipo de documento).
+   * @returns {Promise<Resultado<{hit: boolean, valor: any|null, chaveCache: string}, Error>>} Resultado da verificação do cache.
+   */
+  const verificarCache = async (tipo, payload, config, cache, registrador, tipoLogExtra = '') => {
+    let chaveCache;
+    const logTipo = tipoLogExtra ? `${tipo} (${tipoLogExtra})` : tipo;
+    try {
+      chaveCache = await criarChaveCache(tipo, payload, config);
+      const cacheHit = cache.get(chaveCache);
+      if (cacheHit) {
+        registrador.info(`[Cache HIT] ${logTipo}: ${chaveCache}`);
+        return Resultado.Sucesso({ hit: true, valor: cacheHit, chaveCache });
+      }
+      registrador.debug(`[Cache MISS] ${logTipo}: ${chaveCache}`);
+      return Resultado.Sucesso({ hit: false, valor: null, chaveCache });
+    } catch (err) {
+      const erroCache = new Error(`Erro ao gerar/verificar chave de cache para ${logTipo}: ${err.message}`);
+      registrador.warn(`[Cache] ${erroCache.message}. Cache desativado para esta requisição.`);
+      return Resultado.Falha(erroCache); // Retorna falha com o erro
+    }
+  };
 
   // --- Funções de Processamento (Interface Exposta) ---
 
   const processarTexto = async (texto, config) => {
     const tipo = 'texto';
-    const chaveCache = await criarChaveCache(tipo, { texto }, config);
-    const cacheHit = cacheRespostas.get(chaveCache);
-    if (cacheHit) {
-      registrador.info(`[Cache HIT] ${tipo}: ${chaveCache}`);
-      return cacheHit;
+    const resultadoCache = await verificarCache(tipo, { texto }, config, cacheRespostas, registrador);
+    let chaveCache = null; // Inicializa como null
+
+    if (resultadoCache.sucesso) {
+      chaveCache = resultadoCache.dados.chaveCache; // Guarda a chave em caso de sucesso (HIT ou MISS)
+      if (resultadoCache.dados.hit) {
+        return resultadoCache.dados.valor; // Retorna valor do HIT
+      }
+      // Se for MISS, chaveCache está definida e a execução continua
+    } else {
+      // Falha ao verificar/gerar chave de cache
+      registrador.error(`[${tipo}] Falha ao verificar cache: ${resultadoCache.erro.message}`);
+      // chaveCache permanece null, processamento continua sem cache
     }
-    registrador.debug(`[Cache MISS] ${tipo}: ${chaveCache}`);
 
     try {
       const modelo = obterOuCriarModelo(config);
       const resultado = await executarComResiliencia('processarTexto', () => modelo.generateContent(texto));
       const resposta = processarRespostaIA(resultado, tipo, config.dadosOrigem);
 
-      cacheRespostas.set(chaveCache, resposta);
+      // Salva no cache apenas se a chave foi gerada com sucesso (não é null)
+      if (chaveCache) {
+        cacheRespostas.set(resultadoCache.chaveCache, resposta);
+      }
       return resposta;
     } catch (erro) {
       return tratarErroAPI(erro, tipo, config.dadosOrigem, { texto, config });
@@ -343,13 +381,17 @@ const criarAdaptadorAI = (dependencias) => {
 
   const processarImagem = async (imagemData, prompt, config) => {
     const tipo = 'imagem';
-    const chaveCache = await criarChaveCache(tipo, { dadosAnexo: imagemData, prompt }, config);
-    const cacheHit = cacheRespostas.get(chaveCache);
-    if (cacheHit) {
-      registrador.info(`[Cache HIT] ${tipo}: ${chaveCache}`);
-      return cacheHit;
+    const resultadoCache = await verificarCache(tipo, { dadosAnexo: imagemData, prompt }, config, cacheRespostas, registrador);
+    let chaveCache = null;
+
+    if (resultadoCache.sucesso) {
+      chaveCache = resultadoCache.dados.chaveCache;
+      if (resultadoCache.dados.hit) {
+        return resultadoCache.dados.valor;
+      }
+    } else {
+      registrador.error(`[${tipo}] Falha ao verificar cache: ${resultadoCache.erro.message}`);
     }
-     registrador.debug(`[Cache MISS] ${tipo}: ${chaveCache}`);
 
     try {
       // Usar a config recebida, que já contém a systemInstruction correta (combinada ou padrão)
@@ -364,7 +406,9 @@ const criarAdaptadorAI = (dependencias) => {
       const resultado = await executarComResiliencia('processarImagem', () => modelo.generateContent(partesConteudo));
       const resposta = processarRespostaIA(resultado, tipo, config.dadosOrigem);
 
-      cacheRespostas.set(chaveCache, resposta);
+      if (chaveCache) {
+        cacheRespostas.set(chaveCache, resposta);
+      }
       // Adicionar prefixo
       return resposta;
     } catch (erro) {
@@ -374,13 +418,18 @@ const criarAdaptadorAI = (dependencias) => {
 
   const processarAudio = async (audioData, audioId, config) => {
     const tipo = 'audio';
-    const chaveCache = await criarChaveCache(tipo, { dadosAnexo: audioData, prompt: audioId }, config); // Usar audioId no prompt para cache
-    const cacheHit = cacheRespostas.get(chaveCache);
-    if (cacheHit) {
-      registrador.info(`[Cache HIT] ${tipo}: ${chaveCache}`);
-      return cacheHit;
+    // Usar audioId como parte do payload para cache
+    const resultadoCache = await verificarCache(tipo, { dadosAnexo: audioData, prompt: audioId }, config, cacheRespostas, registrador);
+    let chaveCache = null;
+
+    if (resultadoCache.sucesso) {
+      chaveCache = resultadoCache.dados.chaveCache;
+      if (resultadoCache.dados.hit) {
+        return resultadoCache.dados.valor;
+      }
+    } else {
+      registrador.error(`[${tipo}] Falha ao verificar cache: ${resultadoCache.erro.message}`);
     }
-    registrador.debug(`[Cache MISS] ${tipo}: ${chaveCache}`);
 
     try {
       const configAI = {
@@ -396,7 +445,9 @@ const criarAdaptadorAI = (dependencias) => {
       const resultado = await executarComResiliencia('processarAudio', () => modelo.generateContent(partesConteudo));
       const resposta = processarRespostaIA(resultado, tipo, config.dadosOrigem);
 
-      cacheRespostas.set(chaveCache, resposta);
+      if (chaveCache) {
+        cacheRespostas.set(chaveCache, resposta);
+      }
       // Adicionar prefixo
       return resposta;
     } catch (erro) {
@@ -408,13 +459,17 @@ const criarAdaptadorAI = (dependencias) => {
     const tipo = 'documentoInline';
     const mimeType = documentoData.mimetype || 'application/octet-stream';
     const tipoDocLog = mimeType.split('/')[1]?.split('+')[0] || mimeType.split('/')[1] || 'documento';
-    const chaveCache = await criarChaveCache(tipo, { dadosAnexo: documentoData, prompt }, config);
-    const cacheHit = cacheRespostas.get(chaveCache);
-    if (cacheHit) {
-      registrador.info(`[Cache HIT] ${tipo} (${tipoDocLog}): ${chaveCache}`);
-      return cacheHit;
+    const resultadoCache = await verificarCache(tipo, { dadosAnexo: documentoData, prompt }, config, cacheRespostas, registrador, tipoDocLog);
+    let chaveCache = null;
+
+    if (resultadoCache.sucesso) {
+      chaveCache = resultadoCache.dados.chaveCache;
+      if (resultadoCache.dados.hit) {
+        return resultadoCache.dados.valor;
+      }
+    } else {
+      registrador.error(`[${tipo} (${tipoDocLog})] Falha ao verificar cache: ${resultadoCache.erro.message}`);
     }
-    registrador.debug(`[Cache MISS] ${tipo} (${tipoDocLog}): ${chaveCache}`);
 
     try {
       const configAI = {
@@ -430,7 +485,9 @@ const criarAdaptadorAI = (dependencias) => {
       const resultado = await executarComResiliencia('processarDocumentoInline', () => modelo.generateContent(partesConteudo), TIMEOUT_API_UPLOAD_MS);
       const resposta = processarRespostaIA(resultado, tipoDocLog, config.dadosOrigem);
 
-      cacheRespostas.set(chaveCache, resposta);
+      if (chaveCache) {
+        cacheRespostas.set(chaveCache, resposta);
+      }
       // Adicionar prefixo
       return resposta;
     } catch (erro) {
@@ -447,19 +504,17 @@ const criarAdaptadorAI = (dependencias) => {
     const tipoDocLog = mimeType.split('/')[1] || 'documento';
     let nomeArquivoGoogle = null;
 
-    // --- Cache Check (Baseado no conteúdo do arquivo) ---
-    let chaveCache;
-    try {
-      chaveCache = await criarChaveCache(tipo, { caminhoArquivo: caminhoDocumento, prompt }, config);
-      const cacheHit = cacheRespostas.get(chaveCache);
-      if (cacheHit) {
-        registrador.info(`[Cache HIT] ${tipo} (${tipoDocLog}): ${chaveCache}`);
-        return cacheHit;
+    // --- Cache Check ---
+    const resultadoCache = await verificarCache(tipo, { caminhoArquivo: caminhoDocumento, prompt }, config, cacheRespostas, registrador, tipoDocLog);
+    let chaveCache = null;
+
+    if (resultadoCache.sucesso) {
+      chaveCache = resultadoCache.dados.chaveCache;
+      if (resultadoCache.dados.hit) {
+        return resultadoCache.dados.valor;
       }
-      registrador.debug(`[Cache MISS] ${tipo} (${tipoDocLog}): ${chaveCache}`);
-    } catch (err) {
-      registrador.warn(`[Cache] Erro ao gerar chave para ${tipo} ${caminhoDocumento}: ${err.message}. Cache desativado para esta requisição.`);
-      chaveCache = null; // Desativa cache se não puder gerar chave
+    } else {
+      registrador.error(`[${tipo} (${tipoDocLog})] Falha ao verificar cache: ${resultadoCache.erro.message}`);
     }
     // --- Fim Cache Check ---
 
@@ -517,9 +572,9 @@ const criarAdaptadorAI = (dependencias) => {
       const resposta = processarRespostaIA(resultado, tipoDocLog, config.dadosOrigem);
       // --- Fim Geração ---
 
-      // Adicionar ao cache se a chave foi gerada
+      // Adicionar ao cache apenas se a chave foi gerada com sucesso (não é null)
       if (chaveCache) {
-        cacheRespostas.set(chaveCache, resposta);
+        cacheRespostas.set(resultadoCache.chaveCache, resposta);
       }
 
       // Adicionar prefixo
@@ -551,18 +606,16 @@ const criarAdaptadorAI = (dependencias) => {
      let nomeArquivoGoogle = null;
 
      // --- Cache Check ---
-     let chaveCache;
-     try {
-       chaveCache = await criarChaveCache(tipo, { caminhoArquivo: caminhoVideo, prompt }, config);
-       const cacheHit = cacheRespostas.get(chaveCache);
-       if (cacheHit) {
-         registrador.info(`[Cache HIT] ${tipo}: ${chaveCache}`);
-         return cacheHit;
+     const resultadoCache = await verificarCache(tipo, { caminhoArquivo: caminhoVideo, prompt }, config, cacheRespostas, registrador);
+     let chaveCache = null;
+
+     if (resultadoCache.sucesso) {
+       chaveCache = resultadoCache.dados.chaveCache;
+       if (resultadoCache.dados.hit) {
+         return resultadoCache.dados.valor;
        }
-       registrador.debug(`[Cache MISS] ${tipo}: ${chaveCache}`);
-     } catch (err) {
-       registrador.warn(`[Cache] Erro ao gerar chave para ${tipo} ${caminhoVideo}: ${err.message}. Cache desativado.`);
-       chaveCache = null;
+     } else {
+       registrador.error(`[${tipo}] Falha ao verificar cache: ${resultadoCache.erro.message}`);
      }
      // --- Fim Cache Check ---
 

@@ -600,7 +600,7 @@ const FilasProcessadores = {
 
     return Trilho.encadear(
       () => {
-        registrador.info(`Vídeo inserido na fila    - ${transacaoId || 'sem_id'}`);
+        registrador.info(`Vídeo na fila    - ${transacaoId || 'sem_id'}`);
         return Resultado.sucesso(job.data);
       },
       
