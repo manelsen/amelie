@@ -8,6 +8,7 @@
  */
 
 const _ = require('lodash/fp');
+const fs = require('fs').promises; // Importação única de fs.promises
 
 /**
  * Estrutura Resultado para encapsular sucessos e falhas
@@ -117,8 +118,24 @@ const Trilho = {
     let resultado = Resultado.sucesso(valorInicial);
     
     for (const fn of fns) {
-      if (!resultado.sucesso) break;
-      resultado = await fn(resultado.dados);
+      if (!resultado.sucesso) break; // Mantém o primeiro erro
+      
+      // Executa a próxima função e trata o resultado
+      const proximoResultado = await fn(resultado.dados);
+      
+      if (!proximoResultado.sucesso) {
+        // Falha na etapa atual: envolve o erro com contexto
+        const erroOriginal = proximoResultado.erro;
+        const nomeEtapa = fn.name || 'etapa desconhecida';
+        const erroComContexto = new Error(`Falha na etapa '${nomeEtapa}': ${erroOriginal.message}`);
+        erroComContexto.causaOriginal = erroOriginal; // Anexa o erro original
+        // Define o resultado como a falha contextualizada e interrompe o loop
+        resultado = Resultado.falha(erroComContexto);
+        break;
+      }
+      
+      // Sucesso na etapa atual: atualiza o resultado para a próxima iteração
+      resultado = proximoResultado;
     }
     
     return resultado;
@@ -140,8 +157,12 @@ const Operacoes = {
       return resultado instanceof Promise
         ? Trilho.dePromise(resultado)
         : Resultado.sucesso(resultado);
-    } catch (erro) {
-      return Resultado.falha(erro);
+    } catch (erroOriginal) {
+      // Exceção capturada: envolve o erro com contexto
+      const nomeFuncao = fn.name || 'função desconhecida';
+      const erroComContexto = new Error(`Erro ao tentar executar '${nomeFuncao}': ${erroOriginal.message}`);
+      erroComContexto.causaOriginal = erroOriginal; // Anexa o erro original
+      return Resultado.falha(erroComContexto);
     }
   },
   
@@ -194,38 +215,40 @@ const ArquivoUtils = {
    * @param {string} diretorio - Caminho do diretório
    * @returns {Promise<Object>} Resultado com o caminho do diretório
    */
-  criarDiretorio: (diretorio) => {
-    const fs = require('fs');
-    
-    if (fs.existsSync(diretorio)) {
-      return Promise.resolve(Resultado.sucesso(diretorio));
-    }
-    
-    return new Promise(resolve => {
-      fs.mkdir(diretorio, { recursive: true }, (erro) => {
-        if (erro) {
-          resolve(Resultado.falha(erro));
-        } else {
-          resolve(Resultado.sucesso(diretorio));
-        }
-      });
-    });
-  },
+  // Usa Operacoes.tentar para envolver a chamada async
+  criarDiretorio: Operacoes.tentar(async (diretorio) => {
+    // fs.mkdir com recursive: true é idempotente (não falha se já existe)
+    await fs.mkdir(diretorio, { recursive: true });
+    return diretorio; // Retorna o diretório em caso de sucesso
+  }),
   
   /**
    * Verifica se um arquivo existe
    * @param {string} caminho - Caminho do arquivo
    * @returns {Promise<Object>} Resultado com boolean indicando existência
    */
-  verificarArquivoExiste: (caminho) => {
-    const fs = require('fs');
-    
-    return new Promise(resolve => {
-      fs.access(caminho, fs.constants.F_OK, (erro) => {
-        resolve(Resultado.sucesso(!erro));
-      });
-    });
-  },
+  // Usa Operacoes.tentar para envolver a chamada async
+  verificarArquivoExiste: Operacoes.tentar(async (caminho) => {
+    await fs.access(caminho, fs.constants.F_OK);
+    return true; // Retorna true se o acesso foi bem-sucedido (arquivo existe)
+  }),
+  // Nota: Se fs.access falhar (arquivo não existe ou sem permissão),
+  // Operacoes.tentar retornará Resultado.falha(erro).
+  // Se precisar distinguir "não existe" de "sem permissão", um try/catch seria necessário.
+  // Para um simples "existe?", este comportamento é geralmente aceitável,
+  // mas pode ser necessário ajustar dependendo do uso.
+  // Uma alternativa que retorna Resultado<boolean, Error>:
+  // verificarArquivoExiste: async (caminho) => {
+  //   try {
+  //     await fs.access(caminho, fs.constants.F_OK);
+  //     return Resultado.sucesso(true);
+  //   } catch (erro) {
+  //     if (erro.code === 'ENOENT') {
+  //       return Resultado.sucesso(false); // Arquivo não existe é um sucesso neste contexto
+  //     }
+  //     return Resultado.falha(erro); // Outro erro (permissão, etc.)
+  //   }
+  // },
   
   /**
    * Salva dados em formato JSON
@@ -233,44 +256,24 @@ const ArquivoUtils = {
    * @param {Object} dados - Dados a serem salvos
    * @returns {Promise<Object>} Resultado com o caminho do arquivo
    */
-  salvarArquivoJson: (caminho, dados) => {
-    const fs = require('fs');
-    
-    return new Promise(resolve => {
-      fs.writeFile(caminho, JSON.stringify(dados, null, 2), 'utf8', (erro) => {
-        if (erro) {
-          resolve(Resultado.falha(erro));
-        } else {
-          resolve(Resultado.sucesso(caminho));
-        }
-      });
-    });
-  },
+  // Usa Operacoes.tentar para envolver a chamada async
+  salvarArquivoJson: Operacoes.tentar(async (caminho, dados) => {
+    const conteudoJson = JSON.stringify(dados, null, 2);
+    await fs.writeFile(caminho, conteudoJson, 'utf8');
+    return caminho; // Retorna o caminho em caso de sucesso
+  }),
   
   /**
    * Lê um arquivo JSON
    * @param {string} caminho - Caminho do arquivo
    * @returns {Promise<Object>} Resultado com os dados do arquivo
    */
-  lerArquivoJson: (caminho) => {
-    const fs = require('fs');
-    
-    return new Promise(resolve => {
-      fs.readFile(caminho, 'utf8', (erro, conteudo) => {
-        if (erro) {
-          resolve(Resultado.falha(erro));
-          return;
-        }
-        
-        try {
-          const dados = JSON.parse(conteudo);
-          resolve(Resultado.sucesso(dados));
-        } catch (erroJson) {
-          resolve(Resultado.falha(erroJson));
-        }
-      });
-    });
-  },
+  // Usa Operacoes.tentar para envolver a chamada async e o JSON.parse
+  lerArquivoJson: Operacoes.tentar(async (caminho) => {
+    const conteudo = await fs.readFile(caminho, 'utf8');
+    const dados = JSON.parse(conteudo); // O erro de parse será capturado por Operacoes.tentar
+    return dados; // Retorna os dados parseados em caso de sucesso
+  }),
   
   /**
    * Salva dados binários decodificados de base64
@@ -278,20 +281,12 @@ const ArquivoUtils = {
    * @param {string} dadosBase64 - Dados em formato base64
    * @returns {Promise<Object>} Resultado com o caminho do arquivo
    */
-  salvarArquivoBinario: (caminho, dadosBase64) => {
-    const fs = require('fs');
-    
-    return new Promise(resolve => {
-      const buffer = Buffer.from(dadosBase64, 'base64');
-      fs.writeFile(caminho, buffer, (erro) => {
-        if (erro) {
-          resolve(Resultado.falha(erro));
-        } else {
-          resolve(Resultado.sucesso(caminho));
-        }
-      });
-    });
-  },
+  // Usa Operacoes.tentar para envolver a chamada async
+  salvarArquivoBinario: Operacoes.tentar(async (caminho, dadosBase64) => {
+    const buffer = Buffer.from(dadosBase64, 'base64');
+    await fs.writeFile(caminho, buffer);
+    return caminho; // Retorna o caminho em caso de sucesso
+  }),
   
   /**
    * Copia um arquivo
@@ -299,57 +294,34 @@ const ArquivoUtils = {
    * @param {string} destino - Caminho do arquivo de destino
    * @returns {Promise<Object>} Resultado com o caminho do arquivo de destino
    */
-  copiarArquivo: (caminho, destino) => {
-    const fs = require('fs');
-    
-    return new Promise(resolve => {
-      fs.copyFile(caminho, destino, (erro) => {
-        if (erro) {
-          resolve(Resultado.falha(erro));
-        } else {
-          resolve(Resultado.sucesso(destino));
-        }
-      });
-    });
-  },
+  // Usa Operacoes.tentar para envolver a chamada async
+  // Renomeado parâmetro 'caminho' para 'origem' para clareza
+  copiarArquivo: Operacoes.tentar(async (origem, destino) => {
+    await fs.copyFile(origem, destino);
+    return destino; // Retorna o destino em caso de sucesso
+  }),
   
   /**
    * Remove um arquivo
    * @param {string} caminho - Caminho do arquivo
    * @returns {Promise<Object>} Resultado indicando sucesso da operação
    */
-  removerArquivo: (caminho) => {
-    const fs = require('fs');
-    
-    return new Promise(resolve => {
-      fs.unlink(caminho, (erro) => {
-        if (erro) {
-          resolve(Resultado.falha(erro));
-        } else {
-          resolve(Resultado.sucesso(true));
-        }
-      });
-    });
-  },
+  // Usa Operacoes.tentar para envolver a chamada async
+  removerArquivo: Operacoes.tentar(async (caminho) => {
+    await fs.unlink(caminho);
+    return true; // Retorna true em caso de sucesso
+  }),
   
   /**
    * Lista arquivos em um diretório
    * @param {string} diretorio - Caminho do diretório
    * @returns {Promise<Object>} Resultado com lista de arquivos
    */
-  listarArquivos: (diretorio) => {
-    const fs = require('fs');
-    
-    return new Promise(resolve => {
-      fs.readdir(diretorio, (erro, arquivos) => {
-        if (erro) {
-          resolve(Resultado.falha(erro));
-        } else {
-          resolve(Resultado.sucesso(arquivos));
-        }
-      });
-    });
-  }
+  // Usa Operacoes.tentar para envolver a chamada async
+  listarArquivos: Operacoes.tentar(async (diretorio) => {
+    const arquivos = await fs.readdir(diretorio);
+    return arquivos; // Retorna a lista de arquivos em caso de sucesso
+  })
 };
 
 module.exports = {

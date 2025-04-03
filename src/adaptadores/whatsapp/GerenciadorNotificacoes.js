@@ -169,7 +169,8 @@ class GerenciadorNotificacoes {
     )()
     .catch(erro => {
       // Ignorar erros de arquivos recentes
-      if (erro.message === "Arquivo muito recente, ignorando") {
+      // Usar includes() para tornar a verificação mais robusta
+      if (erro.message?.includes("Arquivo muito recente")) {
         return Resultado.sucesso(false);
       }
       

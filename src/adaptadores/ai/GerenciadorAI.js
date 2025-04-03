@@ -331,17 +331,23 @@ const criarAdaptadorAI = (dependencias) => {
     const logTipo = tipoLogExtra ? `${tipo} (${tipoLogExtra})` : tipo;
     try {
       chaveCache = await criarChaveCache(tipo, payload, config);
+
+      // Adiciona verificação explícita da chave antes de usar no cache.get
+      if (typeof chaveCache !== 'string' || chaveCache.length === 0) {
+        throw new Error(`Chave de cache inválida gerada: ${chaveCache}`);
+      }
+
       const cacheHit = cache.get(chaveCache);
       if (cacheHit) {
         registrador.info(`[Cache HIT] ${logTipo}: ${chaveCache}`);
-        return Resultado.Sucesso({ hit: true, valor: cacheHit, chaveCache });
+        return Resultado.sucesso({ hit: true, valor: cacheHit, chaveCache });
       }
       registrador.debug(`[Cache MISS] ${logTipo}: ${chaveCache}`);
-      return Resultado.Sucesso({ hit: false, valor: null, chaveCache });
+      return Resultado.sucesso({ hit: false, valor: null, chaveCache });
     } catch (err) {
       const erroCache = new Error(`Erro ao gerar/verificar chave de cache para ${logTipo}: ${err.message}`);
       registrador.warn(`[Cache] ${erroCache.message}. Cache desativado para esta requisição.`);
-      return Resultado.Falha(erroCache); // Retorna falha com o erro
+      return Resultado.falha(erroCache); // Retorna falha com o erro
     }
   };
 
@@ -371,7 +377,9 @@ const criarAdaptadorAI = (dependencias) => {
 
       // Salva no cache apenas se a chave foi gerada com sucesso (não é null)
       if (chaveCache) {
-        cacheRespostas.set(resultadoCache.chaveCache, resposta);
+        // Adiciona log para depuração e corrige para usar a variável local 'chaveCache'
+        registrador.debug(`[${tipo}] Tentando salvar no cache. Chave: "${chaveCache}", Tipo: ${typeof chaveCache}`);
+        cacheRespostas.set(chaveCache, resposta);
       }
       return resposta;
     } catch (erro) {
@@ -407,6 +415,8 @@ const criarAdaptadorAI = (dependencias) => {
       const resposta = processarRespostaIA(resultado, tipo, config.dadosOrigem);
 
       if (chaveCache) {
+        // Corrige para usar a variável local 'chaveCache'
+        registrador.debug(`[${tipo}] Tentando salvar no cache. Chave: "${chaveCache}", Tipo: ${typeof chaveCache}`);
         cacheRespostas.set(chaveCache, resposta);
       }
       // Adicionar prefixo
@@ -446,6 +456,8 @@ const criarAdaptadorAI = (dependencias) => {
       const resposta = processarRespostaIA(resultado, tipo, config.dadosOrigem);
 
       if (chaveCache) {
+        // Corrige para usar a variável local 'chaveCache'
+        registrador.debug(`[${tipo}] Tentando salvar no cache. Chave: "${chaveCache}", Tipo: ${typeof chaveCache}`);
         cacheRespostas.set(chaveCache, resposta);
       }
       // Adicionar prefixo
@@ -486,6 +498,8 @@ const criarAdaptadorAI = (dependencias) => {
       const resposta = processarRespostaIA(resultado, tipoDocLog, config.dadosOrigem);
 
       if (chaveCache) {
+        // Corrige para usar a variável local 'chaveCache'
+        registrador.debug(`[${tipo} (${tipoDocLog})] Tentando salvar no cache. Chave: "${chaveCache}", Tipo: ${typeof chaveCache}`);
         cacheRespostas.set(chaveCache, resposta);
       }
       // Adicionar prefixo
@@ -574,7 +588,9 @@ const criarAdaptadorAI = (dependencias) => {
 
       // Adicionar ao cache apenas se a chave foi gerada com sucesso (não é null)
       if (chaveCache) {
-        cacheRespostas.set(resultadoCache.chaveCache, resposta);
+        // Corrige para usar a variável local 'chaveCache'
+        registrador.debug(`[${tipo} (${tipoDocLog})] Tentando salvar no cache. Chave: "${chaveCache}", Tipo: ${typeof chaveCache}`);
+        cacheRespostas.set(chaveCache, resposta);
       }
 
       // Adicionar prefixo
@@ -672,6 +688,8 @@ const criarAdaptadorAI = (dependencias) => {
        // --- Fim Geração ---
 
        if (chaveCache) {
+         // Corrige para usar a variável local 'chaveCache'
+         registrador.debug(`[${tipo}] Tentando salvar no cache. Chave: "${chaveCache}", Tipo: ${typeof chaveCache}`);
          cacheRespostas.set(chaveCache, resposta);
        }
 

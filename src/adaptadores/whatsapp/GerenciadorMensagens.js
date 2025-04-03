@@ -144,14 +144,19 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
           "Não atende critérios para resposta em grupo",
           "Transcrição de áudio desabilitada",
           "Descrição de imagem desabilitada",
-          "Descrição de vídeo desabilitada"
+          "Descrição de vídeo desabilitada",
+          "Tipo de mídia não suportado" // Adicionado erro de mídia
           // Adicionar outras falhas esperadas aqui, se necessário
         ];
 
-         // Verificar se o erro não está na lista de silenciosos E se não é o erro de vídeo grande
-         if (!errosSilenciosos.includes(erroMsg) && !erroMsg?.includes("Vídeo muito grande")) {
-           // Logar apenas erros que não são esperados/configurados E não são de vídeo grande
-           registrador.error(`[MsgProc] Falha inesperada no pipeline: ${erroMsg}`); // Simplificado
+         // Verificar se a mensagem de erro NÃO CONTÉM nenhuma das strings silenciosas
+         // E também não contém o erro de vídeo grande
+         const ehErroSilencioso = errosSilenciosos.some(silencioso => erroMsg.includes(silencioso));
+         const ehVideoGrande = erroMsg?.includes("Vídeo muito grande");
+
+         if (!ehErroSilencioso && !ehVideoGrande) {
+           // Logar apenas erros que não são esperados/configurados
+           registrador.error(`[MsgProc] Falha inesperada no pipeline: ${erroMsg}`);
          } else {
             // Opcional: Logar falhas esperadas como 'warn' ou 'info' se desejado para depuração
             // registrador.warn(`[MsgProc] Falha esperada no pipeline: ${erroMsg}`);
