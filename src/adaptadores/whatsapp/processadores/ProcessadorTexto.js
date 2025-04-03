@@ -3,6 +3,7 @@
 const _ = require('lodash/fp');
 const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia');
 const { obterOuCriarUsuario } = require('../dominio/OperacoesChat');
+const { obterInstrucaoConversa } = require('../../../config/InstrucoesSistema'); // Importar a nova instrução
 
 const criarProcessadorTexto = (dependencias) => {
   const {
@@ -89,7 +90,13 @@ const criarProcessadorTexto = (dependencias) => {
 
       // Processar com IA
       registrador.debug(`[Texto] Chamando IA (processarTexto).`); // Simplificado
-      const resultadoResposta = await adaptadorIA.processarTexto(textoHistorico, config);
+      // Definir a instrução de sistema específica para conversa
+      const configParaIA = {
+        ...config, // Inclui config base (temp, topK, etc.) e systemInstructions se já preenchido por obterConfig
+        // Usa systemInstructions preenchido por obterConfig (se houver prompt ativo), senão usa a instrução padrão
+        systemInstructions: config.systemInstructions || obterInstrucaoConversa()
+      };
+      const resultadoResposta = await adaptadorIA.processarTexto(textoHistorico, configParaIA);
       if (!resultadoResposta.sucesso) {
           registrador.error(`[Texto] Falha na IA: ${resultadoResposta.erro.message}`); // Simplificado
           await gerenciadorTransacoes.registrarFalhaEntrega(currentTransacaoId, `Falha IA: ${resultadoResposta.erro.message}`); // Registrar falha

@@ -79,7 +79,8 @@ const criarChaveCache = async (tipo, payload, config) => {
     topK: config.topK,
     topP: config.topP,
     maxOutputTokens: config.maxOutputTokens,
-    systemInstruction: config.systemInstruction // Inclui instrução no hash
+    // Corrigido para usar 'systemInstructions' (plural) que vem da config preparada
+    systemInstructions: config.systemInstructions // Inclui instrução no hash
   }));
 
   let conteudoHash;
@@ -191,7 +192,8 @@ const criarAdaptadorAI = (dependencias) => {
         { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
         { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
       ],
-      systemInstruction: config.systemInstruction || obterInstrucaoPadrao()
+      // Corrigido para usar 'systemInstructions' (plural) que vem de FilasConfiguracao
+      systemInstruction: config.systemInstructions || obterInstrucaoPadrao()
     };
 
     const chaveCacheModelo = gerarHash(JSON.stringify(configModelo));
@@ -350,14 +352,14 @@ const criarAdaptadorAI = (dependencias) => {
      registrador.debug(`[Cache MISS] ${tipo}: ${chaveCache}`);
 
     try {
-      // Ajustar instrução com base no modo (curto/longo)
-      const modoDescricao = config.modoDescricao || 'longo'; // Padrão longo se não especificado
-      const systemInstruction = modoDescricao === 'curto' ? obterInstrucaoImagemCurta() : obterInstrucaoImagem();
-      const configAI = { ...config, systemInstruction };
-
-      const modelo = obterOuCriarModelo(configAI);
+      // Usar a config recebida, que já contém a systemInstruction correta (combinada ou padrão)
+      // A lógica de combinação/seleção foi movida para FilasConfiguracao.js
+      const modelo = obterOuCriarModelo(config);
       const parteImagem = { inlineData: { data: imagemData.data, mimeType: imagemData.mimetype } };
-      const partesConteudo = [parteImagem, { text: prompt || "Descreva esta imagem." }]; // Prompt padrão
+      // Tentativa: Enviar a instrução do sistema (que já está combinada e inclui a tarefa)
+      // como o texto principal junto com a imagem, em vez do prompt padrão isolado.
+      const textoParaEnviar = config.systemInstructions || (prompt || "Descreva esta imagem.");
+      const partesConteudo = [parteImagem, { text: textoParaEnviar }];
 
       const resultado = await executarComResiliencia('processarImagem', () => modelo.generateContent(partesConteudo));
       const resposta = processarRespostaIA(resultado, tipo, config.dadosOrigem);
@@ -689,18 +691,11 @@ const criarAdaptadorAI = (dependencias) => {
     registrador.debug(`[${tipo}] Iniciando geração de conteúdo: ${fileUri}`);
 
     try {
-      // Determinar instrução do sistema apropriada
-      let systemInstruction = obterInstrucaoPadrao();
-      if (tipo === 'video') {
-        systemInstruction = config.modoDescricao === 'legenda' ? obterPromptVideoLegenda() : obterInstrucaoPadrao(); // Ou instrução específica de vídeo se houver
-      } else if (tipo === 'documentoArquivo') {
-        systemInstruction = obterInstrucaoDocumento();
-      }
-      // Adicionar mais tipos se necessário
-
-      const configAI = { ...config, systemInstruction };
-      const modelo = obterOuCriarModelo(configAI); // Usa a função interna
-      const partesConteudo = [{ fileData: { mimeType: mimeType, fileUri: fileUri } }, { text: prompt }];
+      // Usar a config recebida, que já contém a systemInstruction correta (persona)
+      const modelo = obterOuCriarModelo(config); // Configura o modelo SÓ com a persona (ou padrão geral)
+      // Enviar a instrução PADRÃO da mídia (tarefa) como o prompt de texto junto com o arquivo.
+      const textoParaEnviar = config.instrucaoPadraoMidia || prompt; // Usa prompt original se instrução padrão não veio
+      const partesConteudo = [{ fileData: { mimeType: mimeType, fileUri: fileUri } }, { text: textoParaEnviar }];
 
       const resultado = await executarComResiliencia(
         `generateContent${_.capitalize(tipo)}`, // Nome dinâmico para log
