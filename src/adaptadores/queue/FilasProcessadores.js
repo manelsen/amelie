@@ -114,36 +114,42 @@ const FilasProcessadores = {
   criarProcessadorUploadImagem: _.curry((registrador, filas, notificarErro) => async (job) => {
     const { imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
 
+    // Envolver adição à fila com tentativa
+    const addAnaliseImagemTentativa = Operacoes.tentar(filas.imagem.analise.add);
+
     return Trilho.encadear(
-      // Verificar dados da imagem
-      () => {
+      // 1. Verificar dados da imagem
+      async () => { // Tornar async para consistência
         registrador.debug(`[Imagem] Iniciando preparo da imagem para análise (Job ${job.id})`);
-        
         if (!imageData || !imageData.data) {
           return Resultado.falha(new Error("Dados da imagem inválidos ou ausentes"));
         }
-        
-        return Resultado.sucesso(job.data);
+        return Resultado.sucesso(job.data); // Passar dados originais
       },
-      
-      // Adicionar à fila de análise
-      (dados) => {
-        return Trilho.dePromise(
-          filas.imagem.analise.add('analise-imagem', {
-            imageData,
-            chatId,
-            messageId,
-            mimeType,
-            userPrompt,
-            senderNumber,
-            transacaoId,
-            remetenteName,
-            uploadTimestamp: Date.now(),
-            tipo: 'imagem'
-          })
-        ).then(() => Resultado.sucesso({ success: true }));
+
+      // 2. Adicionar à fila de análise (com tentativa)
+      async (dadosJob) => { // Renomeado para clareza
+        const resultadoAdd = await addAnaliseImagemTentativa('analise-imagem', {
+          // Usar dados de dadosJob
+          imageData: dadosJob.imageData,
+          chatId: dadosJob.chatId,
+          messageId: dadosJob.messageId,
+          mimeType: dadosJob.mimeType,
+          userPrompt: dadosJob.userPrompt,
+          senderNumber: dadosJob.senderNumber,
+          transacaoId: dadosJob.transacaoId,
+          remetenteName: dadosJob.remetenteName,
+          uploadTimestamp: Date.now(),
+          tipo: 'imagem'
+        });
+
+        // Propagar falha se ocorrer
+        if (!resultadoAdd.sucesso) return resultadoAdd;
+
+        // Retornar sucesso simples
+        return Resultado.sucesso({ success: true });
       }
-    )()
+    )() // Fim do Trilho.encadear
     .catch(erro => {
       registrador.error(`[Imagem] Erro no preparo: ${erro.message}`, { erro, jobId: job.id });
       
@@ -169,61 +175,83 @@ const FilasProcessadores = {
       senderNumber, transacaoId, remetenteName
     } = job.data;
 
+    // Funções auxiliares e wrappers 'tentar'
     const obterConfig = FilasConfiguracao.obterConfig(gerenciadorConfig, registrador);
     const prepararPrompt = FilasConfiguracao.prepararPrompt(registrador);
-    const processarImagem = FilasProcessadoresMidia.processarImagem(gerenciadorAI, registrador);
+    // processarImagem já retorna Resultado, mas vamos envolvê-la em tentar para capturar exceções inesperadas nela ou em gerenciadorAI
+    const processarImagemTentativa = Operacoes.tentar(FilasProcessadoresMidia.processarImagem(gerenciadorAI, registrador));
+    const processarResultadoTentativa = Operacoes.tentar(processarResultado); // Envolver callback
 
     return Trilho.encadear(
-      // Iniciar análise
-      () => {
+      // 1. Iniciar análise (etapa simples)
+      async () => { // Tornar async para consistência
         registrador.debug(`[Imagem] Iniciando análise da imagem (Job ${job.id})`);
-        return Resultado.sucesso(true);
+        // Passar dados originais para a próxima etapa
+        return Resultado.sucesso(job.data);
       },
-      
-      // Obter configuração
-      async () => await obterConfig(chatId, 'imagem'),
-      
-      // Preparar e processar imagem
-      (config) => {
-        // Preparar prompt
-        const promptFinal = prepararPrompt('imagem', userPrompt, config.modoDescricao);
-        
-        // Processar imagem
-        return processarImagem(imageData, promptFinal, config);
-      },
-      
-      // Enviar resultado
-      (resultadoAnalise) => { // Renomeado para clareza
-        if (!resultadoAnalise.sucesso) {
-           // Se processarImagem falhou, o erro já foi logado, apenas lançar para o catch
-           throw resultadoAnalise.erro;
-        }
-        const respostaTexto = resultadoAnalise.dados; // Obter a string de resposta
 
-        // Enviar resultado bem-sucedido
+      // 2. Obter configuração (já retorna Resultado)
+      async (dadosJob) => {
+        const resultadoConfig = await obterConfig(chatId, 'imagem');
+        let configFinal;
+        if (!resultadoConfig.sucesso) {
+          registrador.error(`[Imagem] Erro ao obter config: ${resultadoConfig.erro.message}, usando padrão`);
+          // Definir config padrão
+           configFinal = { /* definir config padrão para imagem aqui se necessário */ };
+        } else {
+          configFinal = resultadoConfig.dados;
+        }
+        // Passa dados + config
+        return Resultado.sucesso({ dados: dadosJob, config: configFinal });
+      },
+
+      // 3. Preparar prompt e processar imagem (com tentativa)
+      async (contexto) => {
+        const { dados, config } = contexto;
+        const promptFinal = prepararPrompt('imagem', dados.userPrompt, config.modoDescricao);
+
+        // Chamar com tentativa
+        const resultadoProcessar = await processarImagemTentativa(dados.imageData, promptFinal, config);
+
+        // Se falhar, propaga o erro
+        if (!resultadoProcessar.sucesso) return resultadoProcessar;
+
+        // Passa contexto + resposta para a próxima etapa
+        return Resultado.sucesso({ ...contexto, resposta: resultadoProcessar.dados });
+      },
+
+      // 4. Enviar resultado via callback (com tentativa)
+      async (contextoComResposta) => {
+        const { dados, resposta } = contextoComResposta;
+
         registrador.debug(`[Imagem] Análise concluída com sucesso (Job ${job.id})`);
 
-        // Construir o objeto esperado por processarResultado
-        processarResultado({
-          resposta: respostaTexto, // Passar a string na propriedade 'resposta'
-          chatId,
-          messageId,
-          senderNumber,
-          transacaoId,
-          remetenteName,
+        // Chamar callback com tentativa
+        const resultadoCallback = await processarResultadoTentativa({
+          resposta: resposta, // Passar a string de resposta
+          chatId: dados.chatId,
+          messageId: dados.messageId,
+          senderNumber: dados.senderNumber,
+          transacaoId: dados.transacaoId,
+          remetenteName: dados.remetenteName,
           tipo: 'imagem'
         });
-        
-        return Resultado.sucesso({ success: true });
+
+        // Logar erro do callback, mas não falhar o pipeline principal
+        if (!resultadoCallback.sucesso) {
+          registrador.error(`[Imagem Análise] Falha ao executar callback de resultado: ${resultadoCallback.erro.message}`);
+        }
+
+        return Resultado.sucesso({ success: true }); // Sucesso final do pipeline
       }
-    )()
-    .catch(erro => {
-      registrador.error(`[Imagem] Erro na análise: ${erro.message}`, { erro, jobId: job.id });
-      
-      // Notificar erro
+    )() // Fim do Trilho.encadear
+    .catch(erro => { // Manter catch para Bull
+      registrador.error(`[Imagem] Erro no pipeline de análise: ${erro.message}`, { erro, jobId: job.id });
+
+      // Notificar erro usando os dados originais do job
       notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-      
-      throw erro; // Rejeitar promessa para que Bull considere o job como falha
+
+      throw erro; // Rejeitar para Bull
     });
   }),
 
@@ -233,25 +261,45 @@ const FilasProcessadores = {
   criarProcessadorPrincipalImagem: _.curry((registrador, filas, notificarErro) => async (job) => {
     const { imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
 
+    // Envolver adição à fila com tentativa
+    const addUploadImagemTentativa = Operacoes.tentar(filas.imagem.upload.add);
+
     return Trilho.encadear(
-      () => {
-        // Adicionamos esta linha para log mais informativo
+      // 1. Log inicial
+      async () => { // Tornar async para consistência
         registrador.info(`Imagem na fila   - ${transacaoId || 'sem_id'}`);
-        return Resultado.sucesso(job.data);
+        return Resultado.sucesso(job.data); // Passar dados originais
       },
-      
-      // Redirecionar para a nova estrutura de fila
-      () => Trilho.dePromise(
-        filas.imagem.upload.add('upload-imagem', {
-          imageData, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName, tipo: 'imagem'
-        })
-      ),
-      
-      (uploadJob) => {
+
+      // 2. Redirecionar para a nova estrutura de fila (com tentativa)
+      async (dadosJob) => { // Renomeado para clareza
+        const resultadoAdd = await addUploadImagemTentativa('upload-imagem', {
+          // Usar dados de dadosJob
+          imageData: dadosJob.imageData,
+          chatId: dadosJob.chatId,
+          messageId: dadosJob.messageId,
+          mimeType: dadosJob.mimeType,
+          userPrompt: dadosJob.userPrompt,
+          senderNumber: dadosJob.senderNumber,
+          transacaoId: dadosJob.transacaoId,
+          remetenteName: dadosJob.remetenteName,
+          tipo: 'imagem'
+        });
+
+        // Propagar falha se ocorrer
+        if (!resultadoAdd.sucesso) return resultadoAdd;
+
+        // Passar o job adicionado (resultado.dados) para a próxima etapa
+        return Resultado.sucesso(resultadoAdd.dados);
+      },
+
+      // 3. Log de sucesso
+      async (uploadJob) => { // Recebe o job adicionado
         registrador.debug(`[Imagem] Redirecionada com sucesso, job ID: ${uploadJob.id}`);
+        // Retornar sucesso final com o ID do job redirecionado
         return Resultado.sucesso({ success: true, redirectedJobId: uploadJob.id });
       }
-    )()
+    )() // Fim do Trilho.encadear
     .catch(erro => {
       registrador.error(`[Imagem] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
       
@@ -273,63 +321,67 @@ const FilasProcessadores = {
   criarProcessadorUploadVideo: _.curry((registrador, gerenciadorAI, filas, notificarErro) => async (job) => {
     const { tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
 
+    // Envolver chamadas externas com Operacoes.tentar para robustez
+    const uploadGoogleTentativa = Operacoes.tentar(gerenciadorAI.uploadArquivoGoogle);
+    const addFilaProcessamentoTentativa = Operacoes.tentar(filas.video.processamento.add);
+
     return Trilho.encadear(
-      // Verificar arquivo
-      () => {
+      // 1. Verificar arquivo temporário
+      async () => {
         registrador.debug(`[Vídeo] Iniciando upload: ${tempFilename} (Job ${job.id})`);
-        
-        return ArquivoUtils.verificarArquivoExiste(tempFilename)
-          .then(resultado => {
-            if (!resultado.sucesso || !resultado.dados) {
-              return Resultado.falha(new Error("Arquivo temporário do vídeo não encontrado"));
-            }
-            return Resultado.sucesso(job.data);
-          });
-      },
-      
-      // Fazer upload para o Google AI usando a função do adaptador
-      async (dados) => {
-        // DEBUG LOGGING START
-        registrador.debug(`[Vídeo Upload] Type of gerenciadorAI: ${typeof gerenciadorAI}`);
-        if (gerenciadorAI && typeof gerenciadorAI === 'object') {
-           registrador.debug(`[Vídeo Upload] Keys of gerenciadorAI: ${Object.keys(gerenciadorAI).join(', ')}`);
-           registrador.debug(`[Vídeo Upload] Has uploadArquivoGoogle: ${typeof gerenciadorAI.uploadArquivoGoogle === 'function'}`);
-        } else {
-           registrador.error('[Vídeo Upload] gerenciadorAI is undefined or not an object!');
+        const resultadoVerificacao = await ArquivoUtils.verificarArquivoExiste(tempFilename);
+        // Se falhar ou arquivo não existir, encadear já propaga a falha
+        if (!resultadoVerificacao.sucesso || !resultadoVerificacao.dados) {
+          return Resultado.falha(new Error("Arquivo temporário do vídeo não encontrado ou inacessível"));
         }
-        // DEBUG LOGGING END
-        const respostaUpload = await gerenciadorAI.uploadArquivoGoogle(tempFilename, {
+        // Se sucesso, passa os dados originais do job para a próxima etapa
+        return Resultado.sucesso(job.data);
+      },
+
+      // 2. Fazer upload para o Google AI (com tentativa)
+      async (dadosJob) => { // Renomeado para clareza
+        const resultadoUpload = await uploadGoogleTentativa(tempFilename, {
           mimeType: mimeType || 'video/mp4',
           displayName: "Vídeo Enviado"
         });
-        
+
+        // Se uploadGoogleTentativa falhar, o Resultado.falha será propagado automaticamente
+        if (!resultadoUpload.sucesso) return resultadoUpload;
+
+        const respostaUpload = resultadoUpload.dados; // Dados de sucesso
         registrador.debug(`[Vídeo] Upload concluído, nome do arquivo: ${respostaUpload.file.name}`);
-        
+
+        // Passa os dados originais + infos do upload para a próxima etapa
         return Resultado.sucesso({
-          ...dados,
+          ...dadosJob,
           fileName: respostaUpload.file.name,
           fileUri: respostaUpload.file.uri
         });
       },
-      
-      // Adicionar à fila de processamento
-      (dados) => {
-        return Trilho.dePromise(
-          filas.video.processamento.add('processar-video', {
-            fileName: dados.fileName,
-            fileUri: dados.fileUri,
-            tempFilename,
-            chatId,
-            messageId,
-            mimeType,
-            userPrompt,
-            senderNumber,
-            transacaoId,
-            remetenteName,
-            uploadTimestamp: Date.now(),
-            tipo: 'video'
-          })
-        ).then(() => Resultado.sucesso({ success: true, fileName: dados.fileName }));
+
+      // 3. Adicionar à fila de processamento (com tentativa)
+      async (dadosComUpload) => { // Renomeado para clareza
+        const resultadoAddFila = await addFilaProcessamentoTentativa('processar-video', {
+          fileName: dadosComUpload.fileName,
+          fileUri: dadosComUpload.fileUri,
+          tempFilename: dadosComUpload.tempFilename, // Garante que tempFilename está nos dados
+          chatId: dadosComUpload.chatId,
+          messageId: dadosComUpload.messageId,
+          mimeType: dadosComUpload.mimeType,
+          userPrompt: dadosComUpload.userPrompt,
+          senderNumber: dadosComUpload.senderNumber,
+          transacaoId: dadosComUpload.transacaoId,
+          remetenteName: dadosComUpload.remetenteName,
+          uploadTimestamp: Date.now(),
+          tipo: 'video'
+        });
+
+        // Se addFilaProcessamentoTentativa falhar, o Resultado.falha será propagado
+        if (!resultadoAddFila.sucesso) return resultadoAddFila;
+
+        // Retorna um sucesso simples indicando que a etapa foi concluída
+        // O fileName pode ser útil para logs posteriores se necessário
+        return Resultado.sucesso({ success: true, fileName: dadosComUpload.fileName });
       }
     )()
     .catch(erro => {
@@ -360,105 +412,115 @@ const FilasProcessadores = {
       uploadTimestamp, remetenteName, tentativas = 0
     } = job.data;
 
+    // Envolver chamadas externas com Operacoes.tentar
+    const getArquivoGoogleTentativa = Operacoes.tentar(gerenciadorAI.getArquivoGoogle);
+    const addFilaProcessamentoTentativa = Operacoes.tentar(filas.video.processamento.add);
+    const addFilaAnaliseTentativa = Operacoes.tentar(filas.video.analise.add);
+    const deleteArquivoGoogleTentativa = Operacoes.tentar(gerenciadorAI.deleteArquivoGoogle); // Para o catch
+
     return Trilho.encadear(
-      // Verificar processamento
-      () => {
+      // 1. Verificar tempo e tentativas
+      async () => { // Tornar async para consistência, embora não precise
         registrador.debug(`[Vídeo] Verificando processamento: ${fileName} (Job ${job.id}), tentativa ${tentativas + 1}`);
-        
-        // Verificar se já passou tempo demais desde o upload
         const tempoDecorrido = Date.now() - uploadTimestamp;
-        if (tempoDecorrido > 120000 && tentativas > 3) { // 2 minutos e já tentou algumas vezes
+        if (tempoDecorrido > 120000 && tentativas > 3) {
           return Resultado.falha(new Error(`Arquivo provavelmente expirou após ${Math.round(tempoDecorrido / 1000)} segundos`));
         }
-        
         return Resultado.sucesso(job.data);
       },
-      
-      // Obter estado atual do arquivo usando a função do adaptador
-      async (dados) => {
-        try {
-          const arquivo = await gerenciadorAI.getArquivoGoogle(fileName);
-          return Resultado.sucesso({ ...dados, arquivo });
-        } catch (erroAcesso) {
-          if (erroAcesso.message.includes('403 Forbidden')) {
-            return Resultado.falha(new Error("Arquivo de vídeo inacessível (acesso negado)"));
-          }
-          return Resultado.falha(erroAcesso);
+
+      // 2. Obter estado atual do arquivo (com tentativa)
+      async (dadosJob) => {
+        const resultadoGetArquivo = await getArquivoGoogleTentativa(fileName);
+
+        if (!resultadoGetArquivo.sucesso) {
+          // Tratar erro específico de 403 aqui se desejado, ou deixar propagar
+           if (resultadoGetArquivo.erro.message.includes('403 Forbidden')) {
+             return Resultado.falha(new Error("Arquivo de vídeo inacessível (acesso negado)"));
+           }
+          return resultadoGetArquivo; // Propaga a falha
         }
+        // Adiciona o objeto 'arquivo' aos dados para a próxima etapa
+        return Resultado.sucesso({ ...dadosJob, arquivo: resultadoGetArquivo.dados });
       },
-      
-      // Verificar estado e agir conforme
-      (dados) => {
-        const { arquivo } = dados;
+
+      // 3. Verificar estado e agir conforme (reagendar ou adicionar à análise)
+      async (dadosComArquivo) => { // Renomeado para clareza
+        const { arquivo, tentativas: currentTentativas } = dadosComArquivo; // Usar 'currentTentativas' para evitar shadowing
         const maxTentativas = 10;
-        
-        // Se ainda está processando e não excedeu o limite de tentativas, reagendar
+
         if (arquivo.state === "PROCESSING") {
-          if (tentativas < maxTentativas) {
-            registrador.debug(`[Vídeo] Ainda em processamento, reagendando... (tentativa ${tentativas + 1})`);
-            
-            // Calcular delay com exponential backoff
-            const backoffDelay = Math.min(15000, 500 * Math.pow(2, tentativas));
-            
-            // Reagendar
-            return Trilho.dePromise(
-              filas.video.processamento.add('processar-video', {
-                ...job.data,
-                tentativas: tentativas + 1
-              }, { delay: backoffDelay })
-            ).then(() => Resultado.sucesso({ success: true, status: "PROCESSING", tentativas: tentativas + 1 }));
+          if (currentTentativas < maxTentativas) {
+            registrador.debug(`[Vídeo] Ainda em processamento, reagendando... (tentativa ${currentTentativas + 1})`);
+            const backoffDelay = Math.min(15000, 500 * Math.pow(2, currentTentativas));
+
+            // Reagendar (com tentativa)
+            const resultadoReagendar = await addFilaProcessamentoTentativa('processar-video', {
+              ...job.data, // Usar job.data original para reagendar
+              tentativas: currentTentativas + 1
+            }, { delay: backoffDelay });
+
+            // Se falhar ao reagendar, propaga o erro
+            if (!resultadoReagendar.sucesso) return resultadoReagendar;
+
+            // Retorna um sucesso indicando reagendamento
+            return Resultado.sucesso({ success: true, status: "REAGENDADO", tentativas: currentTentativas + 1 });
           } else {
             return Resultado.falha(new Error("Tempo máximo de processamento excedido"));
           }
         } else if (arquivo.state === "FAILED") {
           return Resultado.falha(new Error("Falha no processamento do vídeo pelo Google AI"));
         }
-        
-        // Estados válidos para prosseguir: SUCCEEDED ou ACTIVE
+
         if (arquivo.state !== "SUCCEEDED" && arquivo.state !== "ACTIVE") {
           return Resultado.falha(new Error(`Estado inesperado do arquivo: ${arquivo.state}`));
         }
-        
+
         registrador.debug(`[Vídeo] Processado com sucesso, estado: ${arquivo.state}`);
-        
-        // Adicionar à fila de análise
-        return Trilho.dePromise(
-          filas.video.analise.add('analise-video', {
-            fileName,
-            fileUri: arquivo.uri,
-            tempFilename,
-            chatId,
-            messageId,
-            mimeType,
-            userPrompt,
-            senderNumber,
-            transacaoId,
-            fileState: arquivo.state,
-            fileMimeType: arquivo.mimeType,
-            remetenteName,
-            tipo: 'video'
-          })
-        ).then(() => Resultado.sucesso({ success: true, status: arquivo.state }));
+
+        // Adicionar à fila de análise (com tentativa)
+        const resultadoAddAnalise = await addFilaAnaliseTentativa('analise-video', {
+          // Passar dados relevantes de 'dadosComArquivo'
+          fileName: dadosComArquivo.fileName,
+          fileUri: arquivo.uri, // Usar URI atualizado do arquivo
+          tempFilename: dadosComArquivo.tempFilename,
+          chatId: dadosComArquivo.chatId,
+          messageId: dadosComArquivo.messageId,
+          mimeType: dadosComArquivo.mimeType,
+          userPrompt: dadosComArquivo.userPrompt,
+          senderNumber: dadosComArquivo.senderNumber,
+          transacaoId: dadosComArquivo.transacaoId,
+          fileState: arquivo.state,
+          fileMimeType: arquivo.mimeType,
+          remetenteName: dadosComArquivo.remetenteName,
+          tipo: 'video'
+        });
+
+        // Se falhar ao adicionar à análise, propaga o erro
+        if (!resultadoAddAnalise.sucesso) return resultadoAddAnalise;
+
+        // Retorna sucesso indicando que foi para análise
+        return Resultado.sucesso({ success: true, status: "ENVIADO_ANALISE", fileState: arquivo.state });
       }
-    )()
-    .catch(async (erro) => { // Make catch handler async
-      registrador.error(`[Vídeo] Erro no processamento: ${erro.message}`, { erro, jobId: job.id });
-      
-      // Notificar erro
+    )() // Fim do Trilho.encadear
+    .catch(async (erro) => { // Manter o catch para Bull e cleanup
+      registrador.error(`[Vídeo] Erro no pipeline de processamento: ${erro.message}`, { erro, jobId: job.id });
+
       notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-      
-      // Limpar arquivo temporário
+
       FilasUtilitarios.limparArquivo(tempFilename);
-      
-      // Tentar excluir o arquivo do Google AI usando a função do adaptador (make handler async)
+
       if (fileName) {
-        // Adicionar log antes de deletar
         registrador.warn(`[Vídeo] Tentando excluir arquivo Google ${fileName} após erro no processamento.`);
-        await gerenciadorAI.deleteArquivoGoogle(fileName);
+        // Usar a versão com tentativa para deletar
+        const deleteResult = await deleteArquivoGoogleTentativa(fileName);
+        if (!deleteResult.sucesso) {
+            registrador.error(`[Vídeo] Falha ao tentar excluir arquivo Google ${fileName} após erro: ${deleteResult.erro.message}`);
+        }
       }
-      
-      throw erro; // Rejeitar promessa para que Bull considere o job como falha
-    }); // Make the catch handler async
+
+      throw erro; // Rejeitar para Bull
+    });
   }),
 
   /**
@@ -470,126 +532,129 @@ const FilasProcessadores = {
       transacaoId, fileState, fileUri, fileMimeType, remetenteName
     } = job.data;
 
+    // Funções auxiliares e wrappers 'tentar'
     const obterConfig = FilasConfiguracao.obterConfig(gerenciadorConfig, registrador);
     const prepararPrompt = FilasConfiguracao.prepararPrompt(registrador);
+    const gerarConteudoTentativa = Operacoes.tentar(gerenciadorAI.gerarConteudoDeArquivoUri);
+    const limparArquivoTentativa = Operacoes.tentar(FilasUtilitarios.limparArquivo); // Envolver limpeza
+    const deleteArquivoGoogleTentativa = Operacoes.tentar(gerenciadorAI.deleteArquivoGoogle); // Envolver delete
+    const processarResultadoTentativa = Operacoes.tentar(processarResultado); // Envolver callback
 
     return Trilho.encadear(
-      // Iniciar análise
-      () => {
+      // 1. Iniciar análise (etapa simples)
+      async () => { // Tornar async para consistência
         registrador.debug(`[Vídeo] Iniciando análise: ${fileName} (Job ${job.id})`);
         return Resultado.sucesso(job.data);
       },
-      
-      // Obter configuração
-      async () => {
+
+      // 2. Obter configuração (já retorna Resultado)
+      async (dadosJob) => {
         const resultadoConfig = await obterConfig(chatId, 'video');
-        
+        let configFinal;
         if (!resultadoConfig.sucesso) {
           registrador.error(`Erro ao obter config: ${resultadoConfig.erro.message}, usando padrão`);
-          return Resultado.sucesso({
-            dados: job.data,
-            config: {
-              temperature: 0.9,
-              topK: 1,
-              topP: 0.95,
-              maxOutputTokens: 1024,
-              model: "gemini-2.0-flash",
-              modoDescricao: 'curto'
-            }
-          });
+          // Definir config padrão em caso de erro
+          configFinal = {
+            temperature: 0.9, topK: 1, topP: 0.95, maxOutputTokens: 1024,
+            model: "gemini-2.0-flash", modoDescricao: 'curto'
+          };
+        } else {
+          configFinal = resultadoConfig.dados;
         }
-        
-        return Resultado.sucesso({
-          dados: job.data,
-          config: resultadoConfig.dados
-        });
+        // Passa os dados originais + config para a próxima etapa
+        return Resultado.sucesso({ dados: dadosJob, config: configFinal });
       },
-      
-      // Preparar prompt e analisar vídeo usando a nova função do adaptador
+
+      // 3. Preparar prompt e analisar vídeo (com tentativa)
       async (contexto) => {
         const { dados, config } = contexto;
-        const { fileUri, fileMimeType, userPrompt, remetenteName, transacaoId } = dados; // Extrair dados necessários
+        const { fileUri, fileMimeType, userPrompt, remetenteName, transacaoId } = dados;
 
-        // Preparar prompt
         const promptFinal = prepararPrompt('video', userPrompt, config.modoDescricao);
-
-        // Adicionar dados de origem à configuração para logging/tratamento de erro no adaptador
         const configComOrigem = {
           ...config,
-          tipoMidia: 'video', // Informar o tipo para a função gerarConteudoDeArquivoUri
-          dadosOrigem: { // Informações para rastreamento e tratamento de erro
-            tipo: 'Fila Vídeo Análise',
-            nome: remetenteName || 'Desconhecido',
-            id: transacaoId || 'sem_id'
-          }
+          tipoMidia: 'video',
+          dadosOrigem: { tipo: 'Fila Vídeo Análise', nome: remetenteName || 'Desconhecido', id: transacaoId || 'sem_id' }
         };
 
-        // Chamar a função exposta pelo adaptador AI
-        const respostaOuErro = await gerenciadorAI.gerarConteudoDeArquivoUri(
-          fileUri,
-          fileMimeType,
-          promptFinal,
-          configComOrigem // Passar a config com dados de origem
+        // Chamar com tentativa
+        const resultadoGerar = await gerarConteudoTentativa(
+          fileUri, fileMimeType, promptFinal, configComOrigem
         );
 
-        // Verificar se o adaptador retornou uma string de erro padrão
+        // Se falhar, propaga o erro
+        if (!resultadoGerar.sucesso) return resultadoGerar;
+
+        const respostaOuErro = resultadoGerar.dados;
+
+        // Verificar resposta de erro padrão (agora dentro do sucesso de 'tentar')
         if (typeof respostaOuErro === 'string' && (respostaOuErro.startsWith("Desculpe,") || respostaOuErro.startsWith("Este conteúdo"))) {
-          registrador.warn(`[Vídeo Análise] Erro retornado por gerenciadorAI.gerarConteudoDeArquivoUri: ${respostaOuErro}`);
-          return Resultado.falha(new Error(respostaOuErro)); // Retorna falha com a mensagem de erro
+          registrador.warn(`[Vídeo Análise] Erro funcional retornado por gerarConteudoDeArquivoUri: ${respostaOuErro}`);
+          return Resultado.falha(new Error(respostaOuErro));
         }
 
-        // Se não for erro, é a resposta de sucesso (já formatada com prefixo pelo adaptador)
-        return Resultado.sucesso({
-          dados,
-          config,
-          resposta: respostaOuErro // A resposta já vem pronta do adaptador
-        });
+        // Passa contexto + resposta para a próxima etapa
+        return Resultado.sucesso({ ...contexto, resposta: respostaOuErro });
       },
-      
-      // Limpar recursos e enviar resposta
-      async (contexto) => {
-        const { resposta } = contexto;
-        
-        // Limpar o arquivo temporário
-        await FilasUtilitarios.limparArquivo(tempFilename);
-        
-        // Limpar o arquivo do Google usando a função do adaptador
-        await gerenciadorAI.deleteArquivoGoogle(fileName);
-        
-        // Enviar resposta via callback
+
+      // 4. Limpar recursos e enviar resposta (com tentativas)
+      async (contextoComResposta) => {
+        const { dados, resposta } = contextoComResposta;
+        const { tempFilename: currentTempFilename, fileName: currentFileName } = dados; // Usar nomes locais
+
+        // Limpar arquivo temporário (com tentativa)
+        const resultadoLimparTemp = await limparArquivoTentativa(currentTempFilename);
+        if (!resultadoLimparTemp.sucesso) {
+            registrador.warn(`[Vídeo Análise] Falha ao limpar arquivo temporário ${currentTempFilename}: ${resultadoLimparTemp.erro.message}`);
+            // Continuar mesmo se a limpeza falhar? Sim, o importante é a análise.
+        }
+
+        // Limpar arquivo do Google (com tentativa)
+        const resultadoDeleteGoogle = await deleteArquivoGoogleTentativa(currentFileName);
+         if (!resultadoDeleteGoogle.sucesso) {
+            registrador.warn(`[Vídeo Análise] Falha ao excluir arquivo Google ${currentFileName}: ${resultadoDeleteGoogle.erro.message}`);
+            // Continuar mesmo se a exclusão falhar? Sim.
+        }
+
+        // Enviar resposta via callback (com tentativa)
         registrador.debug(`[Vídeo] Análise concluída com sucesso (Job ${job.id})`);
-        
-        processarResultado({
+        const resultadoCallback = await processarResultadoTentativa({
           resposta,
-          chatId,
-          messageId,
-          senderNumber,
-          transacaoId,
-          remetenteName,
+          chatId: dados.chatId,
+          messageId: dados.messageId,
+          senderNumber: dados.senderNumber,
+          transacaoId: dados.transacaoId,
+          remetenteName: dados.remetenteName,
           tipo: 'video'
         });
-        
-        return Resultado.sucesso({ success: true });
+
+        // Se o callback falhar, logar mas considerar o fluxo principal um sucesso
+         if (!resultadoCallback.sucesso) {
+             registrador.error(`[Vídeo Análise] Falha ao executar callback de resultado: ${resultadoCallback.erro.message}`);
+             // Não retornar falha aqui, pois a análise em si foi um sucesso.
+         }
+
+        return Resultado.sucesso({ success: true }); // Sucesso final do pipeline
       }
-    )()
-    .catch(async (erro) => { // Make catch handler async
-      registrador.error(`[Vídeo] Erro na análise: ${erro.message}`, { erro, jobId: job.id });
-      
-      // Notificar erro
+    )() // Fim do Trilho.encadear
+    .catch(async (erro) => { // Manter catch para Bull e cleanup de emergência
+      registrador.error(`[Vídeo] Erro no pipeline de análise: ${erro.message}`, { erro, jobId: job.id });
+
       notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-      
-      // Limpar arquivos
-      FilasUtilitarios.limparArquivo(tempFilename);
-      
-      // Tentar excluir o arquivo do Google AI usando a função do adaptador (make handler async)
-      if (fileName) {
-         // Adicionar log antes de deletar
-        registrador.warn(`[Vídeo] Tentando excluir arquivo Google ${fileName} após erro na análise.`);
-        await gerenciadorAI.deleteArquivoGoogle(fileName);
+
+      // Tentar limpar arquivos mesmo em caso de erro no pipeline (com tentativa)
+      if (tempFilename) {
+          const resLimpar = await limparArquivoTentativa(tempFilename);
+          if (!resLimpar.sucesso) registrador.warn(`[Vídeo Análise Catch] Falha ao limpar temp ${tempFilename}: ${resLimpar.erro.message}`);
       }
-      
-      throw erro; // Rejeitar promessa para que Bull considere o job como falha
-    }); // Make the catch handler async
+      if (fileName) {
+        registrador.warn(`[Vídeo Análise Catch] Tentando excluir arquivo Google ${fileName} após erro.`);
+        const resDelete = await deleteArquivoGoogleTentativa(fileName);
+        if (!resDelete.sucesso) registrador.error(`[Vídeo Análise Catch] Falha ao excluir Google ${fileName}: ${resDelete.erro.message}`);
+      }
+
+      throw erro; // Rejeitar para Bull
+    });
   }),
 
   /**
@@ -598,30 +663,51 @@ const FilasProcessadores = {
   criarProcessadorPrincipalVideo: _.curry((registrador, filas, notificarErro) => async (job) => {
     const { tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName } = job.data;
 
+    // Envolver adição à fila com tentativa
+    const addUploadVideoTentativa = Operacoes.tentar(filas.video.upload.add);
+
     return Trilho.encadear(
-      () => {
+      // 1. Log inicial
+      async () => { // Tornar async para consistência
         registrador.info(`Vídeo na fila    - ${transacaoId || 'sem_id'}`);
-        return Resultado.sucesso(job.data);
+        return Resultado.sucesso(job.data); // Passar dados originais
       },
-      
-      // Redirecionar para a nova estrutura de fila
-      () => Trilho.dePromise(
-        filas.video.upload.add('upload-video', {
-          tempFilename, chatId, messageId, mimeType, userPrompt, senderNumber, transacaoId, remetenteName, tipo: 'video'
-        })
-      ),
-      
-      (uploadJob) => {
+
+      // 2. Redirecionar para a nova estrutura de fila (com tentativa)
+      async (dadosJob) => { // Renomeado para clareza
+        const resultadoAdd = await addUploadVideoTentativa('upload-video', {
+          // Usar dados de dadosJob
+          tempFilename: dadosJob.tempFilename,
+          chatId: dadosJob.chatId,
+          messageId: dadosJob.messageId,
+          mimeType: dadosJob.mimeType,
+          userPrompt: dadosJob.userPrompt,
+          senderNumber: dadosJob.senderNumber,
+          transacaoId: dadosJob.transacaoId,
+          remetenteName: dadosJob.remetenteName,
+          tipo: 'video'
+        });
+
+        // Propagar falha se ocorrer
+        if (!resultadoAdd.sucesso) return resultadoAdd;
+
+        // Passar o job adicionado (resultado.dados) para a próxima etapa
+        return Resultado.sucesso(resultadoAdd.dados);
+      },
+
+      // 3. Log de sucesso
+      async (uploadJob) => { // Recebe o job adicionado
         registrador.debug(`[Vídeo] Redirecionado com sucesso, job ID: ${uploadJob.id}`);
+        // Retornar sucesso final com o ID do job redirecionado
         return Resultado.sucesso({ success: true, redirectedJobId: uploadJob.id });
       }
-    )()
-    .catch(erro => {
+    )() // Fim do Trilho.encadear
+    .catch(erro => { // Manter catch para Bull
       registrador.error(`[Vídeo] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
-      
+
       notificarErro('video', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
-      
-      throw erro;
+
+      throw erro; // Rejeitar para Bull
     });
   })
 };

@@ -80,10 +80,17 @@ const criarProcessadorComandos = (dependencias) => {
 
   // 5. Executar o Comando
   const executarComandoFinal = async (dadosOuResultadoAninhado) => {
-    // Verifica se recebemos um resultado aninhado devido a Operacoes.tentar + Trilho.dePromise
+    // Verifica se recebemos um resultado aninhado ou uma falha da etapa anterior
+    if (dadosOuResultadoAninhado && dadosOuResultadoAninhado.sucesso === false) {
+      // Se a etapa anterior falhou (ex: permissão negada), não devemos prosseguir.
+      // O Trilho já deve ter interrompido, mas esta é uma segurança adicional.
+      return dadosOuResultadoAninhado; // Propaga a falha
+    }
+
+    // Desembrulha se for um resultado de sucesso aninhado (Operacoes.tentar)
     const dados = (dadosOuResultadoAninhado && dadosOuResultadoAninhado.sucesso === true && typeof dadosOuResultadoAninhado.dados !== 'undefined')
-                  ? dadosOuResultadoAninhado.dados // Desembrulha se estiver aninhado
-                  : dadosOuResultadoAninhado; // Assume que são os dados simples caso contrário
+                  ? dadosOuResultadoAninhado.dados
+                  : dadosOuResultadoAninhado; // Assume dados simples se não for aninhado nem falha
 
     // Adiciona validação robusta dos dados após o possível desembrulhamento
     if (!dados || typeof dados !== 'object') {
