@@ -82,8 +82,15 @@ const criarRegistroComandos = (dependencias) => {
      * @param {string} nomeComando - O nome do comando (ex: 'ajuda').
      * @returns {Object | undefined} O objeto do comando encontrado ou undefined.
      */
-    const encontrarComando = nomeComando =>
-        arrayComandos.find(comando => comando.nome === nomeComando.toLowerCase());
+    const encontrarComando = nomeComando => {
+        // Adiciona verificação para garantir que nomeComando é uma string antes de usar toLowerCase
+        if (typeof nomeComando !== 'string') {
+            // Se não for string, não pode corresponder a nenhum nome de comando válido
+            return undefined;
+        }
+        const nomeLower = nomeComando.toLowerCase();
+        return arrayComandos.find(comando => comando.nome === nomeLower);
+    }
 
     /**
      * Executa um comando encontrado.
