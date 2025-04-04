@@ -8,7 +8,7 @@
  * @version 3.0.0
  */
 
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js'); // Reintroduzido LocalAuth
 const qrcode = require('qrcode-terminal');
 const EventEmitter = require('events');
 const fs = require('fs');
@@ -68,7 +68,7 @@ class ClienteWhatsApp extends EventEmitter {
    */
   inicializarCliente() {
     this.cliente = new Client({
-      authStrategy: new LocalAuth({ clientId: this.clienteId }),
+      authStrategy: new LocalAuth({ clientId: this.clienteId }), // Reintroduzido LocalAuth para salvar sessão
       puppeteer: {
         executablePath: '/usr/bin/google-chrome',
         args: [
@@ -102,7 +102,35 @@ class ClienteWhatsApp extends EventEmitter {
     });
 
     this.configurarOuvinteEventos();
-    this.cliente.initialize();
+    this.cliente.initialize().then(() => {
+      this.registrador.info('[Whats] Cliente inicializado, aguardando para solicitar código de pareamento...');
+      
+      // Aguarda um tempo definido para verificar se a conexão automática falhou
+      // e então tenta solicitar o código de pareamento se necessário.
+      setTimeout(async () => {
+          // VERIFICAÇÃO ADICIONADA: Só tenta solicitar o código se o cliente NÃO estiver pronto
+          if (!this.pronto) {
+              this.registrador.info('[Whats] Cliente não conectou automaticamente via sessão salva. Tentando solicitar código de pareamento...');
+              const phoneNumber = process.env.PAIRING_PHONE_NUMBER;
+              if (!phoneNumber) {
+                  this.registrador.warn('[Whats] Variável PAIRING_PHONE_NUMBER não definida e conexão automática falhou. Use o QR Code se aparecer.');
+                  return;
+              }
+              
+              try {
+                  this.registrador.info(`[Whats] Solicitando código de pareamento para o número: ${phoneNumber}`);
+                  const code = await this.cliente.requestPairingCode(phoneNumber);
+                  this.registrador.info(`[Whats] Código de pareamento recebido: ${code}. Insira este código no seu telefone.`);
+                  this.emit('pairing_code', code);
+              } catch (error) {
+                  this.registrador.error(`[Whats] Erro ao solicitar código de pareamento: ${error.message}`);
+                  this.registrador.info('[Whats] Falha ao obter código de pareamento. Se um QR Code for exibido, use-o.');
+              }
+          } else {
+              this.registrador.debug('[Whats] Cliente já está pronto, não é necessário solicitar código de pareamento.');
+          }
+      }, 15000); // Aguarda 15 segundos para dar chance à LocalAuth
+    });
   }
 
   /**
@@ -147,6 +175,14 @@ class ClienteWhatsApp extends EventEmitter {
     // Evento para saída de grupo
     this.cliente.on('group_leave', (notificacao) => {
       this.emit('saida_grupo', notificacao);
+    });
+    
+    // Evento de falha na autenticação
+    this.cliente.on('auth_failure', (msg) => {
+      this.registrador.error(`[Whats] FALHA NA AUTENTICAÇÃO: ${msg}`);
+      this.pronto = false; // Garante que o estado 'pronto' seja falso
+      this.emit('falha_autenticacao', msg);
+      // Poderia tentar reiniciar aqui, mas a desconexão já deve tratar isso
     });
   }
 
