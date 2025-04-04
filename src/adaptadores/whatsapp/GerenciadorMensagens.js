@@ -145,7 +145,8 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
           "Transcrição de áudio desabilitada",
           "Descrição de imagem desabilitada",
           "Descrição de vídeo desabilitada",
-          "Tipo de mídia não suportado" // Adicionado erro de mídia
+          "Tipo de mídia não suportado", // Adicionado erro de mídia
+          "Usuário não é administrador do grupo" // Adicionado erro de permissão
           // Adicionar outras falhas esperadas aqui, se necessário
         ];
 
@@ -208,7 +209,7 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
         await chat.sendMessage(mensagemBoasVindas); // Usar constante
          await chat.sendMessage(textoAjuda);
 
-         registrador.info(`[Grupo] Bot ${nomeBot} adicionado ao grupo "${chat.name}" (${chatId}).`);
+         registrador.info(`[Grupo] Assistente ${nomeBot} adicionada ao grupo "${chat.name}" (${chatId}).`);
          return Resultado.sucesso(true);
        }
 
