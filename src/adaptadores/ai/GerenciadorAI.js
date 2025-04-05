@@ -480,12 +480,12 @@ const criarAdaptadorAI = (dependencias) => {
     // 2. Preparar Conteúdo e Config para API
     const configAI = {
       ...config,
-      temperature: 0.3, // Menor temp para transcrição
+      temperature: 0.9,
       systemInstruction: config.systemInstruction || obterInstrucaoAudio()
     };
     const modelo = obterOuCriarModelo(configAI);
     const parteAudio = { inlineData: { mimeType: audioData.mimetype, data: audioData.data } };
-    const promptTexto = `Transcreva o áudio com ID ${audioId} e resuma seu conteúdo em português.`;
+    const promptTexto = `Formato OBRIGATÓRIO: [Transcrição do Audio] texto literal do áudio aqui.`;
     const partesConteudo = [parteAudio, { text: promptTexto }];
 
     // 3. Executar Geração (com resiliência)
