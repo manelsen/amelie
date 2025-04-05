@@ -109,7 +109,7 @@ const capturarSnapshotMensagem = async (mensagemOriginal, cliente, registrador) 
         snapshot.remetente.nome = 'Usuário';
       }
     } catch (erroContato) {
-      registrador.debug(`Erro ao obter nome do contato: ${erroContato.message}`);
+      
       snapshot.remetente.nome = 'Usuário';
     }
     
@@ -126,7 +126,7 @@ const capturarSnapshotMensagem = async (mensagemOriginal, cliente, registrador) 
         snapshot.chat.nome = 'Chat';
       }
     } catch (erroChat) {
-      registrador.debug(`Erro ao obter dados do chat: ${erroChat.message}`);
+      
       snapshot.chat.id = mensagemOriginal.from;
       snapshot.chat.tipo = mensagemOriginal.from.includes('@g.us') ? 'grupo' : 'individual';
       snapshot.chat.nome = 'Chat';
@@ -223,7 +223,7 @@ const verificarMensagemUtilizavel = async (mensagem, registrador) => {
     
     return Resultado.sucesso(true);
   } catch (erro) {
-    registrador.debug(`Erro ao verificar mensagem: ${erro.message}`);
+    
     return Resultado.falha(erro);
   }
 };
@@ -394,13 +394,13 @@ const atualizarStatusTransacao = async (gerenciadorTransacoes, transacaoId, suce
   try {
     if (sucesso) {
       await gerenciadorTransacoes.marcarComoEntregue(transacaoId);
-      registrador.debug(`Transação ${transacaoId} marcada como entregue`);
+      
     } else if (erro) {
       await gerenciadorTransacoes.registrarFalhaEntrega(
         transacaoId,
         `Erro ao enviar: ${erro.message}`
       );
-      registrador.debug(`Falha registrada para transação ${transacaoId}: ${erro.message}`);
+      
     }
     return Resultado.sucesso({ transacaoAtualizada: true });
   } catch (erroTransacao) {

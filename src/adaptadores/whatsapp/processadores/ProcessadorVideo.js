@@ -34,14 +34,14 @@ const criarProcessadorVideo = (dependencias) => {
        const arquivoTemporario = `./temp/video_${dataHora}_${Math.floor(Math.random() * 10000)}.mp4`;
        const diretorio = path.dirname(arquivoTemporario);
        await fs.promises.mkdir(diretorio, { recursive: true });
-       registrador.debug(`Salvando arquivo de vídeo ${arquivoTemporario}...`);
+       
        const videoBuffer = Buffer.from(dadosAnexo.data, 'base64');
        await fs.promises.writeFile(arquivoTemporario, videoBuffer);
        const stats = await fs.promises.stat(arquivoTemporario);
        if (stats.size !== videoBuffer.length) {
          throw new Error(`Tamanho do arquivo salvo (${stats.size}) não corresponde ao buffer original (${videoBuffer.length})`);
        }
-       registrador.debug(`✅ Arquivo de vídeo salvo com sucesso: ${arquivoTemporario} (${Math.round(videoBuffer.length / 1024)} KB)`);
+       
        return Resultado.sucesso(arquivoTemporario);
      } catch (erro) {
        registrador.error(`Erro ao salvar arquivo temporário: ${erro.message}`);
@@ -54,26 +54,26 @@ const criarProcessadorVideo = (dependencias) => {
     const { mensagem, chatId, dadosAnexo } = dados;
     let arquivoTemporario = null; // Para limpeza em caso de erro
     let currentTransacaoId = null; // Para log no catch e registro de falha
-    registrador.debug(`[Video] Iniciando processamento.`); // Simplificado
+    
 
     try { // Bloco try principal
       // Obter chat
       const chat = await mensagem.getChat();
 
       // Obter configuração
-      registrador.debug(`[Video] Obtendo config.`);
+      
       const config = await gerenciadorConfig.obterConfig(chatId);
-      registrador.debug(`[Video] Config obtida: mediaVideo=${config?.mediaVideo}, modoDescricao=${config?.modoDescricao}`);
+      
 
       // Verificar se processamento de vídeo está habilitado
       if (!config || !config.mediaVideo) {
-        registrador.debug(`[Video] Descrição DESABILITADA. Ignorando.`); // Simplificado
+        
         return Resultado.falha(new Error("Descrição de vídeo desabilitada"));
       }
-       registrador.debug(`[Video] Descrição HABILITADA. Continuando...`);
+       
 
       // Obter informações do remetente
-       registrador.debug(`[Video] Obtendo remetente.`);
+       
        const resultadoRemetente = await obterOuCriarUsuario(
          gerenciadorConfig,
          clienteWhatsApp,
@@ -85,10 +85,10 @@ const criarProcessadorVideo = (dependencias) => {
          throw new Error("Falha ao obter remetente");
        }
        const remetente = resultadoRemetente.dados;
-       registrador.debug(`[Video] Remetente obtido: ${remetente.name}`);
+       
 
       // Verificar tamanho do vídeo
-      registrador.debug(`[Video] Verificando tamanho.`);
+      
       const resultadoTamanho = verificarTamanhoVideo(dadosAnexo);
        if (!resultadoTamanho.sucesso) {
          registrador.warn(`[Video] ${resultadoTamanho.erro.message}`); // Simplificado
@@ -100,13 +100,13 @@ const criarProcessadorVideo = (dependencias) => {
          );
          return Resultado.falha(resultadoTamanho.erro); // Parar aqui
        }
-       registrador.debug(`[Video] Tamanho OK.`);
+       
 
 
       // --- Bloco Corrigido de Criação e Verificação da Transação ---
-      registrador.debug(`[Video] Criando transação.`);
+      
       const resultadoTransacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
-      registrador.debug(`[Video] Resultado de criarTransacao: ${JSON.stringify(resultadoTransacao)}`);
+      
 
       if (!resultadoTransacao || !resultadoTransacao.sucesso) {
            registrador.error(`[Video] Falha ao criar transação: ${resultadoTransacao?.erro?.message || 'Resultado inválido/inesperado'}`);
@@ -128,13 +128,13 @@ const criarProcessadorVideo = (dependencias) => {
       }
 
       currentTransacaoId = transacao.id; // Armazena o ID validado
-      registrador.debug(`[Video] ID da transação ${currentTransacaoId} validado.`); // Simplificado
+      
       // --- Fim do Bloco Corrigido ---
 
 
       // Marcar como processando
       await gerenciadorTransacoes.marcarComoProcessando(currentTransacaoId); // Usar ID validado
-      registrador.debug(`[Video] Transação marcada como processando.`); // Simplificado
+      
 
 
       // Determinar prompt do usuário baseado no modo
@@ -149,18 +149,18 @@ const criarProcessadorVideo = (dependencias) => {
       } else {
         promptUsuario = InstrucoesSistema.obterPromptVideoCurto(); // Usar função importada
       }
-      registrador.debug(`[Video] Prompt para IA: ${promptUsuario.substring(0,100)}...`);
+      
 
 
       // Salvar arquivo temporário
-      registrador.debug(`[Video] Salvando arquivo temporário.`);
+      
       const resultadoSalvar = await salvarArquivoTemporario(dadosAnexo);
       if (!resultadoSalvar.sucesso) {
            registrador.error(`[Video] Falha ao salvar arquivo temporário: ${resultadoSalvar.erro.message}`);
            throw new Error("Falha ao salvar arquivo temporário"); // Lançar erro para o catch geral
       }
       arquivoTemporario = resultadoSalvar.dados; // Guardar caminho para limpeza
-      registrador.debug(`[Video] Arquivo temporário salvo: ${arquivoTemporario}`);
+      
 
       // Passar informação de legenda nas opções
       const opcoesAdicionais = {};
@@ -169,7 +169,7 @@ const criarProcessadorVideo = (dependencias) => {
       }
 
       // Adicionar vídeo à fila
-      registrador.debug(`[Video] Adicionando job à fila.`); // Simplificado (ID na coluna)
+      
       await filasMidia.adicionarVideo({
         tempFilename: arquivoTemporario,
         chatId,
@@ -184,7 +184,7 @@ const criarProcessadorVideo = (dependencias) => {
         ...opcoesAdicionais
       });
 
-      registrador.debug(`[Video] Job adicionado à fila.`); // Simplificado
+      
       // Não precisa mais limpar arquivo aqui, a fila fará isso após o processamento
       // arquivoTemporario = null; // Resetar para evitar limpeza duplicada no catch
 

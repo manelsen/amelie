@@ -20,7 +20,7 @@ const criarComandoReset = (dependencias) => {
     )()
     .then(resultado => {
       if (resultado.sucesso) {
-        registrador.debug(`Configurações resetadas para o chat ${chatId}`);
+        
       }
       return resultado;
     });

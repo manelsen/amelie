@@ -65,16 +65,16 @@ const FilasCriadores = {
    */
   configurarEventos: _.curry((registrador, fila, nomeEtapa, filaProblemas) => {
     fila.on('active', (job) => {
-      registrador.debug(`[${nomeEtapa}] Job ${job.id} iniciado`);
+      
     });
 
     fila.on('progress', (job, progress) => {
-      registrador.debug(`[${nomeEtapa}] Job ${job.id} progresso: ${progress}`);
+      
     });
 
     fila.on('completed', (job, result) => {
       const duracao = Date.now() - (job.processedOn || job.timestamp);
-      registrador.debug(`[${nomeEtapa}] Job ${job.id} concluído em ${duracao}ms`);
+      
     });
 
     fila.on('failed', (job, error) => {

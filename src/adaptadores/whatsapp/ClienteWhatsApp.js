@@ -56,7 +56,7 @@ class ClienteWhatsApp extends EventEmitter {
     if (!fs.existsSync(diretorio)) {
       try {
         fs.mkdirSync(diretorio, { recursive: true });
-        this.registrador.debug(`[Whats] Diretório criado: ${diretorio}`);
+        
       } catch (erro) {
         this.registrador.error(`[Whats] Erro ao criar diretório: ${erro.message}`);
       }
@@ -127,7 +127,7 @@ class ClienteWhatsApp extends EventEmitter {
                   this.registrador.info('[Whats] Falha ao obter código de pareamento. Se um QR Code for exibido, use-o.');
               }
           } else {
-              this.registrador.debug('[Whats] Cliente já está pronto, não é necessário solicitar código de pareamento.');
+              
           }
       }, 15000); // Aguarda 15 segundos para dar chance à LocalAuth
     });
@@ -397,7 +397,7 @@ class ClienteWhatsApp extends EventEmitter {
    * @returns {Promise<boolean>} Sucesso da reconexão
    */
   async reconectar() {
-    this.registrador.debug('[Whats] Tentando reconexão simples...');
+    
 
     try {
       // Tentar reconectar sem reiniciar tudo
@@ -416,7 +416,7 @@ class ClienteWhatsApp extends EventEmitter {
       const reconectouRealmente = await this.estaProntoRealmente();
 
       if (reconectouRealmente) {
-        this.registrador.debug('[Whats] Reconexão bem-sucedida!');
+        
         this.tentativasReconexao = 0;
         return true;
       } else {
@@ -539,62 +539,62 @@ class ClienteWhatsApp extends EventEmitter {
     const nomeGrupo = chat.name || chatId;
     const prefixoLog = `[Whats][GrupoResp][${nomeGrupo}]`; // Contexto mais curto
 
-    this.registrador.debug(`${prefixoLog} INICIO: Verificando msg ${msgId}.`); // Removido Bot ID
+     // Removido Bot ID
 
     // Log inicial das propriedades da mensagem
-    this.registrador.debug(`${prefixoLog} Props: Body='${msg.body}', Media=${msg.hasMedia}, Quoted=${msg.hasQuotedMsg}, Type=${msg.type}`); // Mais curto
+     // Mais curto
 
     // 1. Verificar se é comando
-    this.registrador.debug(`${prefixoLog} Passo 1: Comando?`);
+    
     if (typeof msg.body === 'string' && msg.body.startsWith('.')) {
       const comando = msg.body.split(' ')[0];
-      this.registrador.debug(`${prefixoLog} -> SIM (Comando: ${comando})`);
+      
       return true;
     }
-    this.registrador.debug(`${prefixoLog} -> NÃO`);
+    
 
     // 2. Verificar se tem mídia
-    this.registrador.debug(`${prefixoLog} Passo 2: Mídia?`);
+    
     if (msg.hasMedia) {
-      this.registrador.debug(`${prefixoLog} -> SIM (Tipo: ${msg.type})`);
+      
       return true;
     }
-    this.registrador.debug(`${prefixoLog} -> NÃO`);
+    
 
     // 3. Verificar menções
-    this.registrador.debug(`${prefixoLog} Passo 3: Menção?`);
+    
     if (botId) {
       try {
         const mencoes = await msg.getMentions();
         const botMencionado = mencoes.some(mencao => mencao.id._serialized === botId);
-        this.registrador.debug(`${prefixoLog} Verif. menção: ${botMencionado}`);
+        
         if (botMencionado) {
-          this.registrador.debug(`${prefixoLog} -> SIM`);
+          
           return true;
         }
       } catch (errorMencao) {
         // Manter como erro, pois é uma falha inesperada
         this.registrador.error(`${prefixoLog} FALHA CRÍTICA ao verificar menções: ${errorMencao.message}`);
-        this.registrador.debug(`${prefixoLog} -> ERRO`);
+        
         return false;
       }
     } else {
       this.registrador.warn(`${prefixoLog} ID do bot não disponível, pulando verif. menção.`);
     }
-    this.registrador.debug(`${prefixoLog} -> NÃO`);
+    
 
     // 4. Verificar citação de mensagem do bot
-    this.registrador.debug(`${prefixoLog} Passo 4: Citação do bot?`);
+    
     if (msg.hasQuotedMsg) {
       try {
         const msgCitada = await msg.getQuotedMessage();
         if (msgCitada) {
-            this.registrador.debug(`${prefixoLog} Msg citada obtida. É do bot? ${msgCitada.fromMe}.`);
+            
             if (msgCitada.fromMe) {
-              this.registrador.debug(`${prefixoLog} -> SIM`);
+              
               return true;
             } else {
-              this.registrador.debug(`${prefixoLog} Msg citada NÃO é do bot.`);
+              
             }
         } else {
              this.registrador.warn(`${prefixoLog} Msg citada retornou null/undefined.`);
@@ -602,16 +602,16 @@ class ClienteWhatsApp extends EventEmitter {
       } catch (errorCitacao) {
         // Manter como erro, pois é uma falha inesperada
         this.registrador.error(`${prefixoLog} FALHA CRÍTICA ao verificar msg citada: ${errorCitacao.message}`);
-        this.registrador.debug(`${prefixoLog} -> ERRO`);
+        
         return false;
       }
     } else {
-        this.registrador.debug(`${prefixoLog} Não possui citação.`);
+        
     }
-    this.registrador.debug(`${prefixoLog} -> NÃO`);
+    
 
     // 5. Nenhuma condição atendida
-    this.registrador.debug(`${prefixoLog} FIM: Nenhuma condição atendida. Não responder.`);
+    
     return false;
   }
 }

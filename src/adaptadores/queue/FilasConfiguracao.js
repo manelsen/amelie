@@ -72,7 +72,7 @@ const FilasConfiguracao = {
       }
 
       const modoDescricao = config.modoDescricao || 'curto';
-      registrador.debug(`Modo de descrição: ${modoDescricao} para ${tipoMidia} no chat ${chatId}`);
+      
 
       // Obter a instrução padrão para a mídia/modo
       const obterInstrucaoPadrao = _.cond([
@@ -87,8 +87,8 @@ const FilasConfiguracao = {
 
       // Não combinar aqui. Retornar ambos separadamente.
       const promptPersonalizado = config.systemInstructions; // Pode ser nulo
-      registrador.debug(`Prompt personalizado para ${chatId}: ${promptPersonalizado ? 'Encontrado' : 'Nenhum'}`);
-      registrador.debug(`Instrução padrão para ${tipoMidia}/${modoDescricao}: ${instrucaoPadraoMidia ? 'Encontrada' : 'Nenhuma'}`);
+      
+      
 
       return Resultado.sucesso({
         temperature: config.temperature || 0.7,
@@ -135,23 +135,23 @@ const FilasConfiguracao = {
       // Resto do código com o cond original
       return _.cond([
         [_.matches({ tipo: 'imagem', modo: 'longo' }), () => {
-          registrador.debug('Usando prompt LONGO para imagem');
+          
           return obterPromptImagem();
         }],
         [_.matches({ tipo: 'imagem', modo: 'curto' }), () => {
-          registrador.debug('Usando prompt CURTO para imagem');
+          
           return obterPromptImagemCurto();
         }],
         [_.matches({ tipo: 'video', modo: 'longo' }), () => {
-          registrador.debug('Usando prompt LONGO para vídeo');
+          
           return obterPromptVideo();
         }],
         [_.matches({ tipo: 'video', modo: 'curto' }), () => {
-          registrador.debug('Usando prompt CURTO para vídeo');
+          
           return obterPromptVideoCurto();
         }],
         [_.matches({ tipo: 'video', modo: 'legenda' }), () => {
-          registrador.debug('Usando prompt LEGENDA para vídeo');
+          
           return obterPromptVideoLegenda();
         }],
         [_.stubTrue, _.constant(promptUsuario)]

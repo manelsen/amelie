@@ -18,11 +18,11 @@ const criarProcessadorTexto = (dependencias) => {
   const processarMensagemTexto = async (dados) => {
     const { mensagem, chat, chatId } = dados;
     let currentTransacaoId = null; // Initialize for logging in catch block
-    registrador.debug(`[Texto] Iniciando processamento.`); // Simplificado
+    
 
     try { // *** Add robust try...catch block ***
       // Obter informações do remetente
-      registrador.debug(`[Texto] Obtendo remetente.`); // Simplificado
+      
       const resultadoRemetente = await obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(
           mensagem.author || mensagem.from,
           chat
@@ -32,13 +32,13 @@ const criarProcessadorTexto = (dependencias) => {
          throw new Error("Falha ao obter remetente");
       }
       const remetente = resultadoRemetente.dados;
-      registrador.debug(`[Texto] Remetente obtido: ${remetente.name}`);
+      
 
       // Criar transação
-      registrador.debug(`[Texto] Criando transação.`); // Simplificado
+      
       const resultadoTransacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
       // *** LOG DETALHADO DO RESULTADO DA CRIAÇÃO ***
-      registrador.debug(`[Texto] Resultado de criarTransacao: ${JSON.stringify(resultadoTransacao)}`);
+      
 
       // *** VERIFICAÇÃO ROBUSTA DO RESULTADO ***
       if (!resultadoTransacao || !resultadoTransacao.sucesso) {
@@ -58,7 +58,7 @@ const criarProcessadorTexto = (dependencias) => {
       currentTransacaoId = transacao.id; // Assign ID for later use
 
       // Adicionar dados para recuperação
-      registrador.debug(`[Texto] Adicionando dados de recuperação.`); // Simplificado
+      
       await gerenciadorTransacoes.adicionarDadosRecuperacao(
         currentTransacaoId,
         {
@@ -72,11 +72,11 @@ const criarProcessadorTexto = (dependencias) => {
       );
 
       // Marcar como processando
-      registrador.debug(`[Texto] Marcando como processando.`); // Simplificado
+      
       await gerenciadorTransacoes.marcarComoProcessando(currentTransacaoId);
 
       // Obter histórico e configuração
-      registrador.debug(`[Texto] Obtendo histórico e config.`); // Simplificado
+      
       const historico = await clienteWhatsApp.obterHistoricoMensagens(chatId);
       const config = await gerenciadorConfig.obterConfig(chatId);
 
@@ -89,7 +89,7 @@ const criarProcessadorTexto = (dependencias) => {
 
 
       // Processar com IA
-      registrador.debug(`[Texto] Chamando IA (processarTexto).`); // Simplificado
+      
       // Definir a instrução de sistema específica para conversa
       const configParaIA = {
         ...config, // Inclui config base (temp, topK, etc.) e systemInstructions se já preenchido por obterConfig
@@ -106,11 +106,11 @@ const criarProcessadorTexto = (dependencias) => {
       registrador.info(`[Texto] Resposta da IA recebida. Tamanho: ${resposta?.length}`); // Simplificado
 
       // Adicionar resposta à transação
-      registrador.debug(`[Texto] Adicionando resposta à transação.`); // Simplificado
+      
       await gerenciadorTransacoes.adicionarRespostaTransacao(currentTransacaoId, resposta);
 
       // Enviar a resposta
-      registrador.debug(`[Texto] Enviando resposta.`); // Simplificado
+      
       await servicoMensagem.enviarResposta(mensagem, resposta, currentTransacaoId);
       registrador.info(`[Texto] Resposta enviada.`); // Simplificado
 

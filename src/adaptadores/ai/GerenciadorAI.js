@@ -199,11 +199,11 @@ const criarAdaptadorAI = (dependencias) => {
     const chaveCacheModelo = gerarHash(JSON.stringify(configModelo));
 
     if (cacheModelos.has(chaveCacheModelo)) {
-      registrador.debug(`Usando modelo em cache: ${chaveCacheModelo}`);
+      
       return cacheModelos.get(chaveCacheModelo);
     }
 
-    registrador.debug(`Criando novo modelo: ${chaveCacheModelo}`);
+    
     const novoModelo = genAI.getGenerativeModel(configModelo);
     cacheModelos.set(chaveCacheModelo, novoModelo);
     return novoModelo;
@@ -352,10 +352,10 @@ const criarAdaptadorAI = (dependencias) => {
 
       const cacheHit = cache.get(chaveCache);
       if (cacheHit) {
-        registrador.info(`[Cache HIT] ${logTipo}: ${chaveCache}`);
+        registrador.info(`[Cache HIT] ${logTipo}`);
         return Resultado.sucesso({ hit: true, valor: cacheHit, chaveCache });
       }
-      registrador.debug(`[Cache MISS] ${logTipo}: ${chaveCache}`);
+      
       return Resultado.sucesso({ hit: false, valor: null, chaveCache });
     } catch (err) {
       const erroCache = new Error(`Erro ao gerar/verificar chave de cache para ${logTipo}: ${err.message}`);
@@ -404,7 +404,7 @@ const criarAdaptadorAI = (dependencias) => {
     // 4. Sucesso: Salvar no cache (se possível) e retornar Resultado.sucesso
     const respostaFinal = resultadoProc.dados;
     if (chaveCache) {
-      registrador.debug(`[${tipo}] Tentando salvar no cache. Chave: "${chaveCache}"`);
+      
       cacheRespostas.set(chaveCache, respostaFinal);
     }
     return Resultado.sucesso(respostaFinal);
@@ -452,7 +452,7 @@ const criarAdaptadorAI = (dependencias) => {
     // 5. Sucesso: Salvar no cache (se possível) e retornar Resultado.sucesso
     const respostaFinal = resultadoProc.dados;
     if (chaveCache) {
-      registrador.debug(`[${tipo}] Tentando salvar no cache. Chave: "${chaveCache}"`);
+      
       cacheRespostas.set(chaveCache, respostaFinal);
     }
     // Adicionar prefixo (se necessário, mas a lógica de prefixo pode ser movida para o chamador)
@@ -503,7 +503,7 @@ const criarAdaptadorAI = (dependencias) => {
     // 5. Sucesso: Salvar no cache (se possível) e retornar Resultado.sucesso
     const respostaFinal = resultadoProc.dados;
     if (chaveCache) {
-      registrador.debug(`[${tipo}] Tentando salvar no cache. Chave: "${chaveCache}"`);
+      
       cacheRespostas.set(chaveCache, respostaFinal);
     }
     // Adicionar prefixo (se necessário, mas pode ser movido para o chamador)
@@ -555,7 +555,7 @@ const criarAdaptadorAI = (dependencias) => {
     // 5. Sucesso: Salvar no cache (se possível) e retornar Resultado.sucesso
     const respostaFinal = resultadoProc.dados;
     if (chaveCache) {
-      registrador.debug(`[${tipo} (${tipoDocLog})] Tentando salvar no cache. Chave: "${chaveCache}"`);
+      
       cacheRespostas.set(chaveCache, respostaFinal);
     }
     // Adicionar prefixo (se necessário)
@@ -669,7 +669,7 @@ const criarAdaptadorAI = (dependencias) => {
       // 6. Sucesso: Salvar no cache e retornar
       const respostaFinal = resultadoProc.dados;
       if (chaveCache) {
-        registrador.debug(`[${tipo} (${tipoDocLog})] Tentando salvar no cache. Chave: "${chaveCache}"`);
+        
         cacheRespostas.set(chaveCache, respostaFinal);
       }
       // Adicionar prefixo (se necessário)
@@ -787,7 +787,7 @@ const criarAdaptadorAI = (dependencias) => {
       // 6. Sucesso: Salvar no cache, adicionar prefixo e retornar
       const respostaFinal = resultadoProc.dados;
       if (chaveCache) {
-        registrador.debug(`[${tipo}] Tentando salvar no cache. Chave: "${chaveCache}"`);
+        
         cacheRespostas.set(chaveCache, respostaFinal);
       }
       return Resultado.sucesso(`${respostaFinal}`);
@@ -806,7 +806,7 @@ const criarAdaptadorAI = (dependencias) => {
   // --- Funções Auxiliares para Gerenciamento de Arquivos Google ---
 
   const uploadArquivoGoogle = async (caminhoArquivo, opcoesUpload, timeoutMs = TIMEOUT_API_UPLOAD_MS) => {
-    registrador.debug(`[AdpAI] Iniciando upload Google: ${caminhoArquivo}`);
+    
     // executarComResiliencia já retorna Promise<Resultado>
     const resultado = await executarComResiliencia(
       'uploadArquivoGoogle',
@@ -822,7 +822,7 @@ const criarAdaptadorAI = (dependencias) => {
       // Retornar um sucesso silencioso se não houver nome, pois não há o que deletar
       return Resultado.sucesso(true);
     }
-    registrador.debug(`[AdpAI] Iniciando delete Google: ${nomeArquivoGoogle}`);
+    
     // executarComResiliencia já retorna Promise<Resultado>
     const resultado = await executarComResiliencia(
       'deleteArquivoGoogle',
@@ -843,7 +843,7 @@ const criarAdaptadorAI = (dependencias) => {
   };
 
   const getArquivoGoogle = async (nomeArquivoGoogle, timeoutMs = TIMEOUT_API_GERAL_MS) => {
-     registrador.debug(`[AdpAI] Obtendo estado arquivo Google: ${nomeArquivoGoogle}`);
+     
      // executarComResiliencia já retorna Promise<Resultado>
      const resultado = await executarComResiliencia(
         'getArquivoGoogle',
@@ -860,7 +860,7 @@ const criarAdaptadorAI = (dependencias) => {
    */
   const gerarConteudoDeArquivoUri = async (fileUri, mimeType, prompt, config) => {
     const tipo = config.tipoMidia || 'arquivoUri';
-    registrador.debug(`[${tipo}] Iniciando geração de conteúdo: ${fileUri}`);
+    
 
     // 1. Preparar Conteúdo e Config para API
     // Usar a config recebida, que já contém a systemInstruction correta (persona)

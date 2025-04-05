@@ -29,7 +29,7 @@ const FilasProcessadoresMidia = {
       return Resultado.falha(new Error("Dados da imagem inválidos ou ausentes"));
     }
 
-    registrador.debug(`Delegando processamento da imagem para gerenciadorAI.processarImagem com modo ${config.modoDescricao}`);
+    
 
     // Chamar a função refatorada que retorna Promise<Resultado>
     const resultadoAI = await gerenciadorAI.processarImagem(imageData, prompt, config);
@@ -50,7 +50,7 @@ const FilasProcessadoresMidia = {
    * @returns {Promise<Resultado>} Resultado do processamento
    */
   processarVideo: _.curry(async (gerenciadorAI, registrador, caminhoArquivo, prompt, config) => {
-    registrador.debug(`Delegando processamento do vídeo ${caminhoArquivo} para gerenciadorAI.processarVideo`);
+    
 
     // Chamar a função refatorada que retorna Promise<Resultado>
     const resultadoAI = await gerenciadorAI.processarVideo(caminhoArquivo, prompt, config);

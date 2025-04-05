@@ -25,7 +25,7 @@ const criarProcessadorComandos = (dependencias) => {
       const textoOriginalTrimmed = mensagem.body.trim();
       const palavras = textoOriginalTrimmed.split(' ');
       const args = palavras.slice(1);
-      registrador.debug(`Processando comando: ${dados.comandoNormalizado}, Argumentos: ${args.join(' ')}`);
+      
       return Resultado.sucesso({ ...dados, args }); // Adiciona args aos dados
     } catch (erro) {
       // Pouco provável, mas seguro envolver
@@ -130,7 +130,7 @@ const criarProcessadorComandos = (dependencias) => {
       resultadoFinal,
       (resultadoSucesso) => {
         // Comando executado com sucesso (a própria função do comando pode ter enviado respostas)
-        registrador.debug(`Comando ${dadosIniciais.comandoNormalizado} processado com sucesso.`);
+        
         // Retorna o resultado interno do comando, se houver (pode ser Resultado.sucesso(true) ou dados específicos)
         return resultadoSucesso;
       },

@@ -62,7 +62,7 @@ const criarComandoCego = (dependencias) => {
     )()
     .then(resultado => {
       if (resultado.sucesso) {
-        registrador.info(`[CdCego] Configs para deficiência visual aplicadas.`); // Simplificado
+        registrador.info(`[CdCgo] Configs para deficiência visual aplicadas.`);
       }
       return resultado;
     });

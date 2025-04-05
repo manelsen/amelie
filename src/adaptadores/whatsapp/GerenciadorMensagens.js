@@ -274,10 +274,10 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
        const { resposta, senderNumber, remetenteName, tipo } = resultado;
        const tipoMidiaStr = tipo || 'mídia'; // Usar 'mídia' como padrão se tipo não vier
 
-       registrador.debug(`[Callback] Processando resultado final para ${tipoMidiaStr}.`); // Simplificado (ID na coluna)
+       
 
        // *** LOG ANTES DO ENVIO ***
-       registrador.debug(`[Callback] Tentando enviar via servicoMensagem.enviarMensagemDireta...`); // Simplificado (ID na coluna)
+       
 
        // Chamada para o serviço de envio
        const resultadoEnvio = await servicoMensagem.enviarMensagemDireta(
@@ -291,7 +291,7 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
        );
 
        // *** LOG DEPOIS DO ENVIO ***
-       registrador.debug(`[Callback] Resultado de enviarMensagemDireta: ${JSON.stringify(resultadoEnvio)}`); // Simplificado (ID na coluna)
+       
 
        // Checar o resultado do envio
        if (!resultadoEnvio || !resultadoEnvio.sucesso) {
@@ -313,7 +313,7 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
      } finally {
         // *** LOG DE SAÍDA DO CALLBACK ***
         // Este log ajuda a confirmar que o callback terminou, mesmo se houve erro
-        registrador.debug(`[Callback] FINALIZANDO CALLBACK.`); // Simplificado (ID na coluna)
+        
      }
   }; // Fim de _processarResultadoFilaMidia
 

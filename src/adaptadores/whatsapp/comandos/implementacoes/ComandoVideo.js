@@ -8,25 +8,25 @@ const criarComandoVideo = (dependencias) => {
   const { registrador, gerenciadorConfig, servicoMensagem } = dependencias;
 
   const executar = async (mensagem, args, chatId) => { // Marcar como async
-    registrador.debug(`[ComandoVideo] Executando para chat ${chatId}`);
+    
     try {
       // 1. Obter configuração atual
       const config = await gerenciadorConfig.obterConfig(chatId);
       const valorAtual = config.mediaVideo === true;
-      registrador.debug(`[ComandoVideo] Valor atual de mediaVideo: ${valorAtual}`);
+      
 
       // 2. Alternar para o valor oposto
       const novoValor = !valorAtual;
       await gerenciadorConfig.definirConfig(chatId, 'mediaVideo', novoValor);
-      registrador.debug(`[ComandoVideo] Definido mediaVideo para: ${novoValor}`);
+      
 
       // 3. Informar o usuário sobre a nova configuração
       const mensagemStatus = novoValor ? 'ativada' : 'desativada';
       const feedbackMsg = `A interpretação de vídeo foi ${mensagemStatus} para este chat.`;
 
-      registrador.debug(`[ComandoVideo] Enviando feedback: "${feedbackMsg}"`);
+      
       await servicoMensagem.enviarResposta(mensagem, feedbackMsg);
-      registrador.debug(`[ComandoVideo] Feedback enviado com sucesso para ${chatId}`);
+      
 
       return Resultado.sucesso(true); // Indicar sucesso
 

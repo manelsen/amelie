@@ -162,7 +162,7 @@ const verificarMensagensRecentes = (registrador) => {
 
     // Verificar se o arquivo existe
     if (!fs.existsSync(caminhoLog)) {
-      registrador.debug(`Arquivo de log ${caminhoLog} não encontrado`);
+      
       return false;
     }
 
@@ -215,7 +215,7 @@ const verificarMensagensRecentes = (registrador) => {
           return true;
         }
       } catch (erroData) {
-        registrador.debug(`Erro ao processar data na linha: ${erroData.message}`);
+        
         // Continuar para próxima linha
       }
     }
@@ -274,7 +274,7 @@ const verificarConexaoAtiva = async (estado) => {
           );
         }).catch(() => false);
       } catch (erroEval) {
-        registrador.debug(`Erro na verificação do Puppeteer: ${erroEval.message}`);
+        
       }
     }
 
@@ -306,7 +306,7 @@ const verificarConexaoAtiva = async (estado) => {
     };
 
     if (!estaConectado) {
-      registrador.debug(`Diagnóstico de conexão: ID=${temId}, EstadoPuppeteer=${estadoConexaoPuppeteer}, MensagemRecente=${mensagemRecente}, EnvioRecente=${envioRecente}, SinaisPositivos=${sinaisPositivos}`);
+      
     }
 
     return { conectado: estaConectado, diagnostico };
@@ -329,7 +329,7 @@ const verificarMemoria = (estado) => {
     const heapUsadoMB = Math.round(usoMemoria.heapUsed / 1024 / 1024);
     const rssMB = Math.round(usoMemoria.rss / 1024 / 1024);
 
-    registrador.debug(`Memória: Heap ${heapUsadoMB}MB / RSS ${rssMB}MB`);
+    
 
     let resultado = { estado: 'normal' };
 
@@ -540,7 +540,7 @@ const recuperacaoEmergencia = async (estado) => {
                 registrador.warn(`⚠️ Arquivo ${arquivo} parece recente (${Math.round(idadeArquivoSegundos)}s). Não vou remover.`);
               }
             } catch (e) {
-              registrador.debug(`Não foi possível remover ${arquivo}: ${e.message}`);
+              
             }
           }
         }

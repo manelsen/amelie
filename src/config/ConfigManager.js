@@ -35,7 +35,7 @@ class ConfigManager {
     return Resultado.dobrar(
       resultado,
       () => {
-        this.registrador.debug(`Configuração ${param}=${valor} definida para ${chatId}`);
+        
         return true;
       },
       (erro) => {
@@ -53,7 +53,7 @@ class ConfigManager {
       async (config) => {
         // Verificação explícita para legenda
         if (config.usarLegenda === true) {
-          this.registrador.debug(`Modo legenda detectado para ${chatId}, configurando modoDescricao='legenda'`);
+          
           config.modoDescricao = 'legenda';
         }
         
@@ -112,7 +112,7 @@ class ConfigManager {
     return Resultado.dobrar(
       resultado,
       () => {
-        this.registrador.debug(`Prompt ${nome} definido para ${chatId}`);
+        
         return true;
       },
       (erro) => {
@@ -153,7 +153,7 @@ class ConfigManager {
       const prompt = await this.obterPromptSistema(chatId, nomePrompt);
       if (prompt) {
         await this.definirConfig(chatId, 'activePrompt', nomePrompt);
-        this.registrador.debug(`Prompt ativo definido para ${chatId}: ${nomePrompt}`);
+        
         return true;
       }
       this.registrador.warn(`Prompt ${nomePrompt} não encontrado para ${chatId}`);
@@ -167,7 +167,7 @@ class ConfigManager {
   async limparPromptSistemaAtivo(chatId) {
     try {
       await this.definirConfig(chatId, 'activePrompt', null);
-      this.registrador.debug(`Prompt ativo removido para ${chatId}`);
+      
       return true;
     } catch (erro) {
       this.registrador.error(`Erro ao limpar prompt ativo: ${erro.message}`);

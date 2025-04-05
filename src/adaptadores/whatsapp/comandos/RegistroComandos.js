@@ -132,7 +132,6 @@ const criarRegistroComandos = (dependencias) => {
             // Se a execução não retornar um Resultado explícito (pode acontecer em comandos mais simples),
             // consideramos sucesso, mas logamos para garantir.
              if (!resultadoExecucao || typeof resultadoExecucao.sucesso === 'undefined') {
-                 dependencias.registrador.debug(`Comando '${nomeComando}' executado sem retornar um Resultado explícito.`);
                  return Resultado.sucesso(true); // Assume sucesso
              }
             return resultadoExecucao; // Retorna o Resultado da execução

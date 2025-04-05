@@ -64,12 +64,12 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
     }
 
     // DEBUG LOGGING REMOVED
-    // registrador.debug(`[CallbackPadrão ${tipo}] Recebido resultado para ${resultado.transacaoId || 'sem_id'}.`);
-    // registrador.debug(`[CallbackPadrão ${tipo}] Tipo da resposta: ${typeof resultado.resposta}`);
-    // registrador.debug(`[CallbackPadrão ${tipo}] Conteúdo da resposta (primeiros 100 chars): ${String(resultado.resposta).substring(0, 100)}`);
+    // 
+    // 
+    // 
     // DEBUG LOGGING END
 
-    registrador.debug(`Processando resultado de ${tipo} com callback padrão: ${resultado.transacaoId || 'sem_id'}`);
+    
 
     // Criar mensagem simulada mais completa
     const mensagemSimulada = {
@@ -101,7 +101,7 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
     let textoResposta;
     if (typeof resultado.resposta === 'object' && resultado.resposta !== null && resultado.resposta.sucesso === true && typeof resultado.resposta.dados === 'string') {
       // Extrair .dados se for um Resultado.sucesso com dados string
-      registrador.debug(`[CallbackPadrão ${tipo}] Resposta era objeto Resultado, extraindo .dados.`);
+      
       textoResposta = resultado.resposta.dados;
     } else if (typeof resultado.resposta === 'string') {
       // Usar diretamente se já for string
@@ -112,7 +112,7 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
       return Resultado.falha(new Error("Tipo/estrutura inesperada da resposta final"));
     }
 
-    registrador.debug(`[CallbackPadrão ${tipo}] Enviando texto final: ${textoResposta.substring(0,100)}...`);
+    
     return servicoMensagem.enviarResposta(mensagemSimulada, textoResposta, resultado.transacaoId);
   };
 
@@ -152,9 +152,7 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
     FilasProcessadores.criarProcessadorUploadVideo(registrador, gerenciadorAI, filas, notificarErro)
   );
 
-  // Adicionando wrapper de log para confirmar a chamada do worker
   filas.video.processamento.process('processar-video', 10, async (job) => {
-    registrador.info(`[Worker Vídeo Processamento - ENTRY] Job ${job.id} recebido. Tentando processar...`);
     try {
       return await FilasProcessadores.criarProcessadorProcessamentoVideo(registrador, gerenciadorAI, filas, notificarErro)(job);
     } catch (workerError) {

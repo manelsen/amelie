@@ -38,7 +38,7 @@ const criarComandoCurto = (dependencias) => {
     )()
     .then(resultado => {
       if (resultado.sucesso) {
-        registrador.debug(`[CmdCurto] Modo de descrição curta ativado.`); // Simplificado
+        
       }
       return resultado;
     });

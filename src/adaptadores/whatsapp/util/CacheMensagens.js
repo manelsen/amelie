@@ -19,7 +19,7 @@ const criarGerenciadorCache = (registrador) => {
     // Remover todos de uma vez
     if (idsAntigos.length > 0) {
       idsAntigos.forEach(id => mensagensProcessadas.delete(id));
-      registrador.debug(`Cache de deduplicação: removidas ${idsAntigos.length} entradas antigas`);
+      
     }
   };
 
@@ -27,7 +27,7 @@ const criarGerenciadorCache = (registrador) => {
   const iniciar = () => {
     const intervaloLimpeza = 30 * 60 * 1000; // 30 minutos
     setInterval(limparCacheMensagensAntigas, intervaloLimpeza);
-    registrador.debug('Gerenciador de cache de mensagens iniciado');
+    
   };
 
   return {

@@ -55,11 +55,11 @@ const criarProcessadorDocumento = (dependencias) => {
    // *** VERIFICAÇÃO DA CONFIGURAÇÃO mediaDocumento ***
    const configUsuarioInicial = await gerenciadorConfig.obterConfig(chatId);
     if (!configUsuarioInicial || configUsuarioInicial.mediaDocumento !== true) {
-      registrador.debug(`[Docto] Processamento de documentos desativado para chatId ${chatId}. Ignorando.`);
+      
       // Não retorna erro, apenas não processa. Poderia retornar um Resultado.sucesso silencioso.
       return Resultado.sucesso({ ignorado: true, razao: 'Processamento de documentos desativado' });
     }
-    registrador.debug(`[Docto] Processamento de documentos ATIVADO para chatId ${chatId}. Prosseguindo.`);
+    
     // *** FIM DA VERIFICAÇÃO ***
 
     try {
@@ -86,7 +86,7 @@ const criarProcessadorDocumento = (dependencias) => {
 
        // Verificação de tamanho
        const tamanhoBytes = Buffer.from(dadosAnexo.data, 'base64').length;
-       registrador.debug(`[Docto] Tamanho: ${tamanhoBytes} bytes.`);
+       
 
        if (tamanhoBytes > LIMITE_TAMANHO_DOC_BYTES) {
          registrador.warn(`[Docto] Excede limite ${LIMITE_TAMANHO_DOC_BYTES / (1024 * 1024)}MB (Mimetype: ${mimeType}, Tamanho: ${tamanhoBytes} bytes).`); // Simplificado
@@ -123,12 +123,12 @@ const criarProcessadorDocumento = (dependencias) => {
          const nomeTemp = `${crypto.randomBytes(16).toString('hex')}.docx`;
          caminhoDocTemporario = path.join(os.tmpdir(), nomeTemp);
          await fs.writeFile(caminhoDocTemporario, dadosAnexo.data, { encoding: 'base64' });
-         registrador.debug(`[Docto] DOCX salvo temporariamente em: ${caminhoDocTemporario}`);
+         
 
          // 2. Executar pandoc para extrair texto
          let textoExtraido;
          try {
-           registrador.debug(`[Docto] Executando pandoc para extrair texto.`);
+           
            const { stdout, stderr } = await execPromise(`pandoc "${caminhoDocTemporario}" -t plain`);
            if (stderr) {
              registrador.warn(`[Docto] Pandoc stderr: ${stderr}`);
@@ -227,7 +227,7 @@ const criarProcessadorDocumento = (dependencias) => {
        if (caminhoDocTemporario) {
          try {
            await fs.unlink(caminhoDocTemporario);
-           registrador.debug(`[Docto] Arquivo temporário DOCX removido: ${caminhoDocTemporario}`);
+           
          } catch (erroLimpeza) {
            registrador.warn(`[Docto] Falha ao remover arquivo temporário DOCX ${caminhoDocTemporario}: ${erroLimpeza.message}`);
          }

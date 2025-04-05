@@ -18,28 +18,28 @@ const criarProcessadorImagem = (dependencias) => {
   const processarMensagemImagem = async (dados) => {
     const { mensagem, chatId, dadosAnexo } = dados;
     let currentTransacaoId = null; // Inicializa para log no catch
-    registrador.debug(`[Image] Iniciando processamento.`); // Simplificado
+    
 
     try { // Bloco try principal
       // Obter chat
       const chat = await mensagem.getChat();
 
       // Obter configuração
-      registrador.debug(`[Image] Obtendo config.`);
+      
       const config = await gerenciadorConfig.obterConfig(chatId);
-      registrador.debug(`[Image] Config obtida: mediaImage=${config?.mediaImage}`);
+      
 
 
       // Verificar se descrição de imagem está habilitada
       if (!config || !config.mediaImage) {
-        registrador.debug(`[Image] Descrição DESABILITADA. Ignorando.`); // Simplificado
+        
         return Resultado.falha(new Error("Descrição de imagem desabilitada"));
       }
-      registrador.debug(`[Image] Descrição HABILITADA. Continuando...`);
+      
 
 
       // Obter informações do remetente
-      registrador.debug(`[Image] Obtendo remetente.`);
+      
       const resultadoRemetente = await obterOuCriarUsuario(
         gerenciadorConfig,
         clienteWhatsApp,
@@ -51,7 +51,7 @@ const criarProcessadorImagem = (dependencias) => {
         throw new Error("Falha ao obter remetente");
       }
       const remetente = resultadoRemetente.dados;
-      registrador.debug(`[Image] Remetente obtido: ${remetente.name}`);
+      
 
 
       // Preparar dados de origem
@@ -64,9 +64,9 @@ const criarProcessadorImagem = (dependencias) => {
       };
 
       // --- Bloco Corrigido de Criação e Verificação da Transação ---
-      registrador.debug(`[Image] Criando transação.`);
+      
       const resultadoTransacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
-      registrador.debug(`[Image] Resultado de criarTransacao: ${JSON.stringify(resultadoTransacao)}`);
+      
 
       if (!resultadoTransacao || !resultadoTransacao.sucesso) {
            registrador.error(`[Image] Falha ao criar transação: ${resultadoTransacao?.erro?.message || 'Resultado inválido/inesperado'}`);
@@ -88,12 +88,12 @@ const criarProcessadorImagem = (dependencias) => {
       }
 
       currentTransacaoId = transacao.id; // Armazena o ID validado
-      registrador.debug(`[Image] ID da transação ${currentTransacaoId} validado.`); // Simplificado
+      
       // --- Fim do Bloco Corrigido ---
 
       // Marcar como processando
       await gerenciadorTransacoes.marcarComoProcessando(currentTransacaoId); // Usar ID validado
-      registrador.debug(`[Image] Transação marcada como processando.`); // Simplificado
+      
 
       // Determinar prompt do usuário
       let promptUsuario = "";
@@ -102,7 +102,7 @@ const criarProcessadorImagem = (dependencias) => {
       }
 
       // Adicionar à fila de processamento
-      registrador.debug(`[Image] Adicionando job à fila.`); // Simplificado (ID já está na coluna)
+      
       await filasMidia.adicionarImagem({
         imageData: dadosAnexo,
         chatId,
@@ -116,7 +116,7 @@ const criarProcessadorImagem = (dependencias) => {
         dadosOrigem: dadosOrigem
       });
 
-      registrador.debug(`[Image] Job adicionado à fila.`); // Simplificado
+      
       return Resultado.sucesso({ transacao }); // Retorna o objeto transacao original
 
     } catch (erro) { // Catch geral
