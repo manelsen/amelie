@@ -118,10 +118,10 @@ const verificarTipoMensagem = _.curry((registrador, registroComandos, dados) => 
      registrador.debug(`Mensagem sem corpo ou texto normalizado vazio.`);
   }
 
-  // 6. Se não for comando, verificar se tem mídia
+  // 6. Se não for comando, verificar se tem mídia (incluindo documento)
   if (tipo !== 'comando' && mensagem.hasMedia) {
     tipo = 'midia';
-    registrador.debug(`Mensagem com mídia detectada.`);
+    registrador.debug(`Mensagem com mídia detectada (type: ${mensagem.type}).`); // Log ajustado
   }
 
   // 7. Se não for comando nem mídia, é texto (ou vazia, tratada antes)

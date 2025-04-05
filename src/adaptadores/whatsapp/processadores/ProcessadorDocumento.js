@@ -48,12 +48,12 @@ const criarProcessadorDocumento = (dependencias) => {
    */
   const processarMensagemDocumento = async (dados) => {
     const { mensagem, chatId, dadosAnexo } = dados;
-    let caminhoDocTemporario = null; // Necessário para DOCX
-    const LIMITE_TAMANHO_DOC_BYTES = 20 * 1024 * 1024; // 20 MB (mantido)
-    let mimeType = dadosAnexo.mimetype; // Obter o mimetype inicial
+   let caminhoDocTemporario = null; // Necessário para DOCX
+   const LIMITE_TAMANHO_DOC_BYTES = 20 * 1024 * 1024; // 20 MB (mantido)
+   let mimeType = dadosAnexo?.mimetype; // Usar optional chaining para segurança
 
-    // *** VERIFICAÇÃO DA CONFIGURAÇÃO mediaDocumento ***
-    const configUsuarioInicial = await gerenciadorConfig.obterConfig(chatId);
+   // *** VERIFICAÇÃO DA CONFIGURAÇÃO mediaDocumento ***
+   const configUsuarioInicial = await gerenciadorConfig.obterConfig(chatId);
     if (!configUsuarioInicial || configUsuarioInicial.mediaDocumento !== true) {
       registrador.debug(`[Docto] Processamento de documentos desativado para chatId ${chatId}. Ignorando.`);
       // Não retorna erro, apenas não processa. Poderia retornar um Resultado.sucesso silencioso.
@@ -135,6 +135,7 @@ const criarProcessadorDocumento = (dependencias) => {
            }
            textoExtraido = stdout;
            registrador.info(`[Docto] Texto extraído do DOCX via pandoc. Tamanho: ${textoExtraido?.length || 0}`);
+           // Log removido
            if (!textoExtraido || textoExtraido.trim().length === 0) {
               throw new Error("Pandoc não extraiu texto do DOCX.");
            }
@@ -149,11 +150,12 @@ const criarProcessadorDocumento = (dependencias) => {
            : textoExtraido;
 
          // 4. Chamar processarTexto da IA
-         registrador.info(`[Docto] Chamando IA (processarTexto) para texto extraído do DOCX.`);
+         registrador.info(`[Docto] Chamando gerenciadorAI.processarTexto para texto extraído do DOCX.`); // Log ajustado
          const configParaTextoDocx = {
            ...configBaseAI,
            systemInstruction: obterInstrucaoDocumento() // Usar instrução de documento
          };
+         // Log removido
          respostaAI = await gerenciadorAI.processarTexto(textoParaIA, configParaTextoDocx);
          // Adicionar prefixo manualmente, pois processarTexto não adiciona
          // Verificar se a resposta da IA já é uma mensagem de erro
@@ -173,6 +175,8 @@ const criarProcessadorDocumento = (dependencias) => {
           mimetype: mimeType // Usar o mimetype final (original ou inferido)
         };
 
+        // Log removido
+        // Log removido
         respostaAI = await gerenciadorAI.processarDocumentoInline(
           dadosAnexoCorrigido,
           promptUsuario,
@@ -181,23 +185,33 @@ const criarProcessadorDocumento = (dependencias) => {
         // A função processarDocumentoInline já lida com erros e formata a resposta/erro
       }
 
-       // Verificar se a resposta da IA indica um erro (comum a ambos os fluxos)
-       if (respostaAI.includes("não pôde ser processado") || respostaAI.startsWith("Desculpe,")) {
-          registrador.warn(`[Docto] Erro retornado pela IA (Mimetype: ${mimeType}): ${respostaAI}`);
-          await servicoMensagem.enviarResposta(mensagem, respostaAI);
-          const erroMsg = respostaAI.split('\n\n')[1] || respostaAI;
-          return Resultado.falha(new Error(erroMsg));
+      // Verificar se a resposta da IA indica um erro (comum a ambos os fluxos)
+      // Acessar .dados se respostaAI for um objeto Resultado bem-sucedido
+      const textoRespostaAI = respostaAI?.sucesso === true ? respostaAI.dados : respostaAI;
+
+      if (typeof textoRespostaAI === 'string' && (textoRespostaAI.includes("não pôde ser processado") || textoRespostaAI.startsWith("Desculpe,"))) {
+        registrador.warn(`[Docto] Erro retornado pela IA (Mimetype: ${mimeType}): ${textoRespostaAI}`);
+        await servicoMensagem.enviarResposta(mensagem, textoRespostaAI); // Envia a mensagem de erro da IA
+        const erroMsg = textoRespostaAI.split('\n\n')[1] || textoRespostaAI;
+        return Resultado.falha(new Error(erroMsg));
+      } else if (respostaAI?.sucesso === false) {
+        // Se respostaAI for um Resultado.falha, propagar o erro original
+        registrador.warn(`[Docto] Falha no processamento da IA (Mimetype: ${mimeType}): ${respostaAI.erro.message}`);
+        await servicoMensagem.enviarMensagemDireta(chatId, `❌ Desculpe, ocorreu um erro ao analisar o documento: ${respostaAI.erro.message}`);
+        return respostaAI; // Retorna o Resultado.falha original
        }
 
        // 5. Enviar resposta (se não houve erro da IA)
-       const resultadoEnvio = await servicoMensagem.enviarResposta(mensagem, respostaAI);
+       // Usar textoRespostaAI (que agora sabemos ser uma string de sucesso)
+       const resultadoEnvio = await servicoMensagem.enviarResposta(mensagem, textoRespostaAI);
        if (!resultadoEnvio.sucesso) {
          registrador.error(`[Docto] Falha ao enviar resposta AI: ${resultadoEnvio.erro.message}`);
        } else {
          registrador.info(`[Docto] Resposta da análise enviada.`);
        }
 
-       return Resultado.sucesso({ resposta: respostaAI });
+       // Retornar o texto da resposta no sucesso
+       return Resultado.sucesso({ resposta: textoRespostaAI });
 
      } catch (erro) {
        registrador.error(`[Docto] Erro GERAL (Mimetype: ${mimeType}, Temp: ${caminhoDocTemporario || 'N/A'}): ${erro.message}`, erro.stack);

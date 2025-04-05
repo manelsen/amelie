@@ -384,12 +384,12 @@ const criarAdaptadorAI = (dependencias) => {
       // Cache MISS, continuar...
     }
 
-    // 2. Executar Geração (com resiliência)
+    // 2. Executar Geração (CHAMADA DIRETA COM RESILIÊNCIA)
     const modelo = obterOuCriarModelo(config);
+    // A função executarComResiliencia já retorna um Resultado
     const resultadoExec = await executarComResiliencia('processarTexto', () => modelo.generateContent(texto));
     if (!resultadoExec.sucesso) {
-      // executarComResiliencia já logou o erro e retorna Resultado.falha
-      // Apenas propagar a falha
+      // Apenas propagar a falha (erro já logado por executarComResiliencia)
       return resultadoExec;
     }
 
@@ -412,8 +412,9 @@ const criarAdaptadorAI = (dependencias) => {
 
   const processarImagem = async (imagemData, prompt, config) => {
     const tipo = 'imagem';
+    // const origemInfo = config.dadosOrigem ? `[Origem: ${config.dadosOrigem.tipo} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : '[Origem desconhecida]'; // Log removido
+    // registrador.info(`[AdpAI - ${tipo}] Iniciando processamento. ${origemInfo}`); // Log removido
     let chaveCache = null;
-
     // 1. Verificar Cache
     const resultadoCache = await verificarCache(tipo, { dadosAnexo: imagemData, prompt }, config, cacheRespostas, registrador);
     if (!resultadoCache.sucesso) {
@@ -688,6 +689,8 @@ const criarAdaptadorAI = (dependencias) => {
 
   const processarVideo = async (caminhoVideo, prompt, config) => {
     const tipo = 'video';
+    // const origemInfo = config.dadosOrigem ? `[Origem: ${config.dadosOrigem.tipo} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : '[Origem desconhecida]'; // Log removido
+    // registrador.info(`[AdpAI - ${tipo}] Iniciando processamento: ${caminhoVideo}. ${origemInfo}`); // Log removido
     const mimeType = config.mimeType || 'video/mp4';
     let nomeArquivoGoogle = null;
     let chaveCache = null;
@@ -787,8 +790,7 @@ const criarAdaptadorAI = (dependencias) => {
         registrador.debug(`[${tipo}] Tentando salvar no cache. Chave: "${chaveCache}"`);
         cacheRespostas.set(chaveCache, respostaFinal);
       }
-      const prefixo = modoLegenda ? "[Transcrição de Vídeo]\n\n" : "[Descrição de Vídeo]\n\n";
-      return Resultado.sucesso(`${prefixo}${respostaFinal}`);
+      return Resultado.sucesso(`${respostaFinal}`);
 
     })(); // Fim da IIFE async
 
@@ -890,13 +892,7 @@ const criarAdaptadorAI = (dependencias) => {
     const respostaFinal = resultadoProc.dados;
     let respostaComPrefixo = respostaFinal; // Inicializa sem prefixo
 
-    if (tipo === 'video') {
-      const prefixo = config.modoDescricao === 'legenda' ? "[Transcrição de Vídeo]\n\n" : "[Descrição de Vídeo]\n\n";
-      respostaComPrefixo = `${prefixo}${respostaFinal}`;
-    }
-    // Adicionar prefixos para outros tipos se necessário aqui...
-
-    return Resultado.sucesso(respostaComPrefixo);
+    return Resultado.sucesso(respostaFinal);
   };
 
 

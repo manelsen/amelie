@@ -84,7 +84,7 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
     // Usar os processadores retornados pela fábrica
     const mapeadorTipos = {
       'comando': () => processadores.processadorComandos.processarComando(dados),
-      'midia': () => processadores.processadorMidia.processarMensagemComMidia(dados),
+      'midia': () => processadores.processadorMidia.processarMensagemComMidia(dados), // Agora inclui documentos
       'texto': () => processadores.processadorTexto.processarMensagemTexto(dados)
     };
     

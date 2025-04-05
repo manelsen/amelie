@@ -121,7 +121,26 @@ const Trilho = {
       if (!resultado.sucesso) break; // Mantém o primeiro erro
       
       // Executa a próxima função e trata o resultado
-      const proximoResultado = await fn(resultado.dados);
+      let proximoResultado;
+      const nomeEtapaLog = fn.name || 'anônima'; // Para logs
+      try {
+        // console.log(`[Trilho.encadear] Executando etapa: ${nomeEtapaLog}`); // Log removido
+        proximoResultado = await fn(resultado.dados);
+        // console.log(`[Trilho.encadear] Etapa ${nomeEtapaLog} concluída. Sucesso: ${proximoResultado?.sucesso}`); // Log removido
+      } catch (erroEtapa) {
+        // Transforma a exceção em um Resultado.falha para que o trilho pare corretamente
+        // Log removido
+        // Transforma a exceção em um Resultado.falha para que o trilho pare corretamente
+        proximoResultado = Resultado.falha(new Error(`Erro inesperado na execução da etapa '${nomeEtapaLog}': ${erroEtapa.message}`));
+      }
+      
+      if (!proximoResultado || typeof proximoResultado.sucesso !== 'boolean') {
+        // Se o resultado não for um objeto Resultado válido, tratar como falha
+        const nomeEtapa = fn.name || 'etapa desconhecida';
+        const erroInvalido = new Error(`Resultado inválido retornado pela etapa '${nomeEtapa}'.`);
+        resultado = Resultado.falha(erroInvalido); // Define como falha e quebra
+        break;
+      }
       
       if (!proximoResultado.sucesso) {
         // Falha na etapa atual: envolve o erro com contexto

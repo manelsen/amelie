@@ -78,8 +78,8 @@ const criarProcessadores = (dependencias) => {
     processadorTexto,
     processadorComandos,
     processadorMidia,
-    // Não precisamos retornar os processadores específicos (audio, imagem, video, doc)
-    // pois eles são usados internamente pelo processadorMidia.
+    processadorDocumento // Adicionado para ser usado diretamente
+    // Os outros específicos (audio, imagem, video) ainda são usados internamente por midia
   };
 };
 
