@@ -352,7 +352,7 @@ const criarAdaptadorAI = (dependencias) => {
 
       const cacheHit = cache.get(chaveCache);
       if (cacheHit) {
-        registrador.info(`[Cache HIT] ${logTipo}`);
+        registrador.info(`[Cache] ${logTipo}`);
         return Resultado.sucesso({ hit: true, valor: cacheHit, chaveCache });
       }
       
@@ -485,7 +485,7 @@ const criarAdaptadorAI = (dependencias) => {
     };
     const modelo = obterOuCriarModelo(configAI);
     const parteAudio = { inlineData: { mimeType: audioData.mimetype, data: audioData.data } };
-    const promptTexto = `Formato OBRIGATÓRIO: [Transcrição do Audio] texto literal do áudio aqui.`;
+    const promptTexto = ``;
     const partesConteudo = [parteAudio, { text: promptTexto }];
 
     // 3. Executar Geração (com resiliência)

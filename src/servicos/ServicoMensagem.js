@@ -136,7 +136,7 @@ const capturarSnapshotMensagem = async (mensagemOriginal, cliente, registrador) 
     if (snapshot.temMidia) {
       try {
         if (mensagemOriginal.type === 'image') {
-          snapshot.descricaoMidia = '📷 [Imagem]';
+          snapshot.descricaoMidia = '📷 [Image]';
         } else if (mensagemOriginal.type === 'video') {
           snapshot.descricaoMidia = '🎥 [Vídeo]';
         } else if (mensagemOriginal.type === 'audio' || mensagemOriginal.type === 'ptt') {

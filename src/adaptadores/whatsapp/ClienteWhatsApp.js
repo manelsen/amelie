@@ -510,7 +510,7 @@ class ClienteWhatsApp extends EventEmitter {
 
           // Adiciona informação sobre mídia
           if (msg.hasMedia) {
-            if (msg.type === 'image') conteudo = `[Imagem] ${conteudo}`;
+            if (msg.type === 'image') conteudo = `[Image] ${conteudo}`;
             else if (msg.type === 'audio' || msg.type === 'ptt') conteudo = `[Áudio] ${conteudo}`;
             else if (msg.type === 'video') conteudo = `[Vídeo] ${conteudo}`;
             else conteudo = `[Mídia] ${conteudo}`;

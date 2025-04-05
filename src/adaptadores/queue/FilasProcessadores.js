@@ -161,7 +161,7 @@ const FilasProcessadores = {
       }
     )() // Fim do Trilho.encadear
     .catch(erro => {
-      registrador.error(`[Imagem] Erro no preparo: ${erro.message}`, { erro, jobId: job.id });
+      registrador.error(`[Image] Erro no preparo: ${erro.message}`, { erro, jobId: job.id });
       
       // Notificar erro
       notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
@@ -205,7 +205,7 @@ const FilasProcessadores = {
         const resultadoConfig = await obterConfig(chatId, 'imagem');
         let configFinal;
         if (!resultadoConfig.sucesso) {
-          registrador.error(`[Imagem] Erro ao obter config: ${resultadoConfig.erro.message}, usando padrão`);
+          registrador.error(`[Image] Erro ao obter config: ${resultadoConfig.erro.message}, usando padrão`);
           // Definir config padrão
            configFinal = { /* definir config padrão para imagem aqui se necessário */ };
         } else {
@@ -256,7 +256,7 @@ const FilasProcessadores = {
       }
     )() // Fim do Trilho.encadear
     .catch(erro => { // Manter catch para Bull
-      registrador.error(`[Imagem] Erro no pipeline de análise: ${erro.message}`, { erro, jobId: job.id });
+      registrador.error(`[Image] Erro no pipeline de análise: ${erro.message}`, { erro, jobId: job.id });
 
       // Notificar erro usando os dados originais do job
       notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
@@ -339,7 +339,7 @@ const FilasProcessadores = {
       }
     )() // Fim do Trilho.encadear
     .catch(erro => {
-      registrador.error(`[Imagem] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
+      registrador.error(`[Image] Erro ao redirecionar: ${erro.message}`, { erro, jobId: job.id });
       
       // Notificar erro
       notificarErro('imagem', erro, { chatId, messageId, senderNumber, transacaoId, remetenteName });
