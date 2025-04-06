@@ -105,14 +105,14 @@ const criarProcessadorMidia = (dependencias) => {
         return await processadorDocumento.processarMensagemDocumento({ mensagem, chatId, dadosAnexo });
       } else {
         // Este bloco agora só será atingido por tipos explicitamente não listados (e não octet-stream)
-        registrador.warn(`[Midia] Tipo não suportado: ${mimeType}`); // Simplificado
+        registrador.debug(`[Midia] Tipo não suportado: ${mimeType}`); // Alterado para debug
         // Informar o usuário que o tipo não é suportado - Usar enviarMensagemDireta
-        try {
-          await servicoMensagem.enviarMensagemDireta(chatId, `⚠️ Desculpe, ainda não consigo processar arquivos do tipo "${mimeType}".`);
-        } catch (errEnvio) {
-          // O erro já foi logado por enviarMensagemDireta, apenas registrar contexto adicional se necessário
-          registrador.error(`[Midia] Falha crítica ao notificar tipo não suportado: ${errEnvio.message}`); // Simplificado
-        }
+        // try {
+        //   await servicoMensagem.enviarMensagemDireta(chatId, `⚠️ Desculpe, ainda não consigo processar arquivos do tipo "${mimeType}".`);
+        // } catch (errEnvio) {
+        //   // O erro já foi logado por enviarMensagemDireta, apenas registrar contexto adicional se necessário
+        //   registrador.error(`[Midia] Falha crítica ao notificar tipo não suportado: ${errEnvio.message}`); // Simplificado
+        // }
         return Resultado.falha(new Error(`Tipo de mídia não suportado: ${mimeType}`));
       }
     } catch (erro) {
