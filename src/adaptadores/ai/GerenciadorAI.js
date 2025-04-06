@@ -480,24 +480,24 @@ const criarAdaptadorAI = (dependencias) => {
     // 2. Preparar Conteúdo e Config para API
     const configAI = {
       ...config,
-      temperature: 0.9,
+      temperature: 0.1,
       systemInstruction: config.systemInstruction || obterInstrucaoAudio()
     };
     const modelo = obterOuCriarModelo(configAI);
     const parteAudio = { inlineData: { mimeType: audioData.mimetype, data: audioData.data } };
-    const promptTexto = ``;
+    const promptTexto = 'Você é uma IA especializada em transcrição de audio. Transcreva o audio em anexo palavra por palavra, sem qualquer comentário adicional. Sua tarefa inicia com a transcrição da primeira palavra e termina com a transcrição da última palavra.';
     const partesConteudo = [parteAudio, { text: promptTexto }];
 
     // 3. Executar Geração (com resiliência)
     const resultadoExec = await executarComResiliencia('processarAudio', () => modelo.generateContent(partesConteudo));
     if (!resultadoExec.sucesso) {
-      return resultadoExec; // Propagar falha
+      return resultadoExec;
     }
 
     // 4. Processar Resposta (tratar safety, etc.)
     const resultadoProc = processarRespostaIA(resultadoExec.dados, tipo, config.dadosOrigem);
     if (!resultadoProc.sucesso) {
-      return resultadoProc; // Propagar falha
+      return resultadoProc;
     }
 
     // 5. Sucesso: Salvar no cache (se possível) e retornar Resultado.sucesso
@@ -507,9 +507,8 @@ const criarAdaptadorAI = (dependencias) => {
       cacheRespostas.set(chaveCache, respostaFinal);
     }
     // Adicionar prefixo (se necessário, mas pode ser movido para o chamador)
-    // const prefixo = "[Transcrição de Áudio]\n\n"; // Exemplo
-    // return Resultado.sucesso(`${prefixo}${respostaFinal}`);
-    return Resultado.sucesso(respostaFinal);
+    const prefixo = "[Transcrição de Áudio]\n\n"; // Exemplo
+    return Resultado.sucesso(`${prefixo}${respostaFinal}`);
   };
 
   const processarDocumentoInline = async (documentoData, prompt, config) => {
