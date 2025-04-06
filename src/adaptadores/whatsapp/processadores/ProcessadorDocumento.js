@@ -10,8 +10,8 @@ const crypto = require('crypto');
 const { exec } = require('child_process');
 const util = require('util');
 const { Resultado } = require('../../../utilitarios/Ferrovia');
-const { obterInstrucaoDocumento } = require('../../../config/InstrucoesSistema'); // Manter instrução
-
+const { obterInstrucaoDocumento } = require('../../../config/InstrucoesSistema');
+const { inicializarProcessamento, gerenciarCicloVidaTransacao } = require('../util/ProcessamentoHelper'); // Importar helpers
 // Reintroduzir execPromise
 const execPromise = util.promisify(exec);
 
@@ -39,7 +39,8 @@ const EXTENSAO_PARA_MIMETYPE_INLINE = {
 const MIMETYPE_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 const criarProcessadorDocumento = (dependencias) => {
-  const { registrador, servicoMensagem, gerenciadorAI, gerenciadorConfig } = dependencias;
+  // Adicionar gerenciadorTransacoes às dependências
+  const { registrador, servicoMensagem, gerenciadorAI, gerenciadorConfig, gerenciadorTransacoes, clienteWhatsApp } = dependencias;
 
   /**
    * Processa uma mensagem contendo um anexo de documento.
@@ -48,191 +49,194 @@ const criarProcessadorDocumento = (dependencias) => {
    */
   const processarMensagemDocumento = async (dados) => {
     const { mensagem, chatId, dadosAnexo } = dados;
-   let caminhoDocTemporario = null; // Necessário para DOCX
-   const LIMITE_TAMANHO_DOC_BYTES = 20 * 1024 * 1024; // 20 MB (mantido)
-   let mimeType = dadosAnexo?.mimetype; // Usar optional chaining para segurança
 
-   // *** VERIFICAÇÃO DA CONFIGURAÇÃO mediaDocumento ***
-   const configUsuarioInicial = await gerenciadorConfig.obterConfig(chatId);
-    if (!configUsuarioInicial || configUsuarioInicial.mediaDocumento !== true) {
-      
-      // Não retorna erro, apenas não processa. Poderia retornar um Resultado.sucesso silencioso.
-      return Resultado.sucesso({ ignorado: true, razao: 'Processamento de documentos desativado' });
+    // 1. Inicialização Comum (substitui a verificação manual de config e obtenção de usuário)
+    const initResult = await inicializarProcessamento(
+      { gerenciadorConfig, clienteWhatsApp, registrador }, // Passa dependências necessárias para init
+      mensagem,
+      chatId,
+      'mediaDocumento' // Nome da feature flag na config
+    );
+
+    if (!initResult.sucesso) {
+      // Se falhou (desabilitado, erro ao obter usuário), retorna o resultado da falha
+      // A função inicializarProcessamento já loga o motivo
+      return initResult;
     }
-    
-    // *** FIM DA VERIFICAÇÃO ***
+    // Extrai dados do sucesso da inicialização
+    const { chat, config, remetente } = initResult.dados;
 
-    try {
-      // Tentar inferir mimetype se for octet-stream (ANTES de checar se é DOCX)
-      const nomeArquivo = mensagem.filename || mensagem._data?.filename; // Obter nome do arquivo
-      if (mimeType === 'application/octet-stream' && nomeArquivo) {
-        const extensao = path.extname(nomeArquivo).toLowerCase();
-        // Tentar inferir primeiro para DOCX, depois para inline
-         if (extensao === '.docx') {
+    // 2. Definir a Função Core Específica para Documentos
+    const funcaoCoreDocumento = async (transacao) => {
+      let caminhoDocTemporario = null;
+      const LIMITE_TAMANHO_DOC_BYTES = 20 * 1024 * 1024; // 20 MB
+      let mimeType = dadosAnexo?.mimetype;
+      const transacaoId = transacao.id; // Obter ID da transação recebida
+
+      try {
+        // Tentar inferir mimetype se for octet-stream (ANTES de checar se é DOCX)
+        const nomeArquivo = mensagem.filename || mensagem._data?.filename; // Obter nome do arquivo
+        if (mimeType === 'application/octet-stream' && nomeArquivo) {
+          const extensao = path.extname(nomeArquivo).toLowerCase();
+          if (extensao === '.docx') {
             mimeType = MIMETYPE_DOCX;
-            registrador.info(`[Docto] Mimetype 'octet-stream' inferido como DOCX (arquivo: ${nomeArquivo}).`);
-         } else {
-             const mimeTypeInferidoInline = EXTENSAO_PARA_MIMETYPE_INLINE[extensao];
-             if (mimeTypeInferidoInline) {
-               registrador.info(`[Docto] Mimetype 'octet-stream' inferido como '${mimeTypeInferidoInline}' (arquivo: ${nomeArquivo}).`);
-               mimeType = mimeTypeInferidoInline;
-             } else {
-               registrador.warn(`[Docto] Mimetype 'octet-stream', tipo não inferido (ext: '${extensao}', arquivo: ${nomeArquivo}). API pode rejeitar.`);
-             }
-         }
-       }
-
-       registrador.info(`[Docto] Recebido (Mimetype: ${mimeType}). Verificando método.`); // Simplificado
-
-       // Verificação de tamanho
-       const tamanhoBytes = Buffer.from(dadosAnexo.data, 'base64').length;
-       
-
-       if (tamanhoBytes > LIMITE_TAMANHO_DOC_BYTES) {
-         registrador.warn(`[Docto] Excede limite ${LIMITE_TAMANHO_DOC_BYTES / (1024 * 1024)}MB (Mimetype: ${mimeType}, Tamanho: ${tamanhoBytes} bytes).`); // Simplificado
-         await servicoMensagem.enviarMensagemDireta(chatId, `❌ Desculpe, o documento enviado é muito grande (${(tamanhoBytes / (1024 * 1024)).toFixed(1)}MB). O limite atual é de 20MB.`);
-         return Resultado.falha(new Error(`Documento excede o limite de tamanho de ${LIMITE_TAMANHO_DOC_BYTES} bytes`));
-      }
-
-      // Obter configurações (já lida acima para verificação, reutilizar) e prompt
-      const configUsuario = configUsuarioInicial; // Reutiliza a config já lida
-      const promptUsuario = mensagem.body || null; // Usar legenda como prompt, se houver
-
-      // Configurações base da IA
-      const configBaseAI = {
-        model: configUsuario.model || "gemini-2.0-flash",
-        temperature: configUsuario.temperature || 0.7,
-        topK: configUsuario.topK || 1,
-        topP: configUsuario.topP || 0.95,
-        maxOutputTokens: configUsuario.maxOutputTokens || 2048, // Manter maior para texto
-        dadosOrigem: {
-          id: chatId,
-          nome: mensagem._data.notifyName || mensagem.from,
-          tipo: mensagem.id.remote.includes('@g.us') ? 'grupo' : 'usuario'
-        }
-      };
-
-      let respostaAI;
-
-       // *** LÓGICA CONDICIONAL: Pandoc para DOCX, Inline para outros ***
-       if (mimeType === MIMETYPE_DOCX) {
-         // --- Processamento DOCX via Pandoc + processarTexto ---
-         registrador.info(`[Docto] Mimetype DOCX. Usando extração local com pandoc.`);
-
-         // 1. Salvar DOCX temporariamente
-         const nomeTemp = `${crypto.randomBytes(16).toString('hex')}.docx`;
-         caminhoDocTemporario = path.join(os.tmpdir(), nomeTemp);
-         await fs.writeFile(caminhoDocTemporario, dadosAnexo.data, { encoding: 'base64' });
-         
-
-         // 2. Executar pandoc para extrair texto
-         let textoExtraido;
-         try {
-           
-           const { stdout, stderr } = await execPromise(`pandoc "${caminhoDocTemporario}" -t plain`);
-           if (stderr) {
-             registrador.warn(`[Docto] Pandoc stderr: ${stderr}`);
-           }
-           textoExtraido = stdout;
-           registrador.info(`[Docto] Texto extraído do DOCX via pandoc. Tamanho: ${textoExtraido?.length || 0}`);
-           // Log removido
-           if (!textoExtraido || textoExtraido.trim().length === 0) {
-              throw new Error("Pandoc não extraiu texto do DOCX.");
-           }
-         } catch (pandocError) {
-           registrador.error(`[Docto] Erro ao executar pandoc: ${pandocError.message}`);
-           throw new Error(`Falha ao extrair texto do DOCX com pandoc: ${pandocError.message}`); // Lança erro para o catch principal
-         }
-
-         // 3. Combinar prompt do usuário (se houver) com texto extraído
-         const textoParaIA = promptUsuario
-           ? `${promptUsuario}\n\n---\n\n${textoExtraido}`
-           : textoExtraido;
-
-         // 4. Chamar processarTexto da IA
-         registrador.info(`[Docto] Chamando gerenciadorAI.processarTexto para texto extraído do DOCX.`); // Log ajustado
-         const configParaTextoDocx = {
-           ...configBaseAI,
-           systemInstruction: obterInstrucaoDocumento() // Usar instrução de documento
-         };
-         // Log removido
-         respostaAI = await gerenciadorAI.processarTexto(textoParaIA, configParaTextoDocx);
-         // Adicionar prefixo manualmente, pois processarTexto não adiciona
-         // Verificar se a resposta da IA já é uma mensagem de erro
-          if (!respostaAI.startsWith("Desculpe,")) {
-             respostaAI = `📄 *Análise do seu documento (docx):*\n\n${respostaAI}`;
+            registrador.info(`[Docto-${transacaoId}] Mimetype 'octet-stream' inferido como DOCX.`);
           } else {
-             registrador.warn(`[Docto] Erro retornado por processarTexto (DOCX): ${respostaAI}`);
-             // Não adicionar prefixo se for erro
+            const mimeTypeInferidoInline = EXTENSAO_PARA_MIMETYPE_INLINE[extensao];
+            if (mimeTypeInferidoInline) {
+              registrador.info(`[Docto-${transacaoId}] Mimetype 'octet-stream' inferido como '${mimeTypeInferidoInline}'.`);
+              mimeType = mimeTypeInferidoInline;
+            } else {
+              registrador.warn(`[Docto-${transacaoId}] Mimetype 'octet-stream', tipo não inferido (ext: '${extensao}'). API pode rejeitar.`);
+            }
           }
+        }
 
-       } else {
-         // --- Processamento Inline (para outros tipos) ---
-         registrador.info(`[Docto] Mimetype ${mimeType}. Tentando processamento INLINE.`);
+        registrador.info(`[Docto-${transacaoId}] Recebido (Mimetype: ${mimeType}). Verificando método.`);
 
-         const dadosAnexoCorrigido = {
-          ...dadosAnexo,
-          mimetype: mimeType // Usar o mimetype final (original ou inferido)
+        // Verificação de tamanho
+        const tamanhoBytes = Buffer.from(dadosAnexo.data, 'base64').length;
+        if (tamanhoBytes > LIMITE_TAMANHO_DOC_BYTES) {
+          const erroMsg = `Documento excede o limite de tamanho de ${LIMITE_TAMANHO_DOC_BYTES / (1024 * 1024)}MB`;
+          registrador.warn(`[Docto-${transacaoId}] ${erroMsg} (Tamanho: ${tamanhoBytes} bytes).`);
+          await servicoMensagem.enviarResposta(mensagem, `❌ Desculpe, o documento enviado é muito grande (${(tamanhoBytes / (1024 * 1024)).toFixed(1)}MB). O limite atual é de 20MB.`, transacaoId);
+          // Retorna falha controlada, não lança erro para o catch geral do lifecycle
+          return Resultado.falha(new Error(erroMsg));
+        }
+
+        // Obter prompt e config base (config já veio da inicialização)
+        const promptUsuario = mensagem.body || null;
+        const configUsuario = config; // Reutiliza a config da inicialização
+
+        const configBaseAI = {
+          model: configUsuario.model || "gemini-2.0-flash",
+          temperature: configUsuario.temperature || 0.7,
+          topK: configUsuario.topK || 1,
+          topP: configUsuario.topP || 0.95,
+          maxOutputTokens: configUsuario.maxOutputTokens || 2048,
+          dadosOrigem: { // Usar dados obtidos na inicialização
+            id: chat.id._serialized,
+            nome: chat.isGroup ? chat.name : remetente.name,
+            tipo: chat.isGroup ? 'grupo' : 'usuario',
+            remetenteId: mensagem.author || mensagem.from, // Mantém o ID original
+            remetenteNome: remetente.name // Usa o nome obtido/criado
+          }
         };
 
-        // Log removido
-        // Log removido
-        respostaAI = await gerenciadorAI.processarDocumentoInline(
-          dadosAnexoCorrigido,
-          promptUsuario,
-          configBaseAI
-        );
-        // A função processarDocumentoInline já lida com erros e formata a resposta/erro
+        let respostaAI;
+
+        // *** LÓGICA CONDICIONAL: Pandoc para DOCX, Inline para outros ***
+        if (mimeType === MIMETYPE_DOCX) {
+          registrador.info(`[Docto-${transacaoId}] Mimetype DOCX. Usando extração local com pandoc.`);
+          const nomeTemp = `${crypto.randomBytes(16).toString('hex')}.docx`;
+          caminhoDocTemporario = path.join(os.tmpdir(), nomeTemp);
+          await fs.writeFile(caminhoDocTemporario, dadosAnexo.data, { encoding: 'base64' });
+
+          let textoExtraido;
+          try {
+            const { stdout, stderr } = await execPromise(`pandoc "${caminhoDocTemporario}" -t plain`);
+            if (stderr) {
+              registrador.warn(`[Docto-${transacaoId}] Pandoc stderr: ${stderr}`);
+            }
+            textoExtraido = stdout;
+            registrador.info(`[Docto-${transacaoId}] Texto extraído do DOCX via pandoc. Tamanho: ${textoExtraido?.length || 0}`);
+            if (!textoExtraido || textoExtraido.trim().length === 0) {
+              throw new Error("Pandoc não extraiu texto do DOCX.");
+            }
+          } catch (pandocError) {
+            registrador.error(`[Docto-${transacaoId}] Erro ao executar pandoc: ${pandocError.message}`);
+            // Lança erro para ser pego pelo catch desta função core
+            throw new Error(`Falha ao extrair texto do DOCX com pandoc: ${pandocError.message}`);
+          }
+
+          const textoParaIA = promptUsuario
+            ? `${promptUsuario}\n\n---\n\n${textoExtraido}`
+            : textoExtraido;
+
+          registrador.info(`[Docto-${transacaoId}] Chamando gerenciadorAI.processarTexto para texto extraído do DOCX.`);
+          const configParaTextoDocx = {
+            ...configBaseAI,
+            systemInstruction: obterInstrucaoDocumento()
+          };
+          respostaAI = await gerenciadorAI.processarTexto(textoParaIA, configParaTextoDocx);
+
+          // Adicionar prefixo manualmente
+          if (typeof respostaAI === 'string' && !respostaAI.startsWith("Desculpe,")) {
+             respostaAI = `📄 *Análise do seu documento (docx):*\n\n${respostaAI}`;
+          } else if (typeof respostaAI === 'string') {
+             registrador.warn(`[Docto-${transacaoId}] Erro retornado por processarTexto (DOCX): ${respostaAI}`);
+          } else {
+             // Se respostaAI não for string (ex: erro inesperado da IA), tratar como falha
+             throw new Error(respostaAI?.message || "Erro inesperado ao processar texto do DOCX");
+          }
+
+        } else {
+          registrador.info(`[Docto-${transacaoId}] Mimetype ${mimeType}. Tentando processamento INLINE.`);
+          const dadosAnexoCorrigido = { ...dadosAnexo, mimetype: mimeType };
+
+          // processarDocumentoInline deve retornar um Resultado
+          const resultadoInline = await gerenciadorAI.processarDocumentoInline(
+            dadosAnexoCorrigido,
+            promptUsuario,
+            configBaseAI,
+            transacaoId // Passar transacaoId para logs internos da IA
+          );
+
+          if (!resultadoInline.sucesso) {
+              registrador.warn(`[Docto-${transacaoId}] Falha no processamento Inline: ${resultadoInline.erro.message}`);
+              // Tentar enviar a mensagem de erro específica da IA
+              await servicoMensagem.enviarResposta(mensagem, resultadoInline.erro.message, transacaoId);
+              // Retorna a falha controlada
+              return resultadoInline;
+          }
+          respostaAI = resultadoInline.dados; // A resposta formatada pela IA
+        }
+
+        // Verificar se a resposta final (string) indica um erro não capturado antes
+        if (typeof respostaAI === 'string' && (respostaAI.includes("não pôde ser processado") || respostaAI.startsWith("Desculpe,"))) {
+          registrador.warn(`[Docto-${transacaoId}] Erro final detectado na resposta da IA (Mimetype: ${mimeType}): ${respostaAI}`);
+          await servicoMensagem.enviarResposta(mensagem, respostaAI, transacaoId);
+          const erroMsg = respostaAI.split('\n\n')[1] || respostaAI;
+          return Resultado.falha(new Error(erroMsg));
+        }
+
+        // Enviar resposta de sucesso
+        const resultadoEnvio = await servicoMensagem.enviarResposta(mensagem, respostaAI, transacaoId);
+        if (!resultadoEnvio.sucesso) {
+          registrador.error(`[Docto-${transacaoId}] Falha ao enviar resposta AI: ${resultadoEnvio.erro.message}`);
+          // Considerar se isso deve ser uma falha da operação core ou apenas um log
+        } else {
+          registrador.info(`[Docto-${transacaoId}] Resposta da análise enviada.`);
+        }
+
+        return Resultado.sucesso({ resposta: respostaAI });
+
+      } catch (erro) {
+        // Captura erros lançados dentro da funcaoCore (ex: pandoc, erro inesperado da IA)
+        registrador.error(`[Docto-${transacaoId}] Erro na funcaoCoreDocumento: ${erro.message}`, erro.stack);
+        // Lança o erro novamente para ser pego pelo catch do gerenciarCicloVidaTransacao
+        throw erro;
+      } finally {
+        // Limpeza do arquivo temporário movida para o finally da funcaoCore
+        if (caminhoDocTemporario) {
+          try {
+            await fs.unlink(caminhoDocTemporario);
+            registrador.info(`[Docto-${transacaoId}] Arquivo temporário ${caminhoDocTemporario} removido.`);
+          } catch (erroLimpeza) {
+            registrador.warn(`[Docto-${transacaoId}] Falha ao remover arquivo temporário DOCX ${caminhoDocTemporario}: ${erroLimpeza.message}`);
+          }
+        }
       }
+    };
 
-      // Verificar se a resposta da IA indica um erro (comum a ambos os fluxos)
-      // Acessar .dados se respostaAI for um objeto Resultado bem-sucedido
-      const textoRespostaAI = respostaAI?.sucesso === true ? respostaAI.dados : respostaAI;
+    // 3. Gerenciar Transação e Executar Core
+    return await gerenciarCicloVidaTransacao(
+      { gerenciadorTransacoes, registrador, servicoMensagem }, // Passa dependências para lifecycle
+      mensagem,
+      chat, // Chat obtido da inicialização
+      funcaoCoreDocumento // Passa a função específica
+    );
 
-      if (typeof textoRespostaAI === 'string' && (textoRespostaAI.includes("não pôde ser processado") || textoRespostaAI.startsWith("Desculpe,"))) {
-        registrador.warn(`[Docto] Erro retornado pela IA (Mimetype: ${mimeType}): ${textoRespostaAI}`);
-        await servicoMensagem.enviarResposta(mensagem, textoRespostaAI); // Envia a mensagem de erro da IA
-        const erroMsg = textoRespostaAI.split('\n\n')[1] || textoRespostaAI;
-        return Resultado.falha(new Error(erroMsg));
-      } else if (respostaAI?.sucesso === false) {
-        // Se respostaAI for um Resultado.falha, propagar o erro original
-        registrador.warn(`[Docto] Falha no processamento da IA (Mimetype: ${mimeType}): ${respostaAI.erro.message}`);
-        await servicoMensagem.enviarMensagemDireta(chatId, `❌ Desculpe, ocorreu um erro ao analisar o documento: ${respostaAI.erro.message}`);
-        return respostaAI; // Retorna o Resultado.falha original
-       }
-
-       // 5. Enviar resposta (se não houve erro da IA)
-       // Usar textoRespostaAI (que agora sabemos ser uma string de sucesso)
-       const resultadoEnvio = await servicoMensagem.enviarResposta(mensagem, textoRespostaAI);
-       if (!resultadoEnvio.sucesso) {
-         registrador.error(`[Docto] Falha ao enviar resposta AI: ${resultadoEnvio.erro.message}`);
-       } else {
-         registrador.info(`[Docto] Resposta da análise enviada.`);
-       }
-
-       // Retornar o texto da resposta no sucesso
-       return Resultado.sucesso({ resposta: textoRespostaAI });
-
-     } catch (erro) {
-       registrador.error(`[Docto] Erro GERAL (Mimetype: ${mimeType}, Temp: ${caminhoDocTemporario || 'N/A'}): ${erro.message}`, erro.stack);
-       try {
-         await servicoMensagem.enviarMensagemDireta(chatId, `❌ Desculpe, ocorreu um erro ao processar o documento (${mimeType}). Tente novamente.`);
-       } catch (erroEnvio) {
-         registrador.error(`[Docto] Falha crítica ao tentar notificar erro GERAL: ${erroEnvio.message}`);
-       }
-       return Resultado.falha(erro);
-
-     } finally {
-       // Limpar arquivo temporário APENAS se foi criado (para DOCX)
-       if (caminhoDocTemporario) {
-         try {
-           await fs.unlink(caminhoDocTemporario);
-           
-         } catch (erroLimpeza) {
-           registrador.warn(`[Docto] Falha ao remover arquivo temporário DOCX ${caminhoDocTemporario}: ${erroLimpeza.message}`);
-         }
-       }
-     }
   };
 
   return {
