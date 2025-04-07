@@ -25,3 +25,6 @@ diagnosticos/*
 coverage/*
 jsconfig.json
 src/__tests__/*
+.cline*
+.roo*
+memory-bank/*
