@@ -68,7 +68,7 @@ const FilasProcessadores = {
       // Verificar se o transacaoId já começa com tx_
       const idTx = resultado.transacaoId || 'sem_id';
       // Inclui o tipo capitalizado como contexto na mensagem
-      registrador.info(`[${_.capitalize(resultado.tipo)}] ${resultado.tipo} ok - ${idTx}`);
+      registrador.info(`[${_.capitalize(resultado.tipo.substring(0, 5))}] ${resultado.tipo} ok - ${idTx}`);
       return Resultado.sucesso(resultado);
     };
 
