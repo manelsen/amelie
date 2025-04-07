@@ -8,59 +8,51 @@ const { Resultado } = require('./Repositorio');
 
 class RepositorioUsuarios extends RepositorioNeDB {
   /**
-   * Obtém ou cria um registro de usuário
-   * @param {string} remetente - ID do remetente
-   * @param {Object} cliente - Instância do cliente WhatsApp
-   * @returns {Promise<Resultado>} Resultado da operação
+   * Obtém ou cria um registro de usuário.
+   * @param {string} idUsuario - ID serializado do usuário (ex: 'xxxxxxxxxx@c.us').
+   * @param {object} [dadosUsuario={}] - Dados adicionais do usuário, como nome.
+   * @param {string} [dadosUsuario.nome] - Nome do usuário (pushname ou similar).
+   * @returns {Promise<Resultado<object>>} Resultado com o documento do usuário.
    */
-  async obterOuCriarUsuario(remetente, cliente) {
-    const resultado = await this.encontrarUm({ id: remetente });
-    
-    return Resultado.encadear(resultado, async usuario => {
-      if (usuario) {
-        return Resultado.sucesso(usuario);
-      }
-      
-      try {
-        // Buscar informações do contato
-        let nome;
-        try {
-          const contato = await cliente.getContactById(remetente);
-          nome = contato.pushname || contato.name || contato.shortName;
-        } catch (erroContato) {
-          nome = null;
-        }
-        
-        if (!nome || nome.trim() === '') {
-          const idSufixo = remetente.substring(0, 6);
-          nome = `Usuario${idSufixo}`;
-        }
+  async obterOuCriarUsuario(idUsuario, dadosUsuario = {}) {
+    // 1. Tenta encontrar o usuário existente
+    const resultadoBusca = await this.encontrarUm({ id: idUsuario });
 
-        const novoUsuario = {
-          id: remetente,
-          nome: nome,
-          dataEntrada: new Date()
-        };
-        
-        const resultadoInsercao = await this.inserir(novoUsuario);
-        
-        return Resultado.mapear(resultadoInsercao, usuarioInserido => {
-          this.registrador.info(`Novo usuário registrado: ${usuarioInserido.nome}`);
-          return usuarioInserido;
-        });
-      } catch (erro) {
-        // Criar um usuário básico em caso de erro
-        const idSufixo = remetente.substring(0, 6);
-        const usuarioBasico = {
-          id: remetente,
-          nome: `Usuario${idSufixo}`,
-          dataEntrada: new Date()
-        };
-        
-        const resultadoInsercaoFallback = await this.inserir(usuarioBasico);
-        return resultadoInsercaoFallback;
-      }
+    // 2. Se encontrou, retorna o usuário encontrado
+    if (resultadoBusca.sucesso && resultadoBusca.dados) {
+      // Opcional: Atualizar o nome se um novo nome foi fornecido e é diferente?
+      // if (dadosUsuario.nome && dadosUsuario.nome !== resultadoBusca.dados.nome) {
+      //   await this.atualizar({ id: idUsuario }, { $set: { nome: dadosUsuario.nome } });
+      //   resultadoBusca.dados.nome = dadosUsuario.nome; // Atualiza o objeto retornado
+      // }
+      return resultadoBusca;
+    }
+
+    // 3. Se ocorreu um erro na busca (diferente de não encontrado), retorna a falha
+    if (!resultadoBusca.sucesso) {
+      this.registrador.error(`Erro ao buscar usuário ${idUsuario}: ${resultadoBusca.erro.message}`);
+      return resultadoBusca;
+    }
+
+    // 4. Se não encontrou (resultadoBusca.dados é null), cria um novo usuário
+    const nomeUsuario = dadosUsuario.nome || `Usuário${idUsuario.substring(0, 6).replace(/[^0-9]/g, '')}`; // Usa nome fornecido ou gera padrão
+    const novoUsuario = {
+      id: idUsuario,
+      nome: nomeUsuario,
+      dataEntrada: new Date(),
+      preferencias: {} // Inicializa preferências vazias
+      // Adicionar outros campos padrão se necessário
+    };
+
+    const resultadoInsercao = await this.inserir(novoUsuario);
+
+    return Resultado.mapear(resultadoInsercao, usuarioInserido => {
+      this.registrador.info(`Novo usuário registrado: ${usuarioInserido.nome} (${usuarioInserido.id})`);
+      return usuarioInserido;
     });
+    // Nota: A lógica de fallback complexa com try/catch foi removida,
+    // pois a busca de contato e a lógica de nome padrão agora são responsabilidade do chamador.
+    // O repositório foca em encontrar ou criar com os dados fornecidos.
   }
   
   /**

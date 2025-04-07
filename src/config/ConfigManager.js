@@ -40,7 +40,7 @@ class ConfigManager {
       },
       (erro) => {
         this.registrador.error(`Erro ao definir configuração: ${erro.message}`);
-        throw erro;
+        return Resultado.falha(erro); // Retorna falha em vez de lançar
       }
     );
   }
@@ -77,7 +77,7 @@ class ConfigManager {
       },
       (erro) => {
         this.registrador.error(`Erro ao obter configuração: ${erro.message}`);
-        throw erro;
+        return Resultado.falha(erro); // Retorna falha em vez de lançar
       }
     );
   }
@@ -101,7 +101,7 @@ class ConfigManager {
       },
       (erro) => {
         this.registrador.error(`Erro ao resetar configuração: ${erro.message}`);
-        throw erro;
+        return Resultado.falha(erro); // Retorna falha em vez de lançar
       }
     );
   }
@@ -117,7 +117,7 @@ class ConfigManager {
       },
       (erro) => {
         this.registrador.error(`Erro ao definir prompt: ${erro.message}`);
-        throw erro;
+        return Resultado.falha(erro); // Retorna falha em vez de lançar
       }
     );
   }
@@ -130,7 +130,7 @@ class ConfigManager {
       (prompt) => prompt,
       (erro) => {
         this.registrador.error(`Erro ao obter prompt: ${erro.message}`);
-        throw erro;
+        return Resultado.falha(erro); // Retorna falha em vez de lançar
       }
     );
   }
@@ -143,7 +143,7 @@ class ConfigManager {
       (prompts) => prompts,
       (erro) => {
         this.registrador.error(`Erro ao listar prompts: ${erro.message}`);
-        throw erro;
+        return Resultado.falha(erro); // Retorna falha em vez de lançar
       }
     );
   }
@@ -191,40 +191,37 @@ class ConfigManager {
       },
       (erro) => {
         this.registrador.error(`Erro ao excluir prompt: ${erro.message}`);
-        throw erro;
+        return Resultado.falha(erro); // Retorna falha em vez de lançar
       }
     );
   }
 
   async obterOuCriarGrupo(chat) {
-    const resultado = await this.repoGrupos.obterOuCriarGrupo(chat);
+    // Refatorado: Passa apenas ID e dados relevantes, não o objeto chat completo
+    const resultado = await this.repoGrupos.obterOuCriarGrupo(chat.id._serialized, { nome: chat.name });
     
     return Resultado.dobrar(
       resultado,
       (grupo) => grupo,
       (erro) => {
         this.registrador.error(`Erro ao processar grupo: ${erro.message}`);
-        throw erro;
+        return Resultado.falha(erro); // Retorna falha em vez de lançar
       }
     );
   }
 
   async obterOuCriarUsuario(remetente, cliente) {
-    const resultado = await this.repoUsuarios.obterOuCriarUsuario(remetente, cliente);
+    // Refatorado: Passa apenas ID e dados relevantes, não os objetos completos remetente/cliente
+    const resultado = await this.repoUsuarios.obterOuCriarUsuario(remetente.id._serialized, { nome: remetente.pushname });
     
     return Resultado.dobrar(
       resultado,
       (usuario) => usuario,
       (erro) => {
         this.registrador.error(`Erro ao processar usuário: ${erro.message}`);
-        
-        // Criar um usuário básico em caso de erro
-        const idSufixo = remetente.substring(0, 6);
-        return {
-          id: remetente,
-          name: `User${idSufixo}`,
-          joinedAt: new Date()
-        };
+        // Retorna falha em vez de criar usuário básico aqui.
+        // A lógica de fallback, se necessária, deve ser tratada pelo chamador.
+        return Resultado.falha(erro);
       }
     );
   }

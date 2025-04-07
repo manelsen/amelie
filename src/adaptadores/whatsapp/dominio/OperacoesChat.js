@@ -52,19 +52,31 @@ const verificarRespostaGrupo = _.curry(async (clienteWhatsApp, dados) => {
 
 
 // Obter ou criar usuário
-const obterOuCriarUsuario = _.curry(async (gerenciadorConfig, clienteWhatsApp, registrador, remetente, chat) => {
+const obterOuCriarUsuario = _.curry(async (gerenciadorConfig, clienteWhatsApp, registrador, remetenteIdSerializado, chat) => { // Mudança: Recebe remetenteIdSerializado
   try {
     // Se temos gerenciadorConfig, usar o método dele
     if (gerenciadorConfig) {
-      const usuario = await gerenciadorConfig.obterOuCriarUsuario(remetente, clienteWhatsApp.cliente);
-
-      // Garantir que sempre temos um nome não-undefined
-      if (!usuario.name || usuario.name === 'undefined') {
-        const idCurto = remetente.substring(0, 8).replace(/[^0-9]/g, '');
-        usuario.name = `Usuário${idCurto}`;
+      // Busca o contato para obter o nome atualizado, se possível
+      let nomeUsuario = `Usuário${remetenteIdSerializado.substring(0, 6).replace(/[^0-9]/g, '')}`; // Nome padrão
+      try {
+        const contato = await clienteWhatsApp.cliente.getContactById(remetenteIdSerializado);
+        if (contato && (contato.pushname || contato.name || contato.shortName)) {
+           nomeUsuario = contato.pushname || contato.name || contato.shortName;
+        }
+      } catch (erroContato) {
+         registrador.warn(`Não foi possível obter detalhes do contato ${remetenteIdSerializado} para obter nome: ${erroContato.message}`);
       }
 
-      return Resultado.sucesso(usuario);
+      // Chama o método refatorado do gerenciadorConfig
+      const resultadoUsuario = await gerenciadorConfig.obterOuCriarUsuario(remetenteIdSerializado, { nome: nomeUsuario });
+
+      // O tratamento de nome padrão agora deve ser feito dentro de obterOuCriarUsuario do ConfigManager ou no Repositorio
+      // Mas mantemos a verificação aqui por segurança, caso o retorno ainda seja problemático
+      if (resultadoUsuario.sucesso && (!resultadoUsuario.dados.name || resultadoUsuario.dados.name === 'undefined')) {
+         resultadoUsuario.dados.name = nomeUsuario; // Usa o nome obtido ou o padrão gerado
+      }
+
+      return resultadoUsuario; // Retorna o Resultado diretamente
     }
 
     // Implementação alternativa caso o gerenciadorConfig não esteja disponível

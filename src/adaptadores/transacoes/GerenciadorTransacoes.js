@@ -23,40 +23,61 @@ class GerenciadorTransacoes extends EventEmitter {
   }
 
   async limparTransacoesIncompletas() {
-    try {
-      // Encontrar transações sem resposta ou que estão travadas
-      const resultado = await this.repoTransacoes.encontrar({
-        $or: [
-          { resposta: { $exists: false }, status: { $ne: 'criada' } },
-          { status: 'falha_permanente' }
-        ]
-      });
+    // Refatorado: Usa buscarTransacoesIncompletas e removerTransacaoPorId
+    const resultadoBusca = await this.repoTransacoes.buscarTransacoesIncompletas();
 
-      const transacoes = resultado.sucesso ? resultado.dados : [];
-      if (transacoes.length === 0) return 0;
-
-      this.registrador.info(`Encontradas ${transacoes.length} transações incompletas para limpeza`);
-      let limpas = 0;
-
-      for (const transacao of transacoes) {
-        try {
-          await this.repoTransacoes.remover({ id: transacao.id });
-          limpas++;
-        } catch (erro) {
-          this.registrador.error(`Erro ao remover transação incompleta ${transacao.id}: ${erro.message}`);
+    // Dobra o resultado da busca
+    return Resultado.dobrar(
+      resultadoBusca,
+      async (transacoes) => {
+        if (!transacoes || transacoes.length === 0) {
+          this.registrador.info('Nenhuma transação incompleta encontrada para limpeza.');
+          return 0; // Retorna 0 se não há transações
         }
-      }
 
-      this.registrador.info(`Limpas ${limpas} transações incompletas`);
-      return limpas;
-    } catch (erro) {
-      this.registrador.error(`Erro ao limpar transações incompletas: ${erro.message}`);
-      return 0;
-    }
+        this.registrador.info(`Encontradas ${transacoes.length} transações incompletas para limpeza.`);
+        let limpas = 0;
+
+        for (const transacao of transacoes) {
+          // Verifica se a transação tem ID antes de tentar remover
+          if (!transacao || !transacao.id) {
+            this.registrador.warn('Transação incompleta sem ID encontrada durante a limpeza.');
+            continue; // Pula para a próxima transação
+          }
+
+          const resultadoRemocao = await this.repoTransacoes.removerTransacaoPorId(transacao.id);
+          if (resultadoRemocao.sucesso && resultadoRemocao.dados > 0) {
+            limpas++;
+          } else if (!resultadoRemocao.sucesso) {
+            this.registrador.error(`Erro ao remover transação incompleta ${transacao.id}: ${resultadoRemocao.erro.message}`);
+          }
+          // Se resultadoRemocao.dados === 0, a transação pode ter sido removida por outro processo, não logamos erro.
+        }
+
+        this.registrador.info(`Limpas ${limpas} de ${transacoes.length} transações incompletas encontradas.`);
+        return limpas; // Retorna o número de transações efetivamente limpas
+      },
+      (erro) => {
+        this.registrador.error(`Erro ao buscar transações incompletas para limpeza: ${erro.message}`);
+        // Em caso de erro na busca, retorna 0 ou lança o erro dependendo da política desejada
+        // Optando por retornar 0 para não parar o processo periódico.
+        return 0;
+      }
+    );
   }
 
   async criarTransacao(mensagem, chat) {
-    const resultado = await this.repoTransacoes.criarTransacao(mensagem, chat);
+    // Refatorado: Extrai dados relevantes antes de chamar o repositório
+    const dadosTransacao = {
+      id: mensagem.id.id, // ID da mensagem
+      chatId: chat.id._serialized, // ID do chat
+      senderId: mensagem.id.remote, // ID do remetente (pode precisar de ajuste dependendo da estrutura)
+      timestamp: new Date(mensagem.timestamp * 1000), // Timestamp da mensagem
+      tipo: mensagem.type, // Tipo da mensagem (text, image, etc.)
+      // Adicionar outros campos relevantes da mensagem/chat se necessário
+      // Ex: mensagem.body, mensagem.caption, etc.
+    };
+    const resultado = await this.repoTransacoes.criarTransacao(dadosTransacao);
 
     return Resultado.dobrar(
       resultado,
@@ -167,37 +188,43 @@ class GerenciadorTransacoes extends EventEmitter {
  * @returns {Promise<boolean>} Verdadeiro se operação bem-sucedida
  */
   async marcarComoEntregue(transacaoId) {
-    try {
-      // Usar repoTransacoes diretamente para ter mais controle
-      const resultado = await this.repoTransacoes.atualizar(
-        { id: transacaoId },
-        {
-          $set: {
-            status: 'entregue',
-            ultimaAtualizacao: new Date()
-          },
-          $push: {
-            historico: {
-              data: new Date(),
-              status: 'entregue',
-              detalhes: 'Mensagem entregue com sucesso'
-            }
-          }
-        }
-      );
+    // Refatorado: Usa atualizarStatusTransacao e removerTransacaoPorId, tratando Resultado
+    const resultadoAtualizacao = await this.atualizarStatusTransacao(
+      transacaoId,
+      'entregue',
+      'Mensagem entregue com sucesso'
+    );
 
-      // Agora excluímos a transação após marcar como entregue
-      if (resultado.sucesso) {
-        await this.repoTransacoes.remover({ id: transacaoId });
-        
-      }
-
-      return true; // Simplificando o retorno para evitar erros
-    } catch (erro) {
-      // Log simples sem acessar propriedades do erro
-      this.registrador.error(`Erro na transação ${transacaoId}: ${String(erro)}`);
-      return false;
+    // Se a atualização falhar (ex: transação não encontrada), retorna falha
+    if (!resultadoAtualizacao) { // atualizarStatusTransacao retorna boolean
+        this.registrador.warn(`Falha ao atualizar status para 'entregue' na transação ${transacaoId}. Não será removida.`);
+        return false; // Indica falha na operação completa
     }
+
+    // Se a atualização foi bem-sucedida, tenta remover
+    const resultadoRemocao = await this.repoTransacoes.removerTransacaoPorId(transacaoId);
+
+    // Dobra o resultado da remoção para logar e retornar boolean
+    return Resultado.dobrar(
+      resultadoRemocao,
+      (numRemovidos) => {
+        if (numRemovidos > 0) {
+          this.registrador.info(`Transação ${transacaoId} marcada como entregue e removida.`);
+          return true;
+        } else {
+          // Isso não deveria acontecer se a atualização funcionou, mas logamos por segurança
+          this.registrador.warn(`Transação ${transacaoId} atualizada para 'entregue', mas não encontrada para remoção.`);
+          return false; // Considera falha se não removeu após atualizar
+        }
+      },
+      (erro) => {
+        this.registrador.error(`Erro ao remover transação ${transacaoId} após marcar como entregue: ${erro.message}`);
+        // Mesmo que a remoção falhe, a transação foi marcada como entregue,
+        // então podemos considerar a operação principal como parcialmente sucedida,
+        // mas retornamos false para indicar que algo inesperado ocorreu.
+        return false;
+      }
+    );
   }
 
   async registrarFalhaEntrega(transacaoId, erro) {
@@ -241,75 +268,75 @@ class GerenciadorTransacoes extends EventEmitter {
   }
 
   async processarTransacoesPendentes(clienteWhatsApp) {
-    // Validar parâmetro de entrada
+    // Refatorado: Busca primeiro, depois processa iterativamente.
     if (!clienteWhatsApp) {
       this.registrador.error('Cliente WhatsApp não fornecido para processamento de transações');
-      throw new Error('Cliente WhatsApp é necessário para processar transações');
+      // Retorna um Resultado.falha em vez de lançar erro diretamente
+      return Resultado.falha(new Error('Cliente WhatsApp é necessário para processar transações'));
     }
 
-    // Definir função de processamento individual com proteção contra erros
-    const processarTransacao = async (transacao) => {
-      // Validar estrutura básica da transação
-      if (!transacao || !transacao.id) {
-        this.registrador.warn('Transação inválida encontrada no processamento');
-        return false;
-      }
+    const resultadoBusca = await this.repoTransacoes.buscarTransacoesIncompletas();
 
-      // Verificar se há resposta para enviar
-      if (!transacao.resposta) {
-        this.registrador.warn(`Transação ${transacao.id} sem resposta para reenviar`);
-        return false;
-      }
+    if (!resultadoBusca.sucesso) {
+      this.registrador.error(`Erro ao buscar transações pendentes para processamento: ${resultadoBusca.erro.message}`);
+      return Resultado.falha(resultadoBusca.erro); // Propaga o erro da busca
+    }
 
-      // Validar dados necessários para envio
-      if (!transacao.chatId) {
-        this.registrador.warn(`Transação ${transacao.id} sem chatId definido`);
-        return false;
-      }
+    const transacoesPendentes = resultadoBusca.dados;
 
-      try {
-        // Tentar enviar a mensagem de forma direta e simples
-        await clienteWhatsApp.enviarMensagem(transacao.chatId, transacao.resposta);
+    if (!transacoesPendentes || transacoesPendentes.length === 0) {
+      this.registrador.info('Nenhuma transação pendente encontrada para processamento.');
+      return Resultado.sucesso(0); // Sucesso, 0 processadas
+    }
 
-        // Marcar como entregue após envio bem-sucedido
-        await this.marcarComoEntregue(transacao.id);
+    this.registrador.info(`Encontradas ${transacoesPendentes.length} transações pendentes para processamento.`);
+    let processadasComSucesso = 0;
+    let falhasNoProcessamento = 0;
 
-        this.registrador.info(`Transação ${transacao.id} reprocessada com sucesso`);
-        return true;
-      } catch (erro) {
-        // PROTEÇÃO: Usar String(erro) em vez de acessar .message
-        const mensagemErro = String(erro);
-        this.registrador.error(`Erro ao processar transação ${transacao.id}: ${mensagemErro}`);
+    // Função interna de processamento (mantida similar)
+    const processarTransacaoIndividual = async (transacao) => {
+       if (!transacao || !transacao.id) {
+         this.registrador.warn('Transação inválida encontrada no processamento');
+         return false;
+       }
+       if (!transacao.resposta) {
+         this.registrador.warn(`Transação ${transacao.id} sem resposta para reenviar`);
+         // Considerar marcar como falha permanente ou investigar? Por ora, apenas ignora.
+         return false;
+       }
+       if (!transacao.chatId) {
+         this.registrador.warn(`Transação ${transacao.id} sem chatId definido`);
+         // Marcar como falha?
+         await this.registrarFalhaEntrega(transacao.id, 'Chat ID não definido na transação pendente.');
+         return false;
+       }
 
-        // Registrar a falha na entrega com a nova abordagem segura
-        await this.registrarFalhaEntrega(transacao.id, mensagemErro);
-        return false;
-      }
+       try {
+         await clienteWhatsApp.enviarMensagem(transacao.chatId, transacao.resposta);
+         await this.marcarComoEntregue(transacao.id); // Usa o método já refatorado
+         this.registrador.info(`Transação ${transacao.id} reprocessada e marcada como entregue.`);
+         return true;
+       } catch (erro) {
+         const mensagemErro = String(erro);
+         this.registrador.error(`Erro ao reprocessar transação ${transacao.id}: ${mensagemErro}`);
+         await this.registrarFalhaEntrega(transacao.id, `Erro no reprocessamento: ${mensagemErro}`);
+         return false;
+       }
     };
 
-    // Processar transações pendentes com tratamento de erro adequado
-    const resultado = await this.repoTransacoes.processarTransacoesPendentes(processarTransacao);
-
-    return Resultado.dobrar(
-      resultado,
-      (processadas) => {
-        // Garantir que o retorno seja um número válido
-        const numProcessadas = typeof processadas === 'number' ? processadas : 0;
-
-        if (numProcessadas > 0) {
-          this.registrador.info(`Processadas com sucesso ${numProcessadas} transações pendentes`);
-        } else {
-          
-        }
-
-        return numProcessadas;
-      },
-      (erro) => {
-        // PROTEÇÃO: Usar String(erro) em vez de acessar .message
-        this.registrador.error(`Erro ao processar transações pendentes: ${String(erro)}`);
-        throw erro;
+    // Itera sobre as transações pendentes e processa
+    for (const transacao of transacoesPendentes) {
+      const sucesso = await processarTransacaoIndividual(transacao);
+      if (sucesso) {
+        processadasComSucesso++;
+      } else {
+        falhasNoProcessamento++;
       }
-    );
+    }
+
+    this.registrador.info(`Processamento de transações pendentes concluído. Sucesso: ${processadasComSucesso}, Falhas: ${falhasNoProcessamento}.`);
+    // Retorna sucesso com o número de transações processadas com sucesso
+    return Resultado.sucesso(processadasComSucesso);
   }
 
 
@@ -340,7 +367,8 @@ class GerenciadorTransacoes extends EventEmitter {
   }
 
   async obterTransacao(transacaoId) {
-    const resultado = await this.repoTransacoes.encontrarUm({ id: transacaoId });
+    // Refatorado: Usa buscarTransacaoPorId da interface
+    const resultado = await this.repoTransacoes.buscarTransacaoPorId(transacaoId);
 
     return Resultado.dobrar(
       resultado,

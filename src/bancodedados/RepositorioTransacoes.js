@@ -27,31 +27,32 @@ class RepositorioTransacoes extends RepositorioNeDB {
    * @param {Object} chat - Objeto do chat
    * @returns {Promise<Resultado>} Resultado com a transação criada
    */
-  async criarTransacao(mensagem, chat) {
+  async criarTransacao(dadosTransacao) { // Assinatura refatorada
     const agora = new Date();
-    const idTransacao = `tx_${agora.getTime()}_${crypto.randomBytes(4).toString('hex')}`;
-    
-    // Determinar o tipo da mensagem (imutável)
-    const tipoMensagem = this._determinarTipoMensagem(mensagem);
-    
-    // Construir objeto de transação imutável
+    // Usa o ID da mensagem original se disponível, senão gera um novo ID único
+    const idTransacao = dadosTransacao.id ? `tx_${dadosTransacao.id}` : `tx_${agora.getTime()}_${crypto.randomBytes(4).toString('hex')}`;
+
+    // Construir objeto de transação imutável usando dadosTransacao
     const transacao = {
       id: idTransacao,
-      messageId: mensagem.id._serialized,
-      chatId: chat.id._serialized,
-      from: mensagem.from,
+      messageId: dadosTransacao.id, // ID original da mensagem
+      chatId: dadosTransacao.chatId,
+      senderId: dadosTransacao.senderId, // ID do remetente
       dataCriacao: agora,
       ultimaAtualizacao: agora,
-      tipo: tipoMensagem,
+      tipo: dadosTransacao.tipo, // Tipo já determinado pelo chamador
       status: 'criada',
       tentativas: 0,
       historico: [{
         data: agora,
         status: 'criada',
         detalhes: 'Transação criada'
-      }]
+      }],
+      // Incluir outros dados relevantes de dadosTransacao, se houver
+      ...(dadosTransacao.textoOriginal && { textoOriginal: dadosTransacao.textoOriginal }),
+      ...(dadosTransacao.caption && { caption: dadosTransacao.caption }),
     };
-    
+
     return this.inserir(transacao);
   }
   
@@ -144,38 +145,13 @@ class RepositorioTransacoes extends RepositorioNeDB {
    * @returns {Promise<Resultado>} Resultado da operação
    */
   async registrarFalhaEntrega(idTransacao, erro) {
-    // Primeiro obter a transação para verificar tentativas
-    const resultadoTransacao = await this.encontrarUm({ id: idTransacao });
-    
-    return Resultado.encadear(resultadoTransacao, transacao => {
-      if (!transacao) {
-        this.registrador.warn(`Transação ${idTransacao} não encontrada para registrar falha`);
-        return Resultado.falha(new Error("Transação não encontrada"));
-      }
-      
-      const tentativas = (transacao.tentativas || 0) + 1;
-      const novoStatus = tentativas >= 3 ? 'falha_permanente' : 'falha_temporaria';
-      const agora = new Date();
-      
-      return this.atualizar(
-        { id: idTransacao },
-        { 
-          $set: { 
-            status: novoStatus,
-            ultimaAtualizacao: agora,
-            tentativas,
-            ultimoErro: erro
-          },
-          $push: {
-            historico: {
-              data: agora,
-              status: novoStatus,
-              detalhes: `Falha na entrega: ${erro}`
-            }
-          }
-        }
-      );
-    });
+    // Refatorado: Simplificado para apenas chamar atualizarStatus.
+    // A lógica de contagem de tentativas e status (temporária/permanente)
+    // deve ser gerenciada pelo consumidor (GerenciadorTransacoes), se necessário.
+    // Aqui, apenas registramos a falha no histórico via atualizarStatus.
+    const detalhesErro = `Falha na entrega: ${String(erro)}`; // Garante que erro seja string
+    // Assume 'falha_entrega' como um status genérico. O consumidor pode chamar de novo para 'falha_permanente'.
+    return this.atualizarStatus(idTransacao, 'falha_entrega', detalhesErro);
   }
   
   /**
@@ -190,51 +166,8 @@ class RepositorioTransacoes extends RepositorioNeDB {
     });
   }
   
-  /**
-   * Processa transações pendentes
-   * @param {Function} processador - Função que processa uma transação
-   * @returns {Promise<number>} Número de transações processadas
-   */
-  async processarTransacoesPendentes(processador) {
-    const limiteTempoFalha = new Date(Date.now() - 5 * 60 * 1000); // 5 minutos
-    
-    const resultado = await this.encontrar({ 
-        status: 'falha_temporaria',
-        ultimaAtualizacao: { $lt: limiteTempoFalha },
-        tentativas: { $lt: 3 }
-    });
-    
-    return Resultado.encadear(resultado, async transacoes => {
-        // Garantir que transacoes seja sempre um array
-        const transacoesArray = Array.isArray(transacoes) ? transacoes : [];
-        
-        if (transacoesArray.length === 0) {
-            return Resultado.sucesso(0);
-        }
-        
-        this.registrador.info(`Encontradas ${transacoesArray.length} transações pendentes para reprocessamento`);
-        
-        // Processamento funcional das transações
-        const resultados = await Promise.all(
-            transacoesArray.map(async transacao => {
-                try {
-                    await processador(transacao);
-                    return { sucesso: true, id: transacao.id };
-                } catch (erro) {
-                    this.registrador.error(`Erro ao reprocessar transação ${transacao.id}: ${erro.message}`);
-                    return { sucesso: false, id: transacao.id, erro };
-                }
-            })
-        );
-        
-        // Contar sucessos
-        const processadas = resultados.filter(r => r.sucesso).length;
-        this.registrador.info(`Processadas ${processadas} de ${transacoesArray.length} transações pendentes`);
-        
-        return Resultado.sucesso(processadas);
-    });
-}
-
+  // Método removido - Lógica movida para GerenciadorTransacoes
+  // async processarTransacoesPendentes(processador) { ... }
   
   /**
    * Limpa transações antigas
@@ -303,6 +236,24 @@ class RepositorioTransacoes extends RepositorioNeDB {
         )
       )
     );
+  }
+
+  /**
+   * Busca uma transação específica pelo seu ID de transação.
+   * @param {string} idTransacao - O ID da transação a ser buscada.
+   * @returns {Promise<Resultado<object | null>>} Resultado com a transação encontrada ou null.
+   */
+  async buscarTransacaoPorId(idTransacao) {
+    return this.encontrarUm({ id: idTransacao });
+  }
+
+  /**
+   * Remove uma transação específica pelo seu ID de transação.
+   * @param {string} idTransacao - O ID da transação a ser removida.
+   * @returns {Promise<Resultado<number>>} Resultado com o número de documentos removidos (0 ou 1).
+   */
+  async removerTransacaoPorId(idTransacao) {
+    return this.remover({ id: idTransacao }, {}); // Opções vazias para remover apenas um
   }
   
   /**
