@@ -9,8 +9,6 @@ const obterInformacoesChat = _.curry(async (registrador, dados) => {
   try {
     const { mensagem } = dados;
     const chat = await mensagem.getChat();
-    // await chat.sendSeen(); // Removido permanentemente - causava problemas em alguns grupos
-
     const chatId = chat.id._serialized;
     const ehGrupo = chatId.endsWith('@g.us');
 
