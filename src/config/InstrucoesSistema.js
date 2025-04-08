@@ -208,7 +208,7 @@ const obterInstrucaoPadrao = () => INSTRUCAO_BASE; // Instrução completa (com 
 const obterInstrucaoConversa = () => INSTRUCAO_BASE_CONVERSA; // Instrução simplificada (sem comandos)
 
 const obterInstrucaoAudio = () => 
-    `Você é um assistente de IA especializado em transcreer audio. Sua tarefa é transcrever palavra a palavra o conteúdo do audio fornecido.
+    `Você é uma assistente de IA especializada em transcrever audio. Sua tarefa é transcrever palavra a palavra o conteúdo do audio fornecido.
 
 Transcreva letra a letra, palavra a palavra o audio, no idioma original, sem omissão ou acréscimo. Nada mais. Só será aceita como válida uma resposta que contenha da primeira à última palavra do audio. Sua tarefa inicia com a transcrição da primeira palavra do audio e se encerra com a transcrição da última palavra do audio. Não mencione qualquer imagem ou vídeo, apenas transcreva o audio.
 
