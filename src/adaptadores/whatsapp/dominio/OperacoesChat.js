@@ -54,14 +54,25 @@ const verificarRespostaGrupo = _.curry(async (clienteWhatsApp, dados) => {
 // Obter ou criar usuário
 const obterOuCriarUsuario = _.curry(async (gerenciadorConfig, clienteWhatsApp, registrador, remetenteIdSerializado, chat) => { // Mudança: Recebe remetenteIdSerializado
   try {
+    // Verifica se o cliente WhatsApp está disponível
+    if (!clienteWhatsApp || !clienteWhatsApp.cliente) {
+      registrador.error(`[OperacoesChat] Cliente WhatsApp não inicializado ao tentar obter usuário ${remetenteIdSerializado}.`);
+      return Resultado.falha(new Error("Cliente WhatsApp não disponível"));
+    }
+
     // Se temos gerenciadorConfig, usar o método dele
     if (gerenciadorConfig) {
       // Busca o contato para obter o nome atualizado, se possível
       let nomeUsuario = `Usuário${remetenteIdSerializado.substring(0, 6).replace(/[^0-9]/g, '')}`; // Nome padrão
       try {
         const contato = await clienteWhatsApp.cliente.getContactById(remetenteIdSerializado);
-        if (contato && (contato.pushname || contato.name || contato.shortName)) {
-           nomeUsuario = contato.pushname || contato.name || contato.shortName;
+        // Adiciona verificação extra para garantir que 'contato' não é undefined
+        if (contato) {
+          if (contato.pushname || contato.name || contato.shortName) {
+            nomeUsuario = contato.pushname || contato.name || contato.shortName;
+          }
+        } else {
+           registrador.warn(`Contato ${remetenteIdSerializado} retornado como undefined por getContactById.`);
         }
       } catch (erroContato) {
          registrador.warn(`Não foi possível obter detalhes do contato ${remetenteIdSerializado} para obter nome: ${erroContato.message}`);
@@ -80,25 +91,37 @@ const obterOuCriarUsuario = _.curry(async (gerenciadorConfig, clienteWhatsApp, r
     }
 
     // Implementação alternativa caso o gerenciadorConfig não esteja disponível
-    const contato = await clienteWhatsApp.cliente.getContactById(remetente);
+    // A verificação do cliente já foi feita no início da função
+    const contato = await clienteWhatsApp.cliente.getContactById(remetenteIdSerializado);
 
-    let nome = contato.pushname || contato.name || contato.shortName;
+    // Adiciona verificação para garantir que 'contato' não é undefined
+    let nome = nomeUsuario; // Usa o nome padrão inicializado
+    if (contato) {
+       nome = contato.pushname || contato.name || contato.shortName || nomeUsuario; // Usa nome do contato ou fallback para o padrão
+    } else {
+       registrador.warn(`[Fallback] Contato ${remetenteIdSerializado} retornado como undefined por getContactById.`);
+    }
 
     if (!nome || nome.trim() === '' || nome === 'undefined') {
-      const idSufixo = remetente.substring(0, 6).replace(/[^0-9]/g, '');
+      const idSufixo = remetenteIdSerializado.substring(0, 6).replace(/[^0-9]/g, '');
       nome = `Usuário${idSufixo}`;
     }
 
     return Resultado.sucesso({
-      id: remetente,
+      id: remetenteIdSerializado,
       name: nome,
       joinedAt: new Date()
     });
   } catch (erro) {
-    registrador.error(`Erro ao obter informações do usuário: ${erro.message}`);
-    const idSufixo = remetente.substring(0, 6).replace(/[^0-9]/g, '');
+    // Verifica se é o erro conhecido "_serialized" para logar como warn, senão como error
+    if (erro.message && erro.message.includes("Cannot read properties of undefined (reading '_serialized')")) {
+      registrador.warn(`[OperacoesChat] Erro conhecido ao obter contato ${remetenteIdSerializado} (provavelmente interno da lib): ${erro.message}`);
+    } else {
+      registrador.error(`Erro inesperado ao obter informações do usuário ${remetenteIdSerializado}: ${erro.message}`, erro); // Log completo para outros erros
+    }
+    const idSufixo = remetenteIdSerializado.substring(0, 6).replace(/[^0-9]/g, '');
     return Resultado.sucesso({
-      id: remetente,
+      id: remetenteIdSerializado,
       name: `Usuário${idSufixo}`,
       joinedAt: new Date()
     });
