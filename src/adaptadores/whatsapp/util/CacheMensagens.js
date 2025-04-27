@@ -18,14 +18,16 @@ const criarGerenciadorCache = (registrador) => {
       
     // Remover todos de uma vez
     if (idsAntigos.length > 0) {
+      registrador.info('CacheMensagens: Limpeza de cache iniciada', mensagensProcessadas.size);
+      registrador.info('CacheMensagens: Mensagens antigas removidas', idsAntigos.length);
       idsAntigos.forEach(id => mensagensProcessadas.delete(id));
-      
     }
   };
 
   // Configurar limpeza periódica
   const iniciar = () => {
-    const intervaloLimpeza = 30 * 60 * 1000; // 30 minutos
+    registrador.info('CacheMensagens: Limpeza de cache agendada a cada 30 minutos');
+    const intervaloLimpeza = 5 * 60 * 1000; // 5 minutos
     setInterval(limparCacheMensagensAntigas, intervaloLimpeza);
     
   };

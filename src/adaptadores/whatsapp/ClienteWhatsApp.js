@@ -70,27 +70,12 @@ class ClienteWhatsApp extends EventEmitter {
     this.cliente = new Client({
       authStrategy: new LocalAuth({ clientId: this.clienteId }), // Reintroduzido LocalAuth para salvar sessão
       puppeteer: {
-        executablePath: '/usr/bin/google-chrome',
+        //executablePath: '/usr/bin/google-chrome',
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
           '--disable-gpu',
           '--js-flags=--expose-gc',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-breakpad',
-          '--disable-component-extensions-with-background-pages',
-          '--disable-features=TranslateUI,BlinkGenPropertyTrees',
-          '--disable-ipc-flooding-protection',
-          '--disable-renderer-backgrounding',
-          '--aggressive-cache-discard',
-          '--disable-cache',
-          '--disable-application-cache',
-          '--disable-offline-load-stale-cache',
-          '--disk-cache-size=0'
         ],
         defaultViewport: {
           width: 800,
@@ -148,16 +133,24 @@ class ClienteWhatsApp extends EventEmitter {
     this.cliente.on('ready', () => {
       this.pronto = true;
       this.tentativasReconexao = 0;
-      this.registrador.info('[Whats] Cliente pronto para uso.');
+      this.registrador.info('[Whats] Evento "ready" recebido. Cliente pronto.'); // Log modificado para info
       this.emit('pronto');
     });
 
     // Evento de desconexão
     this.cliente.on('disconnected', (razao) => {
+      const timestamp = new Date().toISOString();
+      this.registrador.error(`[Whats][${timestamp}] Evento "disconnected" recebido. Razão: ${razao}`); // Log modificado
+      this.registrador.info(`[Whats] Estado antes da desconexão: pronto=${this.pronto}, tentativasReconexao=${this.tentativasReconexao}`); // Log modificado
       this.pronto = false;
-      this.registrador.error(`[Whats] Cliente desconectado: ${razao}`);
       this.emit('desconectado', razao);
+      this.registrador.info(`[Whats][DEBUG] Chamando tratarReconexao() devido a: ${razao}`); // Log adicionado
       this.tratarReconexao();
+    });
+
+    // Evento para mudança de estado (NOVO)
+    this.cliente.on('change_state', state => {
+        this.registrador.info(`[Whats] Evento "change_state" recebido. Novo estado: ${state}`); // Log modificado
     });
 
     // Evento para novas mensagens
@@ -179,7 +172,8 @@ class ClienteWhatsApp extends EventEmitter {
     
     // Evento de falha na autenticação
     this.cliente.on('auth_failure', (msg) => {
-      this.registrador.error(`[Whats] FALHA NA AUTENTICAÇÃO: ${msg}`);
+      const timestamp = new Date().toISOString();
+      this.registrador.error(`[Whats][DEBUG][${timestamp}] Evento "auth_failure" recebido: ${msg}`); // Log aprimorado
       this.pronto = false; // Garante que o estado 'pronto' seja falso
       this.emit('falha_autenticacao', msg);
       // Poderia tentar reiniciar aqui, mas a desconexão já deve tratar isso
