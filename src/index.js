@@ -281,7 +281,8 @@ const servicoMensagem = criarServicoMensagem(logger, clienteWhatsApp, gerenciado
 logger.info('💬 Serviço de mensagens inicializado');
 
 // 8. Inicializar o monitor de saúde (mas não ativá-lo ainda)
-const monitorSaude = require('./monitoramento/MonitorSaude').criar(logger, clienteWhatsApp);
+const MonitorSaude = require('./monitoramento/MonitorSaude'); // Importa a classe
+const monitorSaude = new MonitorSaude(clienteWhatsApp); // Instancia a classe
 logger.info('❤️‍🩹 Monitor de saúde inicializado');
 
 // Variáveis para armazenar componentes que serão inicializados depois

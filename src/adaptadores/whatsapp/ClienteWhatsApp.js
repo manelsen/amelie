@@ -72,25 +72,11 @@ class ClienteWhatsApp extends EventEmitter {
       puppeteer: {
         executablePath: '/usr/bin/google-chrome',
         args: [
-          '--no-sandbox',
           '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--disable-gpu',
-          '--js-flags=--expose-gc',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-breakpad',
-          '--disable-component-extensions-with-background-pages',
-          '--disable-features=TranslateUI,BlinkGenPropertyTrees',
-          '--disable-ipc-flooding-protection',
-          '--disable-renderer-backgrounding',
-          '--aggressive-cache-discard',
-          '--disable-cache',
-          '--disable-application-cache',
-          '--disable-offline-load-stale-cache',
-          '--disk-cache-size=0'
+          '--no-sandbox',
+          '--disable-web-security',
+          '--disable-features=IsolateOrigins,site-per-process',
+          '--disable-site-isolation-trials'
         ],
         defaultViewport: {
           width: 800,
@@ -156,6 +142,11 @@ class ClienteWhatsApp extends EventEmitter {
     this.cliente.on('disconnected', (razao) => {
       this.pronto = false;
       this.registrador.error(`[Whats] Cliente desconectado: ${razao}`);
+      this.registrador.error(`[Whats] Detalhes adicionais: ${JSON.stringify({
+        tempoAtivo: process.uptime(),
+        memoria: process.memoryUsage(),
+        timestamp: new Date().toISOString()
+      })}`);
       this.emit('desconectado', razao);
       this.tratarReconexao();
     });
