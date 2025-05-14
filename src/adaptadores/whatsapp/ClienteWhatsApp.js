@@ -68,15 +68,15 @@ class ClienteWhatsApp extends EventEmitter {
    */
   inicializarCliente() {
     this.cliente = new Client({
-      authStrategy: new LocalAuth({ clientId: this.clienteId }), // Reintroduzido LocalAuth para salvar sessão
+      authStrategy: new LocalAuth({ clientId: this.clienteId }),
       puppeteer: {
-        executablePath: '/usr/bin/google-chrome',
+        executablePath: '/usr/bin/microsoft-edge-stable', // Caminho para o executável do Edge
         args: [
-          '--disable-setuid-sandbox',
           '--no-sandbox',
-          '--disable-web-security',
-          '--disable-features=IsolateOrigins,site-per-process',
-          '--disable-site-isolation-trials'
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-infobars',
+          '--no-first-run'
         ],
         defaultViewport: {
           width: 800,
