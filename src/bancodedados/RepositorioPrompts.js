@@ -50,9 +50,9 @@ class RepositorioPrompts extends RepositorioNeDB {
    * @returns {Promise<Resultado>} Resultado da operação
    */
   async excluirPrompt(idChat, nome) {
-    const resultado = await this.remover({ chatId: idChat, name: nome });
-    
-    return Resultado.mapear(resultado, numRemovidos => numRemovidos > 0);
+    // Refatorado: Retorna diretamente o resultado de remover (Resultado<number>)
+    // para alinhar com a interface IRepositorioPrompts.
+    return this.remover({ chatId: idChat, name: nome });
   }
 }
 
