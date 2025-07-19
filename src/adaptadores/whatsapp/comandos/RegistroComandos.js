@@ -18,6 +18,7 @@ const criarComandoLongo = require('./implementacoes/ComandoLongo');
 const criarComandoCurto = require('./implementacoes/ComandoCurto');
 const criarComandoLegenda = require('./implementacoes/ComandoLegenda');
 const criarComandoFilas = require('./implementacoes/ComandoFilas');
+const criarComandoDoc = require('./implementacoes/ComandoDoc'); // <<< ADICIONADO
 
 /**
  * Cria o registro central de comandos.
@@ -64,7 +65,8 @@ const criarRegistroComandos = (dependencias) => {
         criarComandoLongo(dependenciasComFuncaoObterLista),
         criarComandoCurto(dependenciasComFuncaoObterLista),
         criarComandoLegenda(dependenciasComFuncaoObterLista),
-        criarComandoFilas(dependenciasComFuncaoObterLista)
+        criarComandoFilas(dependenciasComFuncaoObterLista),
+        criarComandoDoc(dependenciasComFuncaoObterLista) // <<< ADICIONADO
     ];
 
     // --- Funções Públicas do Registro ---
@@ -80,8 +82,15 @@ const criarRegistroComandos = (dependencias) => {
      * @param {string} nomeComando - O nome do comando (ex: 'ajuda').
      * @returns {Object | undefined} O objeto do comando encontrado ou undefined.
      */
-    const encontrarComando = nomeComando =>
-        arrayComandos.find(comando => comando.nome === nomeComando.toLowerCase());
+    const encontrarComando = nomeComando => {
+        // Adiciona verificação para garantir que nomeComando é uma string antes de usar toLowerCase
+        if (typeof nomeComando !== 'string') {
+            // Se não for string, não pode corresponder a nenhum nome de comando válido
+            return undefined;
+        }
+        const nomeLower = nomeComando.toLowerCase();
+        return arrayComandos.find(comando => comando.nome === nomeLower);
+    }
 
     /**
      * Executa um comando encontrado.
@@ -123,7 +132,6 @@ const criarRegistroComandos = (dependencias) => {
             // Se a execução não retornar um Resultado explícito (pode acontecer em comandos mais simples),
             // consideramos sucesso, mas logamos para garantir.
              if (!resultadoExecucao || typeof resultadoExecucao.sucesso === 'undefined') {
-                 dependencias.registrador.debug(`Comando '${nomeComando}' executado sem retornar um Resultado explícito.`);
                  return Resultado.sucesso(true); // Assume sucesso
              }
             return resultadoExecucao; // Retorna o Resultado da execução

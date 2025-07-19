@@ -61,7 +61,7 @@ class GerenciadorTransacoes extends EventEmitter {
     return Resultado.dobrar(
       resultado,
       (documento) => {
-        this.registrador.debug(`Transação criada: ${documento.id}`);
+        
         // CORREÇÃO AQUI: Envolva o documento em Resultado.sucesso()
         return Resultado.sucesso(documento);
       },
@@ -86,7 +86,7 @@ class GerenciadorTransacoes extends EventEmitter {
           this.registrador.warn(`Transação ${transacaoId} não encontrada para adicionar dados de recuperação`);
           return false;
         }
-        this.registrador.debug(`Dados de recuperação adicionados à transação ${transacaoId}`);
+        
         return true;
       },
       (erro) => {
@@ -151,7 +151,7 @@ class GerenciadorTransacoes extends EventEmitter {
           this.registrador.warn(`Transação ${transacaoId} não encontrada para adicionar resposta`);
           return false;
         }
-        this.registrador.debug(`Resposta adicionada à transação ${transacaoId}`);
+        
         return true;
       },
       (erro) => {
@@ -189,7 +189,7 @@ class GerenciadorTransacoes extends EventEmitter {
       // Agora excluímos a transação após marcar como entregue
       if (resultado.sucesso) {
         await this.repoTransacoes.remover({ id: transacaoId });
-        this.registrador.debug(`Transação ${transacaoId} removida após entrega`);
+        
       }
 
       return true; // Simplificando o retorno para evitar erros
@@ -230,7 +230,7 @@ class GerenciadorTransacoes extends EventEmitter {
           this.registrador.warn(`Transação ${transacaoId} não encontrada para atualização`);
           return false;
         }
-        this.registrador.debug(`Status da transação ${transacaoId} atualizado para ${status}`);
+        
         return true;
       },
       (erro) => {
@@ -299,7 +299,7 @@ class GerenciadorTransacoes extends EventEmitter {
         if (numProcessadas > 0) {
           this.registrador.info(`Processadas com sucesso ${numProcessadas} transações pendentes`);
         } else {
-          this.registrador.debug('Nenhuma transação pendente para processar');
+          
         }
 
         return numProcessadas;

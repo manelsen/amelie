@@ -24,9 +24,9 @@ const FilasCriadores = {
       // Usar composição para criar as filas
       const filas = {
         imagem: {
-          upload: new Queue('midia-upload-imagem', configFilas),
-          analise: new Queue('midia-analise-imagem', configFilas),
-          principal: new Queue('midia-principal-imagem', {
+          upload:        new Queue('midia-upload-imagem', configFilas),
+          analise:       new Queue('midia-analise-imagem', configFilas),
+          principal:     new Queue('midia-principal-imagem', {
             ...configFilas,
             defaultJobOptions: {
               ...configFilas.defaultJobOptions,
@@ -35,10 +35,10 @@ const FilasCriadores = {
           })
         },
         video: {
-          upload: new Queue('midia-upload-video', configFilas),
+          upload:        new Queue('midia-upload-video', configFilas),
           processamento: new Queue('midia-processamento-video', configFilas),
-          analise: new Queue('midia-analise-video', configFilas),
-          principal: new Queue('midia-principal-video', {
+          analise:       new Queue('midia-analise-video', configFilas),
+          principal:     new Queue('midia-principal-video', {
             ...configFilas,
             defaultJobOptions: {
               ...configFilas.defaultJobOptions,
@@ -65,16 +65,16 @@ const FilasCriadores = {
    */
   configurarEventos: _.curry((registrador, fila, nomeEtapa, filaProblemas) => {
     fila.on('active', (job) => {
-      registrador.debug(`[${nomeEtapa}] Job ${job.id} iniciado`);
+      
     });
 
     fila.on('progress', (job, progress) => {
-      registrador.debug(`[${nomeEtapa}] Job ${job.id} progresso: ${progress}`);
+      
     });
 
     fila.on('completed', (job, result) => {
       const duracao = Date.now() - (job.processedOn || job.timestamp);
-      registrador.debug(`[${nomeEtapa}] Job ${job.id} concluído em ${duracao}ms`);
+      
     });
 
     fila.on('failed', (job, error) => {

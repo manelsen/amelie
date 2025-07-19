@@ -28,32 +28,25 @@ const Resultado = {
  * Funções puras - Processamento de texto
  */
 
-/**
- * Limpa e formata o texto de resposta
- * @param {string} texto - Texto original para limpar
- * @returns {string} Texto limpo e formatado
- */
-const limparTextoResposta = (texto) => {
-  if (!texto || typeof texto !== 'string') {
-    return "Não foi possível gerar uma resposta válida.";
-  }
-  let textoLimpo = texto
-    .replace(/^(?:amélie|amelie):[\s]*/gi, '')
-    .replace(/\r\n?|\n{2,}|\*/g, '\n')
-    .trim();
-  return textoLimpo;
-};
-
+// Função limparTextoResposta removida por redundância.
+// A limpeza principal ocorre em GerenciadorAI.js.
 /**
  * Obtém texto de resposta seguro
  * @param {string} texto - Texto original
  * @returns {Resultado} Resultado com texto processado
  */
 const obterRespostaSegura = (texto) => {
-  if (!texto || typeof texto !== 'string' || texto.trim() === '') {
-    return Resultado.falha(new Error("Texto de resposta inválido ou vazio"));
+  // Verificar nulidade e tipo no texto recebido (já processado por GerenciadorAI)
+  if (!texto || typeof texto !== 'string') {
+    return Resultado.falha(new Error("Texto de resposta nulo ou não é string"));
   }
-  return Resultado.sucesso(limparTextoResposta(texto));
+  // Verificar se o texto está vazio após a limpeza prévia em GerenciadorAI
+  // Usar trim() aqui apenas para a verificação de vazio.
+  if (texto.trim() === '') {
+    return Resultado.falha(new Error("Texto de resposta vazio após limpeza prévia"));
+  }
+  // Retorna o texto como está, confiando na limpeza anterior.
+  return Resultado.sucesso(texto);
 };
 
 /**
@@ -116,7 +109,7 @@ const capturarSnapshotMensagem = async (mensagemOriginal, cliente, registrador) 
         snapshot.remetente.nome = 'Usuário';
       }
     } catch (erroContato) {
-      registrador.debug(`Erro ao obter nome do contato: ${erroContato.message}`);
+      
       snapshot.remetente.nome = 'Usuário';
     }
     
@@ -133,7 +126,7 @@ const capturarSnapshotMensagem = async (mensagemOriginal, cliente, registrador) 
         snapshot.chat.nome = 'Chat';
       }
     } catch (erroChat) {
-      registrador.debug(`Erro ao obter dados do chat: ${erroChat.message}`);
+      
       snapshot.chat.id = mensagemOriginal.from;
       snapshot.chat.tipo = mensagemOriginal.from.includes('@g.us') ? 'grupo' : 'individual';
       snapshot.chat.nome = 'Chat';
@@ -143,7 +136,7 @@ const capturarSnapshotMensagem = async (mensagemOriginal, cliente, registrador) 
     if (snapshot.temMidia) {
       try {
         if (mensagemOriginal.type === 'image') {
-          snapshot.descricaoMidia = '📷 [Imagem]';
+          snapshot.descricaoMidia = '📷 [Image]';
         } else if (mensagemOriginal.type === 'video') {
           snapshot.descricaoMidia = '🎥 [Vídeo]';
         } else if (mensagemOriginal.type === 'audio' || mensagemOriginal.type === 'ptt') {
@@ -230,7 +223,7 @@ const verificarMensagemUtilizavel = async (mensagem, registrador) => {
     
     return Resultado.sucesso(true);
   } catch (erro) {
-    registrador.debug(`Erro ao verificar mensagem: ${erro.message}`);
+    
     return Resultado.falha(erro);
   }
 };
@@ -401,13 +394,13 @@ const atualizarStatusTransacao = async (gerenciadorTransacoes, transacaoId, suce
   try {
     if (sucesso) {
       await gerenciadorTransacoes.marcarComoEntregue(transacaoId);
-      registrador.debug(`Transação ${transacaoId} marcada como entregue`);
+      
     } else if (erro) {
       await gerenciadorTransacoes.registrarFalhaEntrega(
         transacaoId,
         `Erro ao enviar: ${erro.message}`
       );
-      registrador.debug(`Falha registrada para transação ${transacaoId}: ${erro.message}`);
+      
     }
     return Resultado.sucesso({ transacaoAtualizada: true });
   } catch (erroTransacao) {

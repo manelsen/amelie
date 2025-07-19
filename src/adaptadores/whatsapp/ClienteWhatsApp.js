@@ -8,7 +8,7 @@
  * @version 3.0.0
  */
 
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js'); // Reintroduzido LocalAuth
 const qrcode = require('qrcode-terminal');
 const EventEmitter = require('events');
 const fs = require('fs');
@@ -56,9 +56,9 @@ class ClienteWhatsApp extends EventEmitter {
     if (!fs.existsSync(diretorio)) {
       try {
         fs.mkdirSync(diretorio, { recursive: true });
-        this.registrador.debug(`Diretório criado: ${diretorio}`);
+        
       } catch (erro) {
-        this.registrador.error(`Erro ao criar diretório: ${erro.message}`);
+        this.registrador.error(`[Whats] Erro ao criar diretório: ${erro.message}`);
       }
     }
   }
@@ -70,27 +70,13 @@ class ClienteWhatsApp extends EventEmitter {
     this.cliente = new Client({
       authStrategy: new LocalAuth({ clientId: this.clienteId }),
       puppeteer: {
-        executablePath: '/usr/bin/google-chrome',
+        executablePath: '/usr/bin/microsoft-edge-stable', // Caminho para o executável do Edge
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--disable-gpu',
-          '--js-flags=--expose-gc',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-breakpad',
-          '--disable-component-extensions-with-background-pages',
-          '--disable-features=TranslateUI,BlinkGenPropertyTrees',
-          '--disable-ipc-flooding-protection',
-          '--disable-renderer-backgrounding',
-          '--aggressive-cache-discard',
-          '--disable-cache',
-          '--disable-application-cache',
-          '--disable-offline-load-stale-cache',
-          '--disk-cache-size=0'
+          '--disable-infobars',
+          '--no-first-run'
         ],
         defaultViewport: {
           width: 800,
@@ -102,7 +88,35 @@ class ClienteWhatsApp extends EventEmitter {
     });
 
     this.configurarOuvinteEventos();
-    this.cliente.initialize();
+    this.cliente.initialize().then(() => {
+      this.registrador.info('[Whats] Cliente inicializado, aguardando para solicitar código de pareamento...');
+      
+      // Aguarda um tempo definido para verificar se a conexão automática falhou
+      // e então tenta solicitar o código de pareamento se necessário.
+      setTimeout(async () => {
+          // VERIFICAÇÃO ADICIONADA: Só tenta solicitar o código se o cliente NÃO estiver pronto
+          if (!this.pronto) {
+              this.registrador.info('[Whats] Cliente não conectou automaticamente via sessão salva. Tentando solicitar código de pareamento...');
+              const phoneNumber = process.env.PAIRING_PHONE_NUMBER;
+              if (!phoneNumber) {
+                  this.registrador.warn('[Whats] Variável PAIRING_PHONE_NUMBER não definida e conexão automática falhou. Use o QR Code se aparecer.');
+                  return;
+              }
+              
+              try {
+                  this.registrador.info(`[Whats] Solicitando código de pareamento para o número: ${phoneNumber}`);
+                  const code = await this.cliente.requestPairingCode(phoneNumber);
+                  this.registrador.info(`[Whats] Código de pareamento recebido: ${code}. Insira este código no seu telefone.`);
+                  this.emit('pairing_code', code);
+              } catch (error) {
+                  this.registrador.error(`[Whats] Erro ao solicitar código de pareamento: ${error.message}`);
+                  this.registrador.info('[Whats] Falha ao obter código de pareamento. Se um QR Code for exibido, use-o.');
+              }
+          } else {
+              
+          }
+      }, 15000); // Aguarda 15 segundos para dar chance à LocalAuth
+    });
   }
 
   /**
@@ -112,7 +126,7 @@ class ClienteWhatsApp extends EventEmitter {
     // Evento para código QR
     this.cliente.on('qr', (qr) => {
       qrcode.generate(qr, { small: true });
-      this.registrador.info('Código QR gerado para autenticação');
+      this.registrador.info('[Whats] Código QR gerado para autenticação.');
       this.emit('qr', qr);
     });
 
@@ -120,14 +134,19 @@ class ClienteWhatsApp extends EventEmitter {
     this.cliente.on('ready', () => {
       this.pronto = true;
       this.tentativasReconexao = 0;
-      this.registrador.info('Cliente WhatsApp pronto para uso');
+      this.registrador.info('[Whats] Cliente pronto para uso.');
       this.emit('pronto');
     });
 
     // Evento de desconexão
     this.cliente.on('disconnected', (razao) => {
       this.pronto = false;
-      this.registrador.error(`Cliente desconectado: ${razao}`);
+      this.registrador.error(`[Whats] Cliente desconectado: ${razao}`);
+      this.registrador.error(`[Whats] Detalhes adicionais: ${JSON.stringify({
+        tempoAtivo: process.uptime(),
+        memoria: process.memoryUsage(),
+        timestamp: new Date().toISOString()
+      })}`);
       this.emit('desconectado', razao);
       this.tratarReconexao();
     });
@@ -148,6 +167,14 @@ class ClienteWhatsApp extends EventEmitter {
     this.cliente.on('group_leave', (notificacao) => {
       this.emit('saida_grupo', notificacao);
     });
+    
+    // Evento de falha na autenticação
+    this.cliente.on('auth_failure', (msg) => {
+      this.registrador.error(`[Whats] FALHA NA AUTENTICAÇÃO: ${msg}`);
+      this.pronto = false; // Garante que o estado 'pronto' seja falso
+      this.emit('falha_autenticacao', msg);
+      // Poderia tentar reiniciar aqui, mas a desconexão já deve tratar isso
+    });
   }
 
   /**
@@ -156,17 +183,17 @@ class ClienteWhatsApp extends EventEmitter {
   async tratarReconexao() {
     if (this.tentativasReconexao < this.maxTentativasReconexao) {
       this.tentativasReconexao++;
-      this.registrador.info(`Tentativa de reconexão ${this.tentativasReconexao}/${this.maxTentativasReconexao}`);
+      this.registrador.info(`[Whats] Tentativa de reconexão ${this.tentativasReconexao}/${this.maxTentativasReconexao}`);
 
       setTimeout(() => {
         try {
           this.inicializarCliente();
         } catch (erro) {
-          this.registrador.error(`Erro na tentativa de reconexão: ${erro.message}`);
+          this.registrador.error(`[Whats] Erro na tentativa de reconexão: ${erro.message}`);
         }
       }, 5000); // Espera 5 segundos antes de tentar
     } else {
-      this.registrador.error(`Número máximo de tentativas (${this.maxTentativasReconexao}) atingido`);
+      this.registrador.error(`[Whats] Máximo de tentativas (${this.maxTentativasReconexao}) atingido.`);
       this.emit('falha_reconexao');
     }
   }
@@ -206,7 +233,7 @@ class ClienteWhatsApp extends EventEmitter {
       // Vamos considerar pronto se o status básico estiver ok
       return this.pronto;
     } catch (erro) {
-      this.registrador.error(`Erro ao verificar estado real: ${erro.message}`);
+      this.registrador.error(`[Whats] Erro ao verificar estado real: ${erro.message}`);
       // Em caso de erro, ainda retornamos true se o cliente disser que está pronto
       return this.pronto;
     }
@@ -235,7 +262,7 @@ class ClienteWhatsApp extends EventEmitter {
       this.ultimoEnvio = Date.now();
       return true;
     } catch (erro) {
-      this.registrador.error(`Erro ao enviar mensagem: ${erro.message}`);
+      this.registrador.error(`[Whats] Erro ao enviar mensagem: ${erro.message}`);
       return false;
     }
   }
@@ -271,11 +298,11 @@ class ClienteWhatsApp extends EventEmitter {
 
       // Salvar no arquivo
       await fs.promises.writeFile(caminhoArquivo, JSON.stringify(notificacao, null, 2), 'utf8');
-      this.registrador.info(`Notificação salva para envio posterior: ${caminhoArquivo}`);
+      this.registrador.info(`[Whats] Notificação salva para envio posterior: ${caminhoArquivo}`);
 
       return caminhoArquivo;
     } catch (erro) {
-      this.registrador.error(`Erro ao salvar notificação pendente: ${erro.message}`);
+      this.registrador.error(`[Whats] Erro ao salvar notificação pendente: ${erro.message}`);
       throw erro;
     }
   }
@@ -295,7 +322,7 @@ class ClienteWhatsApp extends EventEmitter {
 
       if (notificacoes.length === 0) return 0;
 
-      this.registrador.info(`Encontradas ${notificacoes.length} notificações pendentes para processar`);
+      this.registrador.info(`[Whats] Encontradas ${notificacoes.length} notificações pendentes.`); // Simplificado
       let processadas = 0;
 
       for (const arquivo of notificacoes) {
@@ -306,7 +333,7 @@ class ClienteWhatsApp extends EventEmitter {
 
           // Verificar se o cliente está pronto
           if (!await this.estaProntoRealmente()) {
-            this.registrador.warn(`Cliente não está pronto para processar notificação: ${arquivo}`);
+            this.registrador.warn(`[Whats] Cliente não pronto para processar notificação: ${arquivo}`);
             continue;
           }
 
@@ -315,7 +342,7 @@ class ClienteWhatsApp extends EventEmitter {
             const chat = await this.cliente.getChatById(notificacao.para);
             await chat.sendSeen();
           } catch (erroChat) {
-            this.registrador.warn(`Não foi possível marcar chat como visto: ${erroChat.message}`);
+            this.registrador.warn(`[Whats] Não foi possível marcar chat como visto: ${erroChat.message}`);
             // Continuar mesmo assim
           }
 
@@ -328,7 +355,7 @@ class ClienteWhatsApp extends EventEmitter {
             
             // Remover o arquivo após envio bem-sucedido
             await fs.promises.unlink(caminhoArquivo);
-            this.registrador.info(`✅ Notificação pendente enviada para ${notificacao.para}`);
+            this.registrador.info(`[Whats] ✅ Notificação pendente enviada.`); // Removido 'para'
 
             processadas++;
           } catch (erroEnvio) {
@@ -338,20 +365,20 @@ class ClienteWhatsApp extends EventEmitter {
 
             // Salvar notificação atualizada
             await fs.promises.writeFile(caminhoArquivo, JSON.stringify(notificacao, null, 2), 'utf8');
-            this.registrador.warn(`❌ Falha ao processar notificação (${notificacao.tentativas} tentativas): ${erroEnvio.message}`);
+            this.registrador.warn(`[Whats] ❌ Falha ao processar notificação (${notificacao.tentativas} tentativas): ${erroEnvio.message}`);
           }
         } catch (erroProcessamento) {
-          this.registrador.error(`Erro ao processar arquivo de notificação ${arquivo}: ${erroProcessamento.message}`);
+          this.registrador.error(`[Whats] Erro ao processar arquivo de notificação ${arquivo}: ${erroProcessamento.message}`);
         }
       }
 
       if (processadas > 0) {
-        this.registrador.info(`Processadas ${processadas} notificações pendentes`);
+        this.registrador.info(`[Whats] Processadas ${processadas} notificações pendentes.`); // Simplificado
       }
 
       return processadas;
     } catch (erro) {
-      this.registrador.error(`Erro ao verificar diretório de notificações: ${erro.message}`);
+      this.registrador.error(`[Whats] Erro ao verificar diretório de notificações: ${erro.message}`);
       return 0;
     }
   }
@@ -361,7 +388,7 @@ class ClienteWhatsApp extends EventEmitter {
    * @returns {Promise<boolean>} Sucesso da reconexão
    */
   async reconectar() {
-    this.registrador.debug('Tentando reconexão simples do WhatsApp...');
+    
 
     try {
       // Tentar reconectar sem reiniciar tudo
@@ -380,15 +407,15 @@ class ClienteWhatsApp extends EventEmitter {
       const reconectouRealmente = await this.estaProntoRealmente();
 
       if (reconectouRealmente) {
-        this.registrador.debug('Reconexão bem-sucedida!');
+        
         this.tentativasReconexao = 0;
         return true;
       } else {
-        this.registrador.warn('Reconexão não surtiu efeito');
+        this.registrador.warn('[Whats] Reconexão não surtiu efeito.');
         return false;
       }
     } catch (erro) {
-      this.registrador.error(`Erro na reconexão: ${erro.message}`);
+      this.registrador.error(`[Whats] Erro na reconexão: ${erro.message}`);
       return false;
     }
   }
@@ -398,7 +425,7 @@ class ClienteWhatsApp extends EventEmitter {
    * @returns {Promise<boolean>} Sucesso da reinicialização
    */
   async reiniciarCompleto() {
-    this.registrador.info('Iniciando reinicialização completa do cliente...');
+    this.registrador.info('[Whats] Iniciando reinicialização completa...');
     this.pronto = false;
 
     try {
@@ -411,7 +438,7 @@ class ClienteWhatsApp extends EventEmitter {
           }
           await this.cliente.pupBrowser.close().catch(() => { });
         } catch (err) {
-          this.registrador.warn(`Erro ao fechar navegador: ${err.message}`);
+          this.registrador.warn(`[Whats] Erro ao fechar navegador: ${err.message}`);
         }
       }
 
@@ -422,7 +449,7 @@ class ClienteWhatsApp extends EventEmitter {
       try {
         await this.cliente.destroy().catch(() => { });
       } catch (err) {
-        this.registrador.warn(`Erro na destruição do cliente: ${err.message}`);
+        this.registrador.warn(`[Whats] Erro na destruição do cliente: ${err.message}`);
       }
 
       // 4. Pausa para garantir liberação de recursos
@@ -434,10 +461,10 @@ class ClienteWhatsApp extends EventEmitter {
       // 6. Inicializar um cliente totalmente novo
       this.inicializarCliente();
 
-      this.registrador.info('Reinicialização completa concluída. Aguardando reconexão...');
+      this.registrador.info('[Whats] Reinicialização completa concluída. Aguardando reconexão...');
       return true;
     } catch (erro) {
-      this.registrador.error(`Erro grave na reinicialização: ${erro.message}`);
+      this.registrador.error(`[Whats] Erro grave na reinicialização: ${erro.message}`);
       return false;
     }
   }
@@ -457,7 +484,7 @@ class ClienteWhatsApp extends EventEmitter {
       const mensagensObtidas = await chat.fetchMessages({ limit: limite * 2 });
 
       if (!mensagensObtidas || !Array.isArray(mensagensObtidas)) {
-        this.registrador.warn(`Não foi possível obter mensagens para o chat ${chatId}`);
+        this.registrador.warn(`[Whats] Não foi possível obter mensagens para o chat ${chatId}`);
         return [];
       }
 
@@ -474,7 +501,7 @@ class ClienteWhatsApp extends EventEmitter {
 
           // Adiciona informação sobre mídia
           if (msg.hasMedia) {
-            if (msg.type === 'image') conteudo = `[Imagem] ${conteudo}`;
+            if (msg.type === 'image') conteudo = `[Image] ${conteudo}`;
             else if (msg.type === 'audio' || msg.type === 'ptt') conteudo = `[Áudio] ${conteudo}`;
             else if (msg.type === 'video') conteudo = `[Vídeo] ${conteudo}`;
             else conteudo = `[Mídia] ${conteudo}`;
@@ -485,50 +512,11 @@ class ClienteWhatsApp extends EventEmitter {
 
       return mensagens;
     } catch (erro) {
-      this.registrador.error(`Erro ao obter histórico de mensagens: ${erro.message}`);
+      this.registrador.error(`[Whats] Erro ao obter histórico de mensagens: ${erro.message}`);
       return []; // Retorna array vazio em caso de erro
     }
   }
 
-  /**
-   * Verifica se devemos responder a uma mensagem em grupo
-   * @param {Object} msg - Objeto da mensagem
-   * @param {Object} chat - Objeto do chat
-   * @returns {Promise<boolean>} Verdadeiro se deve responder
-   */
-  async deveResponderNoGrupo(msg, chat) {
-    // Se for uma mensagem com comando
-    if (msg.body && msg.body.startsWith('.')) {
-      this.registrador.debug("Respondendo porque é um comando");
-      return true;
-    }
-
-    if (msg.hasMedia) {
-      this.registrador.debug(`Respondendo porque é mídia do tipo ${msg.type} em grupo`);
-      return true;
-    }
-
-    const mencoes = await msg.getMentions();
-    const botMencionado = mencoes.some(mencao => 
-      mencao.id._serialized === this.cliente.info.wid._serialized
-    );
-    
-    if (botMencionado) {
-      this.registrador.debug("Respondendo porque o bot foi mencionado");
-      return true;
-    }
-
-    if (msg.hasQuotedMsg) {
-      const msgCitada = await msg.getQuotedMessage();
-      if (msgCitada.fromMe) {
-        this.registrador.debug("Respondendo porque é uma resposta ao bot");
-        return true;
-      }
-    }
-
-    this.registrador.debug("Não é nenhum caso especial e não vou responder");
-    return false;
-  }
 }
 
 module.exports = ClienteWhatsApp;

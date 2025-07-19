@@ -7,7 +7,7 @@ const { Resultado } = require('../../../utilitarios/Ferrovia');
 // Verifica se uma mensagem deve ser processada
 const validarMensagem = _.curry((registrador, mensagensProcessadas, mensagem) => {
   if (!mensagem || !mensagem.id) {
-    registrador.debug("Mensagem inválida recebida");
+    
     return Resultado.falha(new Error("Mensagem inválida"));
   }
 
@@ -15,7 +15,7 @@ const validarMensagem = _.curry((registrador, mensagensProcessadas, mensagem) =>
   const mensagemId = mensagem.id._serialized;
 
   if (mensagensProcessadas.has(mensagemId)) {
-    registrador.debug(`Mensagem ${mensagemId} já processada. Ignorando.`);
+    
     return Resultado.falha(new Error("Mensagem duplicada"));
   }
 
@@ -54,73 +54,84 @@ const verificarMensagemSistema = _.curry((registrador, dados) => {
   ])(mensagem);
 
   if (ehSistema) {
-    registrador.debug(`Mensagem ${mensagemId} identificada como mensagem de sistema. Ignorando.`);
+    
     return Resultado.falha(new Error("Mensagem de sistema"));
   }
 
   return Resultado.sucesso(dados);
 });
 
-// Verifica se é um comando
-const verificarTipoMensagem = _.curry((registrador, dados) => {
+// Função auxiliar para normalizar texto (remover acentos, minúsculas, trim)
+const normalizarTexto = (texto) => {
+  if (!texto) return '';
+  return texto
+    .toString()
+    .normalize('NFD') // Decompor caracteres acentuados
+    .replace(/[\u0300-\u036f]/g, '') // Remover diacríticos (acentos)
+    .toLowerCase() // Converter para minúsculas
+    .trim(); // Remover espaços no início/fim
+};
+
+// Verifica o tipo da mensagem (comando, midia, texto)
+const verificarTipoMensagem = _.curry((registrador, registroComandos, dados) => {
   const { mensagem } = dados;
+  let tipo = 'texto'; // Padrão
+  let comandoNormalizado = null;
 
-  // Verificação detalhada com logs para debug
-  const ehComandoValido = msg => {
-    // Primeiro verificamos se a mensagem tem corpo
-    if (!msg.body) {
-      registrador.debug(`Mensagem sem corpo: ${JSON.stringify(msg.id)}`);
-      return false;
+  // 1. Normalizar o corpo da mensagem
+  const textoOriginal = mensagem.body || '';
+  
+  const textoNormalizado = normalizarTexto(textoOriginal);
+  
+
+  // 2. Verificar se existe texto normalizado
+  if (textoNormalizado) {
+    // 3. Remover o ponto inicial, se existir, APÓS normalizar
+    let textoParaVerificar = textoNormalizado;
+    if (textoParaVerificar.startsWith('.')) {
+      textoParaVerificar = textoParaVerificar.substring(1).trim(); // Remove o ponto e espaços adjacentes
+      
     }
+
+    // 4. Extrair a primeira palavra do texto ajustado
+    const primeiraPalavra = textoParaVerificar.split(' ')[0];
     
-    // Depois se começa com ponto
-    if (!msg.body.startsWith('.')) {
-      registrador.debug(`Mensagem não inicia com ponto: ${msg.body}`);
-      return false;
-    }
+
+    // 5. Verificar se a primeira palavra corresponde a um comando registrado
+    // Obtém a lista de nomes de comandos e normaliza-os da mesma forma
+    const comandosRegistrados = registroComandos.listarComandos(); // Obter objetos completos
+    const nomesComandosOriginais = comandosRegistrados.map(cmd => cmd.nome);
+    const nomesComandosRegistrados = nomesComandosOriginais.map(nome => normalizarTexto(nome));
     
-    // Verificar comprimento mínimo
-    if (msg.body.length <= 1) {
-      registrador.debug(`Mensagem muito curta: ${msg.body}`);
-      return false;
-    }
+
+    // Comparar a 'primeiraPalavra' (já sem ponto) com a lista normalizada
+    const ehComando = primeiraPalavra && nomesComandosRegistrados.includes(primeiraPalavra);
     
-    // Extrair o comando propriamente dito
-    const comando = msg.body.substring(1).split(' ')[0].toLowerCase();
-    registrador.debug(`Comando extraído: "${comando}"`);
-    
-    // Lista de comandos válidos
-    const comandosValidos = ['reset', 'ajuda', 'prompt', 'config', 'users', 'cego',
-      'audio', 'video', 'imagem', 'longo', 'curto', 'filas', 'legenda'];
-    
-    // Verificar se está na lista
-    const ehValido = comandosValidos.includes(comando);
-    
-    // Log do resultado
-    if (ehValido) {
-      registrador.info(`✅ Comando válido detectado: ${comando}`);
+    if (ehComando) {
+      tipo = 'comando';
+      comandoNormalizado = primeiraPalavra; // Guarda o comando normalizado encontrado
+      registrador.info(`Comando detectado: ${comandoNormalizado} (Texto original: "${mensagem.body}")`);
     } else {
-      registrador.debug(`❌ Comando não reconhecido: ${comando}`);
+       
     }
+  } else {
+     
+  }
+
+  // 6. Se não for comando, verificar se tem mídia (incluindo documento)
+  if (tipo !== 'comando' && mensagem.hasMedia) {
+    tipo = 'midia';
     
-    return ehValido;
-  };
+  }
 
-  // Definir tipo usando cond com logs explícitos
-  const tipo = _.cond([
-    [ehComandoValido, () => 'comando'],
-    [msg => msg.hasMedia, () => {
-      registrador.debug(`Mensagem com mídia detectada`);
-      return 'midia';
-    }],
-    [_.stubTrue, () => {
-      registrador.debug(`Mensagem de texto comum: ${mensagem.body?.substring(0, 20)}...`);
-      return 'texto';
-    }]
-  ])(mensagem);
+  // 7. Se não for comando nem mídia, é texto (ou vazia, tratada antes)
+  if (tipo === 'texto') {
+     
+  }
 
-  registrador.debug(`Mensagem classificada como: ${tipo}`);
-  return Resultado.sucesso({ ...dados, tipo });
+  // 8. Retornar o resultado com o tipo e o comando normalizado (se houver)
+  
+  return Resultado.sucesso({ ...dados, tipo, comandoNormalizado });
 });
 
 module.exports = {

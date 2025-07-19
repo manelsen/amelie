@@ -3,6 +3,7 @@
 const _ = require('lodash/fp');
 const { Resultado, Trilho } = require('../../../utilitarios/Ferrovia');
 const { obterOuCriarUsuario } = require('../dominio/OperacoesChat');
+const { obterInstrucaoConversa } = require('../../../config/InstrucoesSistema'); // Importar a nova instrução
 
 const criarProcessadorTexto = (dependencias) => {
   const {
@@ -17,11 +18,11 @@ const criarProcessadorTexto = (dependencias) => {
   const processarMensagemTexto = async (dados) => {
     const { mensagem, chat, chatId } = dados;
     let currentTransacaoId = null; // Initialize for logging in catch block
-    registrador.debug(`[Texto] Iniciando para msg ${mensagem.id._serialized} no chat ${chatId}`);
+    
 
     try { // *** Add robust try...catch block ***
       // Obter informações do remetente
-      registrador.debug(`[Texto] Obtendo remetente para ${chatId}...`);
+      
       const resultadoRemetente = await obterOuCriarUsuario(gerenciadorConfig, clienteWhatsApp, registrador)(
           mensagem.author || mensagem.from,
           chat
@@ -31,13 +32,13 @@ const criarProcessadorTexto = (dependencias) => {
          throw new Error("Falha ao obter remetente");
       }
       const remetente = resultadoRemetente.dados;
-      registrador.debug(`[Texto] Remetente obtido: ${remetente.name}`);
+      
 
       // Criar transação
-      registrador.debug(`[Texto] Criando transação para ${chatId}...`);
+      
       const resultadoTransacao = await gerenciadorTransacoes.criarTransacao(mensagem, chat);
       // *** LOG DETALHADO DO RESULTADO DA CRIAÇÃO ***
-      registrador.debug(`[Texto] Resultado de criarTransacao: ${JSON.stringify(resultadoTransacao)}`);
+      
 
       // *** VERIFICAÇÃO ROBUSTA DO RESULTADO ***
       if (!resultadoTransacao || !resultadoTransacao.sucesso) {
@@ -47,7 +48,7 @@ const criarProcessadorTexto = (dependencias) => {
 
       const transacao = resultadoTransacao.dados;
       // *** LOG CRÍTICO DO ID ANTES DE USAR ***
-      registrador.info(`[Texto] Transação ${transacao?.id ? 'criada com id' : 'criada sem id (!)'}. ID: ${transacao?.id}`);
+      registrador.info(`[Texto] Transação criada ${transacao?.id}`); // Simplificado
 
       // *** VERIFICAÇÃO CRÍTICA DO ID ***
       if (!transacao || !transacao.id) {
@@ -57,7 +58,7 @@ const criarProcessadorTexto = (dependencias) => {
       currentTransacaoId = transacao.id; // Assign ID for later use
 
       // Adicionar dados para recuperação
-      registrador.debug(`[Texto] Adicionando dados de recuperação para ${currentTransacaoId}...`);
+      
       await gerenciadorTransacoes.adicionarDadosRecuperacao(
         currentTransacaoId,
         {
@@ -71,11 +72,11 @@ const criarProcessadorTexto = (dependencias) => {
       );
 
       // Marcar como processando
-      registrador.debug(`[Texto] Marcando ${currentTransacaoId} como processando...`);
+      
       await gerenciadorTransacoes.marcarComoProcessando(currentTransacaoId);
 
       // Obter histórico e configuração
-      registrador.debug(`[Texto] Obtendo histórico e config para ${currentTransacaoId}...`);
+      
       const historico = await clienteWhatsApp.obterHistoricoMensagens(chatId);
       const config = await gerenciadorConfig.obterConfig(chatId);
 
@@ -88,36 +89,42 @@ const criarProcessadorTexto = (dependencias) => {
 
 
       // Processar com IA
-      registrador.debug(`[Texto] Chamando adaptadorIA.processarTexto para ${currentTransacaoId}...`);
-      const resultadoResposta = await adaptadorIA.processarTexto(textoHistorico, config);
+      
+      // Definir a instrução de sistema específica para conversa
+      const configParaIA = {
+        ...config, // Inclui config base (temp, topK, etc.) e systemInstructions se já preenchido por obterConfig
+        // Usa systemInstructions preenchido por obterConfig (se houver prompt ativo), senão usa a instrução padrão
+        systemInstructions: config.systemInstructions || obterInstrucaoConversa()
+      };
+      const resultadoResposta = await adaptadorIA.processarTexto(textoHistorico, configParaIA);
       if (!resultadoResposta.sucesso) {
-          registrador.error(`[Texto] Falha na IA para ${currentTransacaoId}: ${resultadoResposta.erro.message}`);
+          registrador.error(`[Texto] Falha na IA: ${resultadoResposta.erro.message}`); // Simplificado
           await gerenciadorTransacoes.registrarFalhaEntrega(currentTransacaoId, `Falha IA: ${resultadoResposta.erro.message}`); // Registrar falha
           throw new Error(`Falha IA: ${resultadoResposta.erro.message}`); // Lançar para catch
       }
       const resposta = resultadoResposta.dados;
-      registrador.info(`[Texto] Resposta da IA recebida para ${currentTransacaoId}. Tamanho: ${resposta?.length}`);
+      registrador.info(`[Texto] Resposta da IA recebida. Tamanho: ${resposta?.length}`); // Simplificado
 
       // Adicionar resposta à transação
-      registrador.debug(`[Texto] Adicionando resposta à transação ${currentTransacaoId}...`);
+      
       await gerenciadorTransacoes.adicionarRespostaTransacao(currentTransacaoId, resposta);
 
       // Enviar a resposta
-      registrador.debug(`[Texto] Enviando resposta via servicoMensagem para ${currentTransacaoId}...`);
+      
       await servicoMensagem.enviarResposta(mensagem, resposta, currentTransacaoId);
-      registrador.info(`[Texto] Resposta de texto enviada (ou enfileirada) para ${currentTransacaoId}`);
+      registrador.info(`[Texto] Resposta enviada.`); // Simplificado
 
       // 'marcarComoEntregue' é provavelmente tratado por servicoMensagem
 
       return Resultado.sucesso({ transacao, resposta });
 
     } catch (erro) { // Catch block robusto
-      registrador.error(`[Texto] ERRO GERAL para msg ${mensagem?.id?._serialized} / chat ${chatId} / transação ${currentTransacaoId}: ${erro.message}`, erro);
+      registrador.error(`[Texto] ERRO GERAL: ${erro.message}`, erro); // Simplificado
       // Tentar registrar falha se tivermos ID
       if (currentTransacaoId) {
           try {
               await gerenciadorTransacoes.registrarFalhaEntrega(currentTransacaoId, `Erro: ${erro.message}`);
-          } catch (e) { registrador.error(`[Texto] Falha ao registrar erro na transação ${currentTransacaoId}: ${e.message}`); }
+          } catch (e) { registrador.error(`[Texto] Falha ao registrar erro na transação: ${e.message}`); }
       }
       // Tentar enviar feedback de erro
       try {

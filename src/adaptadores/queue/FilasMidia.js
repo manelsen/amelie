@@ -63,7 +63,13 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
       return Resultado.falha(new Error(`Dados de resposta ${tipo} incompletos`));
     }
 
-    registrador.debug(`Processando resultado de ${tipo} com callback padrão: ${resultado.transacaoId || 'sem_id'}`);
+    // DEBUG LOGGING REMOVED
+    // 
+    // 
+    // 
+    // DEBUG LOGGING END
+
+    
 
     // Criar mensagem simulada mais completa
     const mensagemSimulada = {
@@ -88,7 +94,26 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
       }
     };
 
-    return servicoMensagem.enviarResposta(mensagemSimulada, resultado.resposta, resultado.transacaoId);
+    // Log detalhado antes de enviar
+    // registrador.info(`[CallbackPadrão ${tipo}] Preparando para enviar. Resposta recebida (tipo ${typeof resultado.resposta}): ${JSON.stringify(resultado.resposta)}`); // Log removido
+
+    // CORRIGIDO: Verificar se a resposta é um objeto Resultado (devido ao duplo wrapper)
+    let textoResposta;
+    if (typeof resultado.resposta === 'object' && resultado.resposta !== null && resultado.resposta.sucesso === true && typeof resultado.resposta.dados === 'string') {
+      // Extrair .dados se for um Resultado.sucesso com dados string
+      
+      textoResposta = resultado.resposta.dados;
+    } else if (typeof resultado.resposta === 'string') {
+      // Usar diretamente se já for string
+      textoResposta = resultado.resposta;
+    } else {
+      // Caso contrário, é um erro ou tipo inesperado
+      registrador.error(`[CallbackPadrão ${tipo}] Erro CRÍTICO: Tipo/estrutura inesperada da resposta final! Tipo: ${typeof resultado.resposta}. Valor: ${JSON.stringify(resultado.resposta)}`);
+      return Resultado.falha(new Error("Tipo/estrutura inesperada da resposta final"));
+    }
+
+    
+    return servicoMensagem.enviarResposta(mensagemSimulada, textoResposta, resultado.transacaoId);
   };
 
   // Objeto para armazenar callbacks
@@ -109,24 +134,36 @@ const inicializarFilasMidia = (registrador, gerenciadorAI, gerenciadorConfig, se
   // Configurar todos os processadores de fila
 
   // 1. Processadores de Imagem
+  // Revertido para processar o job nomeado 'upload-imagem'
   filas.imagem.upload.process('upload-imagem', 20,
-    FilasProcessadores.criarProcessadorUploadImagem(registrador, filas, notificarErro));
+    FilasProcessadores.criarProcessadorUploadImagem(registrador, filas, notificarErro) // Removido log wrapper
+  );
 
   filas.imagem.analise.process('analise-imagem', 20,
-    FilasProcessadores.criarProcessadorAnaliseImagem(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro));
+    FilasProcessadores.criarProcessadorAnaliseImagem(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro) // Removido log wrapper
+  );
 
   filas.imagem.principal.process('processar-imagem', 20,
     FilasProcessadores.criarProcessadorPrincipalImagem(registrador, filas, notificarErro));
 
   // 2. Processadores de Vídeo
+  // Removendo wrapper de log
   filas.video.upload.process('upload-video', 10,
-    FilasProcessadores.criarProcessadorUploadVideo(registrador, gerenciadorAI, filas, notificarErro));
-  
-  filas.video.processamento.process('processar-video', 10,
-    FilasProcessadores.criarProcessadorProcessamentoVideo(registrador, gerenciadorAI, filas, notificarErro));
+    FilasProcessadores.criarProcessadorUploadVideo(registrador, gerenciadorAI, filas, notificarErro)
+  );
+
+  filas.video.processamento.process('processar-video', 10, async (job) => {
+    try {
+      return await FilasProcessadores.criarProcessadorProcessamentoVideo(registrador, gerenciadorAI, filas, notificarErro)(job);
+    } catch (workerError) {
+      registrador.error(`[Worker Vídeo Processamento - CATCH WRAPPER] Erro não capturado no worker: ${workerError.message}`, workerError);
+      throw workerError;
+    }
+  });
   
   filas.video.analise.process('analise-video', 10,
-    FilasProcessadores.criarProcessadorAnaliseVideo(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro));
+    FilasProcessadores.criarProcessadorAnaliseVideo(registrador, gerenciadorConfig, gerenciadorAI, processarResultado, notificarErro) // Removido log wrapper
+  );
   
   filas.video.principal.process('processar-video', 10,
     FilasProcessadores.criarProcessadorPrincipalVideo(registrador, filas, notificarErro));

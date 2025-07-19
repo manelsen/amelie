@@ -9,8 +9,6 @@ const obterInformacoesChat = _.curry(async (registrador, dados) => {
   try {
     const { mensagem } = dados;
     const chat = await mensagem.getChat();
-    await chat.sendSeen();
-
     const chatId = chat.id._serialized;
     const ehGrupo = chatId.endsWith('@g.us');
 
@@ -21,32 +19,13 @@ const obterInformacoesChat = _.curry(async (registrador, dados) => {
       ehGrupo
     });
   } catch (erro) {
-    registrador.error(`Erro ao obter informações do chat: ${erro.message}`);
+    // Usar ID da mensagem e chat inicial para log de erro, caso 'chat' não seja obtido
+    const msgId = dados?.mensagem?.id?._serialized || 'ID Indisponível';
+    const initialChatId = dados?.mensagem?.from || 'Chat Indisponível';
+    registrador.error(`[ObterInfoChat][${initialChatId}][${msgId}] Erro ao obter informações do chat: ${erro.message}`, erro);
     return Resultado.falha(erro);
   }
 });
-
-// Verifica se deve responder em grupo
-const verificarRespostaGrupo = _.curry(async (clienteWhatsApp, dados) => {
-  const { mensagem, chat, ehGrupo } = dados;
-
-  // Se não for grupo, sempre processa
-  if (!ehGrupo) {
-    return Resultado.sucesso({ ...dados, deveResponder: true });
-  }
-
-  // Obter o resultado da verificação
-  const deveResponder = await clienteWhatsApp.deveResponderNoGrupo(mensagem, chat);
-  
-  // Retornar falha se não deve responder
-  if (!deveResponder) {
-    return Resultado.falha(new Error("Não atende critérios para resposta em grupo"));
-  }
-  
-  // Caso contrário, continuar com sucesso
-  return Resultado.sucesso({ ...dados, deveResponder: true });
-});
-
 
 // Obter ou criar usuário
 const obterOuCriarUsuario = _.curry(async (gerenciadorConfig, clienteWhatsApp, registrador, remetente, chat) => {
@@ -122,7 +101,6 @@ const verificarPermissaoComando = _.curry(async (mensagem, clienteWhatsApp, regi
 
 module.exports = {
   obterInformacoesChat,
-  verificarRespostaGrupo,
   obterOuCriarUsuario,
   verificarPermissaoComando
 };
