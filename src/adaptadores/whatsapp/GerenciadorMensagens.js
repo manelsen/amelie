@@ -115,12 +115,14 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
         // Etapa 3: Obter informações do chat
         (dados) => obterInformacoesChat(registrador, dados), // Adiciona chatId, chat, ehGrupo aos dados
 
-        // Etapa 4: Verificar se deve responder em grupo
-        async (dados) => {
+        // Etapa 4: Verificar se a mensagem é de um grupo e, em caso afirmativo, encerrar o processamento.
+        (dados) => {
           if (dados.ehGrupo) {
-            return verificarRespostaGrupo(clienteWhatsApp, dados); // Chama a função que usa deveResponderNoGrupo
+            // Se for uma mensagem de grupo, retorna uma falha controlada para parar o pipeline.
+            return Resultado.falha(new Error("Mensagem de grupo ignorada."), true); // O 'true' indica que a falha é silenciosa.
           }
-          return Resultado.sucesso({ ...dados, deveResponder: true }); // Sempre responde se não for grupo
+          // Se não for de grupo, continua o fluxo normalmente.
+          return Resultado.sucesso(dados);
         },
 
         // Etapa 5: Classificar tipo de mensagem
@@ -174,50 +176,27 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
   // Processamento de eventos de entrada em grupo
   const processarEntradaGrupo = async (notificacao) => {
     try {
+      // Verifica se o bot foi a entidade adicionada ao grupo
       if (notificacao.recipientIds.includes(clienteWhatsApp.cliente.info.wid._serialized)) {
         const chat = await notificacao.getChat();
         const chatId = chat.id._serialized;
 
-        // Obter configuração específica do chat para pegar o nome do bot correto
-        let nomeBot = NOME_PADRAO_BOT; // Começa com o padrão
-        try {
-          const config = await gerenciadorConfig.obterConfig(chatId);
-          // Usa o nome da config se disponível, senão mantém o padrão
-          nomeBot = config?.botName || NOME_PADRAO_BOT;
-        } catch (erroConfig) {
-          registrador.warn(`Não foi possível obter config para ${chatId} em processarEntradaGrupo. Usando nome padrão. Erro: ${erroConfig.message}`);
-        }
+        registrador.info(`[Grupo] Fui adicionada ao grupo "${chat.name}" (${chatId}). Saindo automaticamente.`);
+        
+        // Ação: Sair do grupo
+        await chat.leave();
+        
+        registrador.info(`[Grupo] Saí do grupo "${chat.name}" com sucesso.`);
 
-        // Usar as constantes definidas no início da função
-        const linkGrupoOficial = LINK_PADRAO_GRUPO; // Usar constante
-        const mensagemBoasVindas = MENSAGEM_PADRAO_BOAS_VINDAS; // Usar constante
-        const templateTextoAjuda = TEMPLATE_PADRAO_TEXTO_AJUDA; // Usar constante
+        return Resultado.sucesso(true);
+      }
 
-        // Obter lista de comandos formatada
-        const comandos = registroComandos.listarComandos();
-        const listaComandos = comandos
-          .map(cmd => `.${cmd.nome} - ${cmd.descricao}`)
-          .join('\n\n');
-
-        // Montar texto de ajuda usando o template e as configurações/constantes
-        const textoAjuda = templateTextoAjuda
-          .replace('{botName}', nomeBot) // Usar nomeBot obtido da config ou padrão
-          .replace('{commandList}', listaComandos)
-          .replace('{groupLink}', linkGrupoOficial); // Usar constante
-
-        // Enviar mensagem de boas-vindas e ajuda usando as constantes
-        await chat.sendMessage(mensagemBoasVindas); // Usar constante
-         await chat.sendMessage(textoAjuda);
-
-         registrador.info(`[Grupo] Assistente ${nomeBot} adicionada ao grupo "${chat.name}" (${chatId}).`);
-         return Resultado.sucesso(true);
-       }
-
-       return Resultado.sucesso(false);
-     } catch (erro) {
-       registrador.error(`[Grupo] Erro ao processar entrada em grupo: ${erro.message}`);
-       return Resultado.falha(erro);
-     }
+      // Se o evento não for sobre o bot, apenas ignore.
+      return Resultado.sucesso(false);
+    } catch (erro) {
+      registrador.error(`[Grupo] Erro ao processar entrada em grupo e sair automaticamente: ${erro.message}`);
+      return Resultado.falha(erro);
+    }
   };
 
    // Recuperação de transações
