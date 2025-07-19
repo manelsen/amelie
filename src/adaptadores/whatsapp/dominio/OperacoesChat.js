@@ -27,28 +27,6 @@ const obterInformacoesChat = _.curry(async (registrador, dados) => {
   }
 });
 
-// Verifica se deve responder em grupo
-const verificarRespostaGrupo = _.curry(async (clienteWhatsApp, dados) => {
-  const { mensagem, chat, ehGrupo } = dados;
-
-  // Se não for grupo, sempre processa
-  if (!ehGrupo) {
-    return Resultado.sucesso({ ...dados, deveResponder: true });
-  }
-
-  // Obter o resultado da verificação
-  const deveResponder = await clienteWhatsApp.deveResponderNoGrupo(mensagem, chat);
-  
-  // Retornar falha se não deve responder
-  if (!deveResponder) {
-    return Resultado.falha(new Error("Não atende critérios para resposta em grupo"));
-  }
-  
-  // Caso contrário, continuar com sucesso
-  return Resultado.sucesso({ ...dados, deveResponder: true });
-});
-
-
 // Obter ou criar usuário
 const obterOuCriarUsuario = _.curry(async (gerenciadorConfig, clienteWhatsApp, registrador, remetente, chat) => {
   try {
@@ -123,7 +101,6 @@ const verificarPermissaoComando = _.curry(async (mensagem, clienteWhatsApp, regi
 
 module.exports = {
   obterInformacoesChat,
-  verificarRespostaGrupo,
   obterOuCriarUsuario,
   verificarPermissaoComando
 };

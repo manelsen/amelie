@@ -115,12 +115,14 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
         // Etapa 3: Obter informações do chat
         (dados) => obterInformacoesChat(registrador, dados), // Adiciona chatId, chat, ehGrupo aos dados
 
-        // Etapa 4: Verificar se deve responder em grupo
-        async (dados) => {
+        // Etapa 4: Verificar se a mensagem é de um grupo e ignorá-la
+        (dados) => {
           if (dados.ehGrupo) {
-            return verificarRespostaGrupo(clienteWhatsApp, dados); // Chama a função que usa deveResponderNoGrupo
+            // Se for grupo, interrompe o fluxo com uma falha silenciosa.
+            return Resultado.falha(new Error("Mensagem de grupo ignorada."));
           }
-          return Resultado.sucesso({ ...dados, deveResponder: true }); // Sempre responde se não for grupo
+          // Se não for grupo, continua o fluxo normalmente.
+          return Resultado.sucesso(dados);
         },
 
         // Etapa 5: Classificar tipo de mensagem
