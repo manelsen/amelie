@@ -285,7 +285,7 @@ class GerenciadorTransacoes extends EventEmitter {
     const transacoesPendentes = resultadoBusca.dados;
 
     if (!transacoesPendentes || transacoesPendentes.length === 0) {
-      this.registrador.info('Nenhuma transação pendente encontrada para processamento.');
+      this.registrador.debug('Nenhuma transação pendente encontrada para processamento.');
       return Resultado.sucesso(0); // Sucesso, 0 processadas
     }
 
