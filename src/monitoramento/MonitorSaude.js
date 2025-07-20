@@ -404,8 +404,8 @@ const executarBatimento = async (estado) => {
     // Atualizar contadores
     const novoContadorBatimentos = contadores.batimentos + 1;
 
-    // A cada 10 batimentos, mostra estatísticas
-    if (novoContadorBatimentos % 10 === 0) {
+    // A cada 100 batimentos, mostra estatísticas
+    if (novoContadorBatimentos % 100 === 0) {
       const tempoAtivo = formatarTempoAtivo(agora - timestamps.inicioSistema);
       registrador.info(`💜 #${novoContadorBatimentos} - Amélie ativa há ${tempoAtivo}`);
     } /* else {
