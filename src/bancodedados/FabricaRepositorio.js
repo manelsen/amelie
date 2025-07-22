@@ -51,7 +51,7 @@ class FabricaRepositorio {
         this.repositorios[nomeEntidade] = new RepositorioNeDB(caminhoBanco, this.registrador);
       }
       
-      this.registrador.debug(`Repositório criado para entidade: ${nomeEntidade}`);
+      
     }
     
     return this.repositorios[nomeEntidade];

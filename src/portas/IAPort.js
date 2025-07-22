@@ -48,6 +48,17 @@ class IAPort {
     async processarVideo(caminhoVideo, prompt, config) {
       throw new Error("Método processarVideo deve ser implementado pela classe concreta");
     }
+
+    /**
+     * Processa um documento (PDF, TXT, HTML, etc.) e gera uma resposta
+     * @param {string} caminhoDocumento - Caminho para o arquivo do documento
+     * @param {string} prompt - Instruções de processamento (pode vir da legenda)
+     * @param {Object} config - Configurações do processamento (inclui mimeType)
+     * @returns {Promise<string>} Texto de resposta
+     */
+    async processarDocumentoArquivo(caminhoDocumento, prompt, config) {
+      throw new Error("Método processarDocumentoArquivo deve ser implementado pela classe concreta");
+    }
   }
   
   module.exports = IAPort;

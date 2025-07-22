@@ -1,637 +1,916 @@
 /**
- * GerenciadorAI - Gerencia a interação com modelos de IA
- * 
- * Este módulo encapsula toda a interação com a API do Google Generative AI,
- * incluindo cache de modelos, tratamento de erros e timeout.
+ * AdaptadorAI - Módulo funcional para interação com modelos de IA (Google Generative AI)
+ *
+ * Encapsula a interação com a API, incluindo cache, rate limiting,
+ * tratamento de erros, circuit breaker e processamento de diferentes tipos de mídia.
+ * Adere aos princípios de programação funcional com lodash/fp.
  */
 
+const _ = require('lodash/fp');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { GoogleAIFileManager } = require("@google/generative-ai/server");
 const crypto = require('crypto');
-const IAPort = require('../../portas/IAPort');
-const fs = require('fs');
+const fs = require('fs').promises; // Usar fs.promises
 const path = require('path');
-const { 
-  obterInstrucaoPadrao, 
+const NodeCache = require('node-cache');
+const Bottleneck = require('bottleneck');
+const {
+  obterInstrucaoPadrao,
   obterInstrucaoAudio,
-  obterInstrucaoImagem,  
+  obterInstrucaoImagem,
+  obterInstrucaoDocumento,
+  obterPromptVideoLegenda,
+  obterInstrucaoImagemCurta
 } = require('../../config/InstrucoesSistema');
 const { salvarConteudoBloqueado } = require('../../utilitarios/ArquivoUtils');
+const { Resultado } = require('../../utilitarios/Ferrovia');
 
-class GerenciadorAI extends IAPort {
-  /**
-   * Cria uma instância do gerenciador de IA
-   * @param {Object} registrador - Objeto logger para registro de eventos
-   * @param {string} apiKey - Chave da API do Google Generative AI
-   */
-  constructor(registrador, apiKey) {
-    super();
-    this.registrador = registrador;
-    this.apiKey = apiKey;
-    this.genAI = new GoogleGenerativeAI(apiKey);
-    this.gerenciadorArquivos = new GoogleAIFileManager(apiKey);
-    this.cacheModelos = new Map();
-    this.disjuntor = this.criarDisjuntor();
-  }
+// --- Constantes e Configurações ---
+const DEFAULT_MODEL = "gemini-2.0-flash";
+const CACHE_TTL_SEGUNDOS = 3600; // 1 hora
+const CACHE_MAX_ENTRADAS = 500;
+const RATE_LIMITER_MAX_CONCORRENTE = 20;
+const RATE_LIMITER_MIN_TEMPO_MS = 1000 / 30; // Aproximadamente 30 QPM (ajustar conforme necessário)
+const TIMEOUT_API_GERAL_MS = 90000; // 90 segundos
+const TIMEOUT_API_UPLOAD_MS = 180000; // 3 minutos para uploads/processamento de arquivos
+const MAX_TENTATIVAS_API = 5;
+const TEMPO_ESPERA_BASE_MS = 5000;
+const CIRCUIT_BREAKER_LIMITE_FALHAS = 5;
+const CIRCUIT_BREAKER_TEMPO_RESET_MS = 60000; // 1 minuto
 
-  /**
-   * Cria um disjuntor para proteção contra falhas na API
-   * @returns {Object} Objeto disjuntor
-   */
-  criarDisjuntor() {
-    return {
-      falhas: 0,
-      ultimaFalha: 0,
-      estado: 'FECHADO', // FECHADO, ABERTO, SEMI_ABERTO
-      limite: 5, // Número de falhas para abrir o circuito
-      tempoReset: 60000, // 1 minuto para resetar
-      
-      registrarSucesso() {
-        this.falhas = 0;
-        this.estado = 'FECHADO';
-      },
-      
-      registrarFalha() {
-        this.falhas++;
-        this.ultimaFalha = Date.now();
-        
-        if (this.falhas >= this.limite) {
-          this.estado = 'ABERTO';
-          return true; // Circuito aberto
-        }
-        return false; // Circuito ainda fechado
-      },
-      
-      podeExecutar() {
-        if (this.estado === 'FECHADO') return true;
-        
-        if (this.estado === 'ABERTO') {
-          if (Date.now() - this.ultimaFalha > this.tempoReset) {
-            this.estado = 'SEMI_ABERTO';
-            return true;
-          }
-          return false;
-        }
-        
-        return true;
-      }
-    };
-  }
+// --- Funções Utilitárias Puras ---
 
-  /**
-   * Gera uma chave única para cache de modelos
-   * @param {Object} config - Configurações do modelo
-   * @returns {string} Chave de cache
-   */
-  obterChaveCacheModelo(config) {
-    const {
-      model = "gemini-2.0-flash",
-      temperature = 0.9,
-      topK = 1,
-      topP = 0.95,
-      maxOutputTokens = 1024,
-      systemInstruction = obterInstrucaoPadrao()
-    } = config;
-    
-    return `${model}_${temperature}_${topK}_${topP}_${maxOutputTokens}_${crypto.createHash('md5').update(systemInstruction || '').digest('hex')}`;
-  }
+/**
+ * Gera um hash SHA256 para uma string ou buffer.
+ * @param {string|Buffer} data - Dados para hash.
+ * @returns {string} Hash SHA256 em hexadecimal.
+ */
+const gerarHash = (data) => crypto.createHash('sha256').update(data || '').digest('hex');
 
-    /**
-   * Obtém configurações para processamento de imagem/vídeo diretamente do banco
-   * @param {string} chatId - ID do chat
-   * @param {string} tipo - Tipo de mídia ('imagem' ou 'video')
-   * @returns {Promise<Object>} Configurações do processamento
-   */
-  async obterConfigDireta(chatId, tipo = 'imagem') {
-    try {
-      // Importar ConfigManager
-      const caminhoConfig = path.resolve(__dirname, '../../config/ConfigManager');
-      const ConfigManager = require(caminhoConfig);
-      
-      // Criar instância temporária para acessar o banco
-      const gerenciadorConfig = new ConfigManager(this.registrador, path.join(process.cwd(), 'db'));
-      
-      // Obter configuração do banco
-      const config = await gerenciadorConfig.obterConfig(chatId);
-      
-      // Log para depuração
-      this.registrador.debug(`GerenciadorAI - Config direta para ${chatId}: modo=${config.modoDescricao || 'não definido'}`);
-      
-      return config;
-    } catch (erro) {
-      this.registrador.error(`Erro ao obter configuração direta: ${erro.message}`);
-      // Retornar configuração padrão em caso de erro
-      return { modoDescricao: 'curto' };
-    }
-  }
+/**
+ * Limpa e formata a resposta da IA.
+ * @param {string} texto - Texto para limpar.
+ * @returns {string} Texto limpo.
+ */
+const limparResposta = _.pipe(
+  _.toString, // Garante que é string
+  _.replace(/^(?:amélie|amelie):[\s]*/gi, ''), // Remove prefixo
+  // Remover Markdown
+  _.replace(/[*_]/g, ''), // Remove asteriscos e underscores (simplificado)
+  _.replace(/^#+\s*/gm, ''), // Remove cabeçalhos (#)
+  _.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'), // Remove links, mantém texto
+  _.replace(/^[-*]\s+/gm, ''), // Remove marcadores de lista (- *)
+  // Fim da remoção de Markdown
+  _.replace(/\r\n|\r|\n{2,}/g, '\n\n'), // Normaliza novas linhas (mantém duplas)
+  _.trim
+);
 
-   /**
-   * Obtém configurações para processamento de imagem/vídeo diretamente do banco
-   * @param {string} chatId - ID do chat específico para obter a configuração
-   * @param {string} tipo - Tipo de mídia ('imagem' ou 'video')
-   * @returns {Promise<Object>} Configurações do processamento
-   */
-  async obterConfigDireta(chatId, tipo = 'imagem') {
-    try {
-      // Importar ConfigManager
-      const caminhoConfig = path.resolve(__dirname, '../../config/ConfigManager');
-      const ConfigManager = require(caminhoConfig);
-      
-      // Criar instância temporária para acessar o banco
-      const gerenciadorConfig = new ConfigManager(this.registrador, path.join(process.cwd(), 'db'));
-      
-      // Obter configuração do banco
-      const config = await gerenciadorConfig.obterConfig(chatId);
-      
-      // Log para depuração
-      this.registrador.debug(`GerenciadorAI - Config direta para ${chatId}: modo=${config.modoDescricao || 'não definido'}`);
-      
-      return config;
-    } catch (erro) {
-      this.registrador.error(`Erro ao obter configuração direta: ${erro.message}`);
-      // Retornar configuração padrão em caso de erro
-      return { modoDescricao: 'curto' };
-    }
-  }
+/**
+ * Cria uma chave de cache consistente para uma requisição.
+ * @param {string} tipo - Tipo de processamento ('texto', 'imagem', 'audio', 'documentoInline', 'documentoArquivo', 'video').
+ * @param {Object} payload - Dados da requisição (texto, prompt, dadosAnexo, caminhoArquivo, etc.).
+ * @param {Object} config - Configurações da IA.
+ * @returns {Promise<string>} Chave de cache.
+ */
+const criarChaveCache = async (tipo, payload, config) => {
+  const configHash = gerarHash(JSON.stringify({
+    model: config.model || DEFAULT_MODEL,
+    temperature: config.temperature,
+    topK: config.topK,
+    topP: config.topP,
+    maxOutputTokens: config.maxOutputTokens,
+    // Corrigido para usar 'systemInstructions' (plural) que vem da config preparada
+    systemInstructions: config.systemInstructions // Inclui instrução no hash
+  }));
 
-  /**
-   * Obtém configurações para processamento de imagem
-   * @param {string} chatId - ID do chat
-   * @returns {Promise<Object>} Configurações do processamento
-   */
-  async obterConfigProcessamento(chatId) {
-    try {
-      // Tentar obter configurações do gerenciador
-      if (this.gerenciadorConfig) {
-        const config = await this.gerenciadorConfig.obterConfig(chatId);
-        
-        // Obter o modo de descrição
-        const modoDescricao = config.modoDescricao || 'longo';
-        
-        // Ajustar as instruções de sistema com base no modo
-        let sistemInstructions;
-        if (modoDescricao === 'curto') {
-          sistemInstructions = obterInstrucaoImagemCurta();
-        } else {
-          sistemInstructions = obterInstrucaoImagem();
-        }
-        
-        return {
-          temperature: config.temperature || 0.7,
-          topK: config.topK || 1,
-          topP: config.topP || 0.95,
-          maxOutputTokens: config.maxOutputTokens || 1024,
-          model: config.model || "gemini-2.0-flash",
-          systemInstructions: sistemInstructions,
-          modoDescricao
-        };
-      }
-    } catch (erro) {
-      this.registrador.warn(`Erro ao obter configurações: ${erro.message}, usando padrão`);
-    }
-    
-    // Configuração padrão
-    return {
-      temperature: 0.7,
-      topK: 1,
-      topP: 0.95,
-      maxOutputTokens: 1024,
-      model: "gemini-2.0-flash", // Usar o modelo rápido para imagens simples
-      systemInstructions: obterInstrucaoImagem(),
-      modoDescricao: 'curto'
-    };
-  }
-  
-  /**
-   * Obtém ou cria um modelo com as configurações especificadas
-   * @param {Object} config - Configurações do modelo
-   * @returns {Object} Instância do modelo
-   */
-  obterOuCriarModelo(config) {
-    if (!this.disjuntor.podeExecutar()) {
-      this.registrador.warn(`Requisição de modelo bloqueada pelo circuit breaker (estado: ${this.disjuntor.estado})`);
-      throw new Error("Serviço temporariamente indisponível - muitas falhas recentes");
-    }
-    
-    const chaveCache = this.obterChaveCacheModelo(config);
-    
-    if (this.cacheModelos.has(chaveCache)) {
-      this.registrador.debug(`Usando modelo em cache com chave: ${chaveCache}`);
-      return this.cacheModelos.get(chaveCache);
-    }
-    
-    this.registrador.debug(`Criando novo modelo com chave: ${chaveCache}`);
-    try {
-      const novoModelo = this.genAI.getGenerativeModel({
-        model: config.model || "gemini-2.0-flash",
-        generationConfig: {
-          temperature: config.temperature || 0.9,
-          topK: config.topK || 1,
-          topP: config.topP || 0.95,
-          maxOutputTokens: config.maxOutputTokens || 1024,
-        },
-        safetySettings: [
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-        ],
-        systemInstruction: config.systemInstruction || obterInstrucaoPadrao()
-      });
-      
-      this.disjuntor.registrarSucesso();
-      this.cacheModelos.set(chaveCache, novoModelo);
-      
-      if (this.cacheModelos.size > 10) {
-        const chaveAntiga = Array.from(this.cacheModelos.keys())[0];
-        this.cacheModelos.delete(chaveAntiga);
-        this.registrador.debug(`Cache de modelos atingiu o limite. Removendo modelo mais antigo: ${chaveAntiga}`);
-      }
-      
-      return novoModelo;
-    } catch (erro) {
-      const circuitoAberto = this.disjuntor.registrarFalha();
-      if (circuitoAberto) {
-        this.registrador.error(`Circuit breaker aberto após múltiplas falhas!`);
-      }
-      throw erro;
-    }
-  }
-
-  /**
-   * Implementação do método processarTexto da interface IAPort
-   * @param {string} texto - Texto para processar
-   * @param {Object} config - Configurações de processamento
-   * @returns {Promise<string>} Resposta gerada
-   */
-  async processarTexto(texto, config) {
-    let tentativas = 0;
-    const maxTentativas = 5;
-    const tempoEspera = 2000; // 2 segundos iniciais
-    
-    while (tentativas < maxTentativas) {
+  let conteudoHash;
+  switch (tipo) {
+    case 'texto':
+      conteudoHash = gerarHash(payload.texto);
+      break;
+    case 'imagem':
+    case 'audio':
+    case 'documentoInline':
+      conteudoHash = gerarHash(payload.dadosAnexo.data + (payload.prompt || ''));
+      break;
+    case 'documentoArquivo':
+    case 'video':
       try {
-        const modelo = this.obterOuCriarModelo(config);
-        
-        // Adicionar timeout de 45 segundos
-        const promessaResultado = modelo.generateContent(texto);
-        const promessaTimeout = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Timeout da API Gemini")), 90000)
+        const fileBuffer = await fs.readFile(payload.caminhoArquivo);
+        conteudoHash = gerarHash(fileBuffer + (payload.prompt || ''));
+      } catch (err) {
+        // Se não puder ler o arquivo, não pode cachear baseado no conteúdo
+        conteudoHash = gerarHash(payload.caminhoArquivo + (payload.prompt || '')); // Fallback para path
+      }
+      break;
+    default:
+      conteudoHash = 'tipo_desconhecido';
+  }
+
+  return `${tipo}_${conteudoHash}_${configHash}`;
+};
+
+// --- Lógica do Circuit Breaker (Funcional) ---
+
+const estadoInicialCircuitBreaker = () => ({
+  falhas: 0,
+  ultimaFalha: 0,
+  estado: 'FECHADO', // FECHADO, ABERTO, SEMI_ABERTO
+});
+
+const registrarSucessoCB = (estadoCB) => ({
+  ...estadoCB,
+  falhas: 0,
+  estado: 'FECHADO',
+});
+
+const registrarFalhaCB = (estadoCB) => {
+  const novoEstado = { ...estadoCB, falhas: estadoCB.falhas + 1, ultimaFalha: Date.now() };
+  if (novoEstado.falhas >= CIRCUIT_BREAKER_LIMITE_FALHAS) {
+    novoEstado.estado = 'ABERTO';
+  }
+  return novoEstado;
+};
+
+const podeExecutarCB = (estadoCB) => {
+  if (estadoCB.estado === 'FECHADO') return { podeExecutar: true, novoEstado: estadoCB };
+  if (estadoCB.estado === 'ABERTO') {
+    if (Date.now() - estadoCB.ultimaFalha > CIRCUIT_BREAKER_TEMPO_RESET_MS) {
+      // Transição para SEMI_ABERTO ao tentar executar
+      return { podeExecutar: true, novoEstado: { ...estadoCB, estado: 'SEMI_ABERTO' } };
+    }
+    return { podeExecutar: false, novoEstado: estadoCB };
+  }
+  // No estado SEMI_ABERTO, permite a execução (o resultado atualizará o estado)
+  return { podeExecutar: true, novoEstado: estadoCB };
+};
+
+// --- Fábrica do Adaptador AI ---
+
+/**
+ * Cria a instância funcional do gerenciador de IA.
+ * @param {Object} dependencias - Objeto com dependências (registrador, apiKey).
+ * @returns {Object} Objeto com as funções de processamento da IA.
+ */
+const criarAdaptadorAI = (dependencias) => {
+  const { registrador, apiKey } = dependencias;
+
+  if (!registrador || !apiKey) {
+    throw new Error("Dependências 'registrador' e 'apiKey' são obrigatórias para criarAdaptadorAI.");
+  }
+
+  // --- Inicialização de Estado e Clientes ---
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const gerenciadorArquivosGoogle = new GoogleAIFileManager(apiKey);
+  const cacheRespostas = new NodeCache({
+    stdTTL: CACHE_TTL_SEGUNDOS,
+    checkperiod: CACHE_TTL_SEGUNDOS * 0.2, // Verifica expiração periodicamente
+    maxKeys: CACHE_MAX_ENTRADAS,
+    useClones: false // Para performance, assumindo que não modificamos o cacheado
+  });
+  const rateLimiter = new Bottleneck({
+    maxConcurrent: RATE_LIMITER_MAX_CONCORRENTE,
+    minTime: RATE_LIMITER_MIN_TEMPO_MS
+  });
+  let estadoCB = estadoInicialCircuitBreaker(); // Estado mutável do circuit breaker
+
+  // Cache para instâncias de modelo (evita recriar para mesma config)
+  const cacheModelos = new NodeCache({ stdTTL: 3600, maxKeys: 50, useClones: false });
+
+  // --- Funções Internas (com acesso ao closure) ---
+
+  /**
+   * Obtém ou cria um modelo generativo com cache.
+   */
+  const obterOuCriarModelo = (config) => {
+    const configModelo = {
+      model: config.model || DEFAULT_MODEL,
+      generationConfig: _.pick(['temperature', 'topK', 'topP', 'maxOutputTokens'], config),
+      safetySettings: config.safetySettings || [
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+      ],
+      // Corrigido para usar 'systemInstructions' (plural) que vem de FilasConfiguracao
+      systemInstruction: config.systemInstructions || obterInstrucaoPadrao()
+    };
+
+    const chaveCacheModelo = gerarHash(JSON.stringify(configModelo));
+
+    if (cacheModelos.has(chaveCacheModelo)) {
+      
+      return cacheModelos.get(chaveCacheModelo);
+    }
+
+    
+    const novoModelo = genAI.getGenerativeModel(configModelo);
+    cacheModelos.set(chaveCacheModelo, novoModelo);
+    return novoModelo;
+  };
+
+  /**
+   * Executa uma função que interage com a API Gemini, aplicando retries, timeout e circuit breaker.
+   */
+  const executarComResiliencia = async (nomeOperacao, funcaoApi, timeoutMs = TIMEOUT_API_GERAL_MS) => {
+    let tentativas = 0;
+    while (tentativas < MAX_TENTATIVAS_API) {
+      const { podeExecutar, novoEstado } = podeExecutarCB(estadoCB);
+      estadoCB = novoEstado; // Atualiza estado (SEMI_ABERTO)
+
+      if (!podeExecutar) {
+        const erroCB = new Error("Serviço de IA temporariamente indisponível (Circuit Breaker).");
+        registrador.warn(`[${nomeOperacao}] Circuit Breaker ABERTO. Requisição bloqueada.`);
+        return Resultado.falha(erroCB); // Retorna falha
+      }
+
+      try {
+        const promessaResultado = rateLimiter.schedule(() => funcaoApi());
+        const promessaTimeout = new Promise((_, reject) =>
+          // Criar um erro específico para timeout
+          setTimeout(() => reject(new Error(`Timeout da API Gemini (${timeoutMs}ms) em ${nomeOperacao}`)), timeoutMs)
         );
-        
-        const resultado = await Promise.race([promessaResultado, promessaTimeout]);
-        let textoResposta = resultado.response.text();
-        
-        if (!textoResposta) {
-          throw new Error('Resposta vazia gerada pelo modelo');
-        }
-        
-        // Registrar sucesso no circuit breaker
-        this.disjuntor.registrarSucesso();
-        
-        return this.limparResposta(textoResposta);
+
+        const resultadoApi = await Promise.race([promessaResultado, promessaTimeout]);
+
+        // Sucesso: atualiza CB e retorna Resultado.sucesso
+        estadoCB = registrarSucessoCB(estadoCB);
+        return Resultado.sucesso(resultadoApi);
+
       } catch (erro) {
         tentativas++;
-        
-        // Verificar se é erro 503
-        if (erro.message.includes('503 Service Unavailable')) {
-          this.registrador.warn(`API do Google indisponível (503), tentativa ${tentativas}/${maxTentativas}`);
-          
-          // Se não for a última tentativa, aguardar com backoff exponencial
-          if (tentativas < maxTentativas) {
-            const tempoEsperaAtual = tempoEspera * Math.pow(2, tentativas - 1);
-            this.registrador.info(`Aguardando ${tempoEsperaAtual}ms antes da próxima tentativa...`);
-            await new Promise(resolve => setTimeout(resolve, tempoEsperaAtual));
-            continue;
-          }
+        registrador.warn(`[${nomeOperacao}] Erro na tentativa ${tentativas}/${MAX_TENTATIVAS_API}: ${erro.message}`);
+
+        // Registrar falha no CB
+        const estadoAnterior = estadoCB.estado;
+        estadoCB = registrarFalhaCB(estadoCB);
+        if (estadoCB.estado === 'ABERTO' && estadoAnterior !== 'ABERTO') {
+           registrador.error(`[${nomeOperacao}] Circuit Breaker ABERTO após falha!`);
         }
-        
-        this.registrador.error(`Erro ao processar texto: ${erro.message}`);
-        
-        // Registrar falha no circuit breaker
-        this.disjuntor.registrarFalha();
-        
-        return "Desculpe, o serviço de IA está temporariamente indisponível. Por favor, tente novamente em alguns instantes.";
+
+        // Lógica de Retry (Backoff Exponencial)
+        // Verifica se é um erro que justifica retentativa
+        const ehErroRetry = erro.message.includes('503') || erro.message.includes('UNAVAILABLE') || erro.message.includes('Timeout');
+
+        if (tentativas < MAX_TENTATIVAS_API && ehErroRetry) {
+          const tempoEsperaAtual = TEMPO_ESPERA_BASE_MS * Math.pow(2, tentativas - 1);
+          registrador.info(`[${nomeOperacao}] Aguardando ${tempoEsperaAtual}ms antes da próxima tentativa...`);
+          await new Promise(resolve => setTimeout(resolve, tempoEsperaAtual));
+          continue; // Próxima iteração do while
+        }
+
+        // Se não for erro de retry ou excedeu tentativas, retorna Resultado.falha com o último erro
+        registrador.error(`[${nomeOperacao}] Falha definitiva após ${tentativas} tentativas: ${erro.message}`);
+        return Resultado.falha(erro);
       }
     }
-  }
-  
+    // Se saiu do loop (excedeu tentativas), retorna falha
+    const erroMaxTentativas = new Error(`[${nomeOperacao}] Falha após ${MAX_TENTATIVAS_API} tentativas.`);
+    return Resultado.falha(erroMaxTentativas);
+  };
 
   /**
- * Implementação do método processarImagem da interface IAPort
- * @param {Object} imagemData - Dados da imagem
- * @param {string} prompt - Instruções para processamento
- * @param {Object} config - Configurações de processamento
- * @returns {Promise<string>} Resposta gerada
- */
-async processarImagem(imagemData, prompt, config) {
-  try {
-    const modelo = this.obterOuCriarModelo({
+   * Processa a resposta da IA, tratando erros de safety e respostas vazias.
+   */
+  const processarRespostaIA = (resultadoApi, tipoConteudo, dadosOrigem) => {
+    const origemInfo = dadosOrigem ? `[Origem: ${dadosOrigem.tipo} "${dadosOrigem.nome}" (${dadosOrigem.id})]` : '[Origem desconhecida]';
+
+    // Verificar safety blocks na resposta
+    if (resultadoApi.response?.promptFeedback?.blockReason) {
+      const blockReason = resultadoApi.response.promptFeedback.blockReason;
+      const erroSafety = new Error(`Conteúdo bloqueado por SAFETY (promptFeedback): ${blockReason}`);
+      registrador.warn(`⚠️ ${erroSafety.message} ${origemInfo}`);
+      return Resultado.falha(erroSafety); // Retorna falha
+    }
+    if (resultadoApi.response?.candidates?.[0]?.finishReason === 'SAFETY') {
+      const safetyRatings = resultadoApi.response?.candidates?.[0]?.safetyRatings;
+      const erroSafety = new Error("Conteúdo bloqueado por SAFETY (finishReason)");
+      registrador.warn(`⚠️ ${erroSafety.message}. Ratings: ${JSON.stringify(safetyRatings)} ${origemInfo}`);
+      return Resultado.falha(erroSafety); // Retorna falha
+    }
+
+    const textoResposta = resultadoApi.response?.text();
+
+    if (!textoResposta || typeof textoResposta !== 'string' || textoResposta.trim() === '') {
+      const erroVazio = new Error(`Resposta vazia ou inválida da IA para ${tipoConteudo}.`);
+      registrador.warn(`[AdpAI] ${erroVazio.message} ${origemInfo}`);
+      return Resultado.falha(erroVazio); // Retorna falha
+    }
+
+    // Sucesso: retorna o texto limpo dentro de Resultado.sucesso
+    return Resultado.sucesso(limparResposta(textoResposta));
+  };
+
+  /**
+   * Trata erros específicos da API, incluindo safety e erros gerais.
+   */
+  const tratarErroAPI = (erro, tipoConteudo, dadosOrigem, infoExtra = {}) => {
+    const origemInfo = dadosOrigem ? `[Origem: ${dadosOrigem.tipo} "${dadosOrigem.nome}" (${dadosOrigem.id})]` : '[Origem desconhecida]';
+    const erroMsg = erro.message || 'Erro desconhecido';
+
+    // Logar o erro sempre
+    registrador.error(`[AdpAI] Erro ao processar ${tipoConteudo}: ${erroMsg} ${origemInfo}`, erro.stack);
+
+    // Se for erro de Safety, tentar salvar diagnóstico (sem bloquear)
+    if (erroMsg.includes('SAFETY') || erroMsg.includes('blocked') || (erro.status === 400 && erroMsg.includes('user location'))) {
+      registrador.warn(`⚠️ Detalhe do erro: Conteúdo bloqueado por SAFETY.`); // Log específico de safety
+      const diretorioBloqueados = path.join(process.cwd(), 'blocked');
+      const salvarBloqueado = salvarConteudoBloqueado(tipoConteudo, diretorioBloqueados);
+      // Executar em background, não esperar
+      salvarBloqueado({ origemInfo: dadosOrigem, ...infoExtra }, erro)
+        .then(res => {
+          if (res.sucesso) registrador.info(`Diagnóstico de ${tipoConteudo} bloqueado salvo: ${res.dados.caminhoJson}`);
+          else registrador.error(`Erro ao salvar diagnóstico de ${tipoConteudo} bloqueado (Resultado.falha): ${res.erro.message}`);
+        })
+        .catch(errSalvar => registrador.error(`Erro ao salvar diagnóstico de ${tipoConteudo} bloqueado (Exceção): ${errSalvar.message}`));
+    }
+
+    // Retornar sempre Resultado.falha com o erro original
+    return Resultado.falha(erro);
+  };
+
+  /**
+   * Verifica o cache para uma requisição e registra HIT ou MISS.
+   * @param {string} tipo - Tipo de processamento.
+   * @param {Object} payload - Dados para gerar a chave de cache.
+   * @param {Object} config - Configurações da IA.
+   * @param {NodeCache} cache - Instância do NodeCache.
+   * @param {Object} registrador - Instância do registrador.
+   * @param {string} [tipoLogExtra=''] - Informação extra para o log (ex: tipo de documento).
+   * @returns {Promise<Resultado<{hit: boolean, valor: any|null, chaveCache: string}, Error>>} Resultado da verificação do cache.
+   */
+  const verificarCache = async (tipo, payload, config, cache, registrador, tipoLogExtra = '') => {
+    let chaveCache;
+    const logTipo = tipoLogExtra ? `${tipo} (${tipoLogExtra})` : tipo;
+    try {
+      chaveCache = await criarChaveCache(tipo, payload, config);
+
+      // Adiciona verificação explícita da chave antes de usar no cache.get
+      if (typeof chaveCache !== 'string' || chaveCache.length === 0) {
+        throw new Error(`Chave de cache inválida gerada: ${chaveCache}`);
+      }
+
+      const cacheHit = cache.get(chaveCache);
+      if (cacheHit) {
+        registrador.info(`[Cache] ${logTipo}`);
+        return Resultado.sucesso({ hit: true, valor: cacheHit, chaveCache });
+      }
+      
+      return Resultado.sucesso({ hit: false, valor: null, chaveCache });
+    } catch (err) {
+      const erroCache = new Error(`Erro ao gerar/verificar chave de cache para ${logTipo}: ${err.message}`);
+      registrador.warn(`[Cache] ${erroCache.message}. Cache desativado para esta requisição.`);
+      return Resultado.falha(erroCache); // Retorna falha com o erro
+    }
+  };
+
+  // --- Funções de Processamento (Interface Exposta) ---
+
+  const processarTexto = async (texto, config) => {
+    const tipo = 'texto';
+    let chaveCache = null;
+
+    // 1. Verificar Cache
+    const resultadoCache = await verificarCache(tipo, { texto }, config, cacheRespostas, registrador);
+    if (!resultadoCache.sucesso) {
+      // Logar erro do cache, mas continuar sem cache
+      registrador.error(`[${tipo}] Falha ao verificar cache: ${resultadoCache.erro.message}`);
+    } else {
+      chaveCache = resultadoCache.dados.chaveCache; // Guarda a chave
+      if (resultadoCache.dados.hit) {
+        // Retornar sucesso com valor do cache
+        return Resultado.sucesso(resultadoCache.dados.valor);
+      }
+      // Cache MISS, continuar...
+    }
+
+    // 2. Executar Geração (CHAMADA DIRETA COM RESILIÊNCIA)
+    const modelo = obterOuCriarModelo(config);
+    // A função executarComResiliencia já retorna um Resultado
+    const resultadoExec = await executarComResiliencia('processarTexto', () => modelo.generateContent(texto));
+    if (!resultadoExec.sucesso) {
+      // Apenas propagar a falha (erro já logado por executarComResiliencia)
+      return resultadoExec;
+    }
+
+    // 3. Processar Resposta (tratar safety, etc.)
+    const resultadoProc = processarRespostaIA(resultadoExec.dados, tipo, config.dadosOrigem);
+    if (!resultadoProc.sucesso) {
+      // processarRespostaIA já logou o erro e retorna Resultado.falha
+      // Apenas propagar a falha
+      return resultadoProc;
+    }
+
+    // 4. Sucesso: Salvar no cache (se possível) e retornar Resultado.sucesso
+    const respostaFinal = resultadoProc.dados;
+    if (chaveCache) {
+      
+      cacheRespostas.set(chaveCache, respostaFinal);
+    }
+    return Resultado.sucesso(respostaFinal);
+  };
+
+  const processarImagem = async (imagemData, prompt, config) => {
+    const tipo = 'imagem';
+    // const origemInfo = config.dadosOrigem ? `[Origem: ${config.dadosOrigem.tipo} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : '[Origem desconhecida]'; // Log removido
+    // registrador.info(`[AdpAI - ${tipo}] Iniciando processamento. ${origemInfo}`); // Log removido
+    let chaveCache = null;
+    // 1. Verificar Cache
+    const resultadoCache = await verificarCache(tipo, { dadosAnexo: imagemData, prompt }, config, cacheRespostas, registrador);
+    if (!resultadoCache.sucesso) {
+      registrador.error(`[${tipo}] Falha ao verificar cache: ${resultadoCache.erro.message}`);
+    } else {
+      chaveCache = resultadoCache.dados.chaveCache;
+      if (resultadoCache.dados.hit) {
+        // Retornar sucesso com valor do cache
+        return Resultado.sucesso(resultadoCache.dados.valor);
+      }
+      // Cache MISS, continuar...
+    }
+
+    // 2. Preparar Conteúdo para API
+    const modelo = obterOuCriarModelo(config);
+    const parteImagem = { inlineData: { data: imagemData.data, mimeType: imagemData.mimetype } };
+    const textoParaEnviar = config.systemInstructions || (prompt || "Descreva esta imagem.");
+    const partesConteudo = [parteImagem, { text: textoParaEnviar }];
+
+    // 3. Executar Geração (com resiliência)
+    const resultadoExec = await executarComResiliencia('processarImagem', () => modelo.generateContent(partesConteudo));
+    if (!resultadoExec.sucesso) {
+      // Propagar falha (erro já logado por executarComResiliencia)
+      return resultadoExec;
+    }
+
+    // 4. Processar Resposta (tratar safety, etc.)
+    // Passar resultadoExec.dados (o resultado da API) para processarRespostaIA
+    const resultadoProc = processarRespostaIA(resultadoExec.dados, tipo, config.dadosOrigem);
+    if (!resultadoProc.sucesso) {
+      // Propagar falha (erro já logado por processarRespostaIA)
+      return resultadoProc;
+    }
+
+    // 5. Sucesso: Salvar no cache (se possível) e retornar Resultado.sucesso
+    const respostaFinal = resultadoProc.dados;
+    if (chaveCache) {
+      
+      cacheRespostas.set(chaveCache, respostaFinal);
+    }
+    // Adicionar prefixo (se necessário, mas a lógica de prefixo pode ser movida para o chamador)
+    // const prefixo = "[Descrição de Imagem]\n\n"; // Exemplo
+    // return Resultado.sucesso(`${prefixo}${respostaFinal}`);
+    return Resultado.sucesso(respostaFinal);
+  };
+
+  const processarAudio = async (audioData, audioId, config) => {
+    const tipo = 'audio';
+    let chaveCache = null;
+
+    // 1. Verificar Cache (usando audioId como parte do prompt para cache)
+    const resultadoCache = await verificarCache(tipo, { dadosAnexo: audioData, prompt: audioId }, config, cacheRespostas, registrador);
+    if (!resultadoCache.sucesso) {
+      registrador.error(`[${tipo}] Falha ao verificar cache: ${resultadoCache.erro.message}`);
+    } else {
+      chaveCache = resultadoCache.dados.chaveCache;
+      if (resultadoCache.dados.hit) {
+        return Resultado.sucesso(resultadoCache.dados.valor); // Retorna sucesso com valor do cache
+      }
+      // Cache MISS, continuar...
+    }
+
+    // 2. Preparar Conteúdo e Config para API
+    const configAI = {
       ...config,
-      // Instruções específicas para descrição
-      systemInstruction: config.systemInstructions || obterInstrucaoImagem()
-    });
-    
-    const parteImagem = {
-      inlineData: {
-        data: imagemData.data,
-        mimeType: imagemData.mimetype
+      temperature: 0.1,
+      systemInstruction: config.systemInstruction || obterInstrucaoAudio()
+    };
+    const modelo = obterOuCriarModelo(configAI);
+    const parteAudio = { inlineData: { mimeType: audioData.mimetype, data: audioData.data } };
+    const promptTexto = 'Você é uma IA especializada em transcrição de audio. Transcreva o audio em anexo palavra por palavra, sem qualquer comentário adicional. Sua tarefa inicia com a transcrição da primeira palavra e termina com a transcrição da última palavra.';
+    const partesConteudo = [parteAudio, { text: promptTexto }];
+
+    // 3. Executar Geração (com resiliência)
+    const resultadoExec = await executarComResiliencia('processarAudio', () => modelo.generateContent(partesConteudo));
+    if (!resultadoExec.sucesso) {
+      return resultadoExec;
+    }
+
+    // 4. Processar Resposta (tratar safety, etc.)
+    const resultadoProc = processarRespostaIA(resultadoExec.dados, tipo, config.dadosOrigem);
+    if (!resultadoProc.sucesso) {
+      return resultadoProc;
+    }
+
+    // 5. Sucesso: Salvar no cache (se possível) e retornar Resultado.sucesso
+    const respostaFinal = resultadoProc.dados;
+    if (chaveCache) {
+      
+      cacheRespostas.set(chaveCache, respostaFinal);
+    }
+    // Adicionar prefixo (se necessário, mas pode ser movido para o chamador)
+    const prefixo = "[Transcrição de Áudio]\n\n"; // Exemplo
+    return Resultado.sucesso(`${prefixo}${respostaFinal}`);
+  };
+
+  const processarDocumentoInline = async (documentoData, prompt, config) => {
+    const tipo = 'documentoInline';
+    const mimeType = documentoData.mimetype || 'application/octet-stream';
+    const tipoDocLog = mimeType.split('/')[1]?.split('+')[0] || mimeType.split('/')[1] || 'documento';
+    let chaveCache = null;
+
+    // 1. Verificar Cache
+    const resultadoCache = await verificarCache(tipo, { dadosAnexo: documentoData, prompt }, config, cacheRespostas, registrador, tipoDocLog);
+    if (!resultadoCache.sucesso) {
+      registrador.error(`[${tipo} (${tipoDocLog})] Falha ao verificar cache: ${resultadoCache.erro.message}`);
+    } else {
+      chaveCache = resultadoCache.dados.chaveCache;
+      if (resultadoCache.dados.hit) {
+        return Resultado.sucesso(resultadoCache.dados.valor); // Retorna sucesso com valor do cache
+      }
+      // Cache MISS, continuar...
+    }
+
+    // 2. Preparar Conteúdo e Config para API
+    const configAI = {
+      ...config,
+      systemInstruction: config.systemInstruction || obterInstrucaoDocumento()
+    };
+    const modelo = obterOuCriarModelo(configAI);
+    const parteDoc = { inlineData: { mimeType: mimeType, data: documentoData.data } };
+    const promptTexto = prompt || `Analise este documento (${tipoDocLog}) e forneça um resumo.`;
+    const partesConteudo = [parteDoc, { text: promptTexto }];
+
+    // 3. Executar Geração (com resiliência e timeout maior)
+    const resultadoExec = await executarComResiliencia('processarDocumentoInline', () => modelo.generateContent(partesConteudo), TIMEOUT_API_UPLOAD_MS);
+    if (!resultadoExec.sucesso) {
+      return resultadoExec; // Propagar falha
+    }
+
+    // 4. Processar Resposta (tratar safety, etc.)
+    const resultadoProc = processarRespostaIA(resultadoExec.dados, tipoDocLog, config.dadosOrigem);
+    if (!resultadoProc.sucesso) {
+      return resultadoProc; // Propagar falha
+    }
+
+    // 5. Sucesso: Salvar no cache (se possível) e retornar Resultado.sucesso
+    const respostaFinal = resultadoProc.dados;
+    if (chaveCache) {
+      
+      cacheRespostas.set(chaveCache, respostaFinal);
+    }
+    // Adicionar prefixo (se necessário)
+    // const prefixo = "[Resumo Documento]\n\n"; // Exemplo
+    // return Resultado.sucesso(`${prefixo}${respostaFinal}`);
+    return Resultado.sucesso(respostaFinal);
+  };
+
+  // NOTA: processarDocumentoArquivo e processarVideo ainda usam GoogleAIFileManager
+  // A integração com rate limiter e cache é mais complexa aqui devido ao ciclo upload->wait->process->delete
+
+  const processarDocumentoArquivo = async (caminhoDocumento, prompt, config) => {
+    const tipo = 'documentoArquivo';
+    const mimeType = config.mimeType || 'application/octet-stream';
+    const tipoDocLog = mimeType.split('/')[1] || 'documento';
+    let nomeArquivoGoogle = null;
+    let chaveCache = null;
+
+    // --- Funções Auxiliares Específicas ---
+    const tentarDeleteGoogle = async (nomeArquivo) => {
+      if (!nomeArquivo) return;
+      registrador.info(`[${tipo}] Tentando deletar arquivo [${nomeArquivo}] do Google AI (cleanup).`);
+      // Usar executarComResiliencia para o delete também
+      const resultadoDelete = await executarComResiliencia(
+        'deleteFileDocCleanup', // Nome diferente para logs
+        () => gerenciadorArquivosGoogle.deleteFile(nomeArquivo)
+      );
+      if (!resultadoDelete.sucesso) {
+        registrador.error(`[${tipo}] Erro no cleanup ao deletar arquivo [${nomeArquivo}]: ${resultadoDelete.erro.message}`);
+      } else {
+        registrador.info(`[${tipo}] Arquivo [${nomeArquivo}] deletado com sucesso (cleanup).`);
       }
     };
-    
-    const partesConteudo = [
-      parteImagem,
-      { text: prompt }
-    ];
-    
-    // Adicionar timeout de 45 segundos
-    const promessaResultado = modelo.generateContent(partesConteudo);
-    const promessaTimeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Timeout da API Gemini")), 90000)
-    );
-    
-    const resultado = await Promise.race([promessaResultado, promessaTimeout]);
-    let textoResposta = resultado.response.text();
-    
-    if (!textoResposta) {
-      throw new Error('Resposta vazia gerada pelo modelo');
-    }
-    
-    return this.limparResposta(textoResposta);
-  } catch (erro) {
-    // Aqui adicionamos informações do usuário/grupo no log
-    const origemInfo = config.dadosOrigem ? 
-      `[Origem: ${config.dadosOrigem.tipo === 'grupo' ? 'Grupo' : 'Usuário'} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : 
-      '[Origem desconhecida]';
-    
-    // Verificar se é erro de safety
-    if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
-        erro.message.includes('blocked') || erro.message.includes('Blocked')) {
-      
-      this.registrador.warn(`⚠️ Conteúdo de imagem bloqueado por políticas de segurança ${origemInfo}`);
-      
-      // NOVA PARTE: Salvar conteúdo bloqueado para auditoria
-      const diretorioBloqueados = path.join(process.cwd(), 'blocked');
-      const salvarImagemBloqueada = salvarConteudoBloqueado('imagem', diretorioBloqueados);
-      
-      // Executar salvamento, mas não aguardar para continuar o fluxo principal
-      salvarImagemBloqueada({
-        origemInfo: config.dadosOrigem,
-        prompt,
-        mimeType: imagemData.mimetype,
-        imagemData
-      }, erro).then(resultado => {
-        if (resultado.sucesso) {
-          this.registrador.info(`Conteúdo bloqueado salvo para auditoria: ${resultado.dados.caminhoJson}`);
-        }
-      }).catch(erroSalvar => {
-        this.registrador.error(`Erro ao salvar conteúdo bloqueado: ${erroSalvar.message}`);
-      });
-      
-      return "Este conteúdo não pôde ser processado por questões de segurança.";
-    }
-    
-    this.registrador.error(`Erro ao processar imagem: ${erro.message} ${origemInfo}`);
-    return "Desculpe, ocorreu um erro ao analisar esta imagem. Por favor, tente novamente com outra imagem ou reformule seu pedido.";
-  }
-}
 
-/**
- * Implementação do método processarAudio da interface IAPort
- * @param {Object} audioData - Dados do áudio
- * @param {string} audioId - Identificador único do áudio
- * @param {Object} config - Configurações de processamento
- * @returns {Promise<string>} Resposta gerada
- */
-/**
- * Implementação do método processarAudio da interface IAPort
- * @param {Object} audioData - Dados do áudio
- * @param {string} audioId - Identificador único do áudio
- * @param {Object} config - Configurações de processamento
- * @returns {Promise<string>} Resposta gerada
- */
-async processarAudio(audioData, audioId, config) {
-  let tentativas = 0;
-  const maxTentativas = 5;
-  const tempoEspera = 2000; // 2 segundos iniciais
-  
-  while (tentativas < maxTentativas) {
-    try {
-      const modelo = this.obterOuCriarModelo({
-        ...config,
-        temperature: 0.3, // Menor temperatura para transcrição mais precisa
-        systemInstruction: config.systemInstructions || obterInstrucaoAudio()
-      });
-      
-      const arquivoAudioBase64 = audioData.data;
-      
-      const partesConteudo = [
-        {
-          inlineData: {
-            mimeType: audioData.mimetype,
-            data: arquivoAudioBase64
-          }
-        },
-        { text: `Transcreva o áudio com ID ${audioId} e resuma seu conteúdo em português.`}
-      ];
-      
-      // Adicionar timeout
-      const promessaResultado = modelo.generateContent(partesConteudo);
-      const promessaTimeout = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout da API Gemini")), 60000)
+    // --- Fluxo Principal com Ferrovia (usando IIFE async para gerenciar cleanup) ---
+    const resultadoProcessamento = await (async () => {
+      // 1. Verificar Cache
+      const resultadoCache = await verificarCache(tipo, { caminhoArquivo: caminhoDocumento, prompt }, config, cacheRespostas, registrador, tipoDocLog);
+      if (!resultadoCache.sucesso) {
+        registrador.error(`[${tipo} (${tipoDocLog})] Falha ao verificar cache: ${resultadoCache.erro.message}`);
+        // Continuar sem cache
+      } else {
+        chaveCache = resultadoCache.dados.chaveCache;
+        if (resultadoCache.dados.hit) {
+          return Resultado.sucesso(resultadoCache.dados.valor); // Cache HIT
+        }
+      }
+
+      // 2. Upload
+      registrador.info(`[${tipo}] Iniciando processamento: ${caminhoDocumento}`);
+      let mimeTypeParaUpload = mimeType === 'application/octet-stream' ? 'text/plain' : mimeType;
+      const resultadoUpload = await executarComResiliencia(
+        'uploadFileDoc',
+        () => gerenciadorArquivosGoogle.uploadFile(caminhoDocumento, {
+          mimeType: mimeTypeParaUpload,
+          displayName: path.basename(caminhoDocumento) || `${tipoDocLog.toUpperCase()} Enviado`
+        }),
+        TIMEOUT_API_UPLOAD_MS
       );
-      
-      const resultado = await Promise.race([promessaResultado, promessaTimeout]);
-      let textoResposta = resultado.response.text();
-      
-      if (!textoResposta) {
-        throw new Error('Resposta vazia gerada pelo modelo');
-      }
-      
-      // Registrar sucesso no circuit breaker
-      this.disjuntor.registrarSucesso();
-      
-      return this.limparResposta(textoResposta);
-      
-    } catch (erro) {
-      tentativas++;
-      
-      // Verificar se é erro 503
-      if (erro.message.includes('503 Service Unavailable')) {
-        this.registrador.warn(`API do Google indisponível (503), tentativa ${tentativas}/${maxTentativas}`);
-        
-        // Se não for a última tentativa, aguardar com backoff exponencial
-        if (tentativas < maxTentativas) {
-          const tempoEsperaAtual = tempoEspera * Math.pow(2, tentativas - 1);
-          this.registrador.info(`Aguardando ${tempoEsperaAtual}ms antes da próxima tentativa...`);
-          await new Promise(resolve => setTimeout(resolve, tempoEsperaAtual));
-          continue;
-        }
-      }
-      
-      this.registrador.error(`Erro ao processar áudio: ${erro.message}`);
-      
-      // Registrar falha no circuit breaker
-      this.disjuntor.registrarFalha();
-      
-      // Verificar se é um erro de segurança
-      if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
-          erro.message.includes('blocked') || erro.message.includes('Blocked')) {
-        
-        this.registrador.warn(`⚠️ Conteúdo de áudio bloqueado por políticas de segurança`);
-        return "Este conteúdo não pôde ser processado por questões de segurança.";
-      }
-      
-      return "Desculpe, o serviço de IA está temporariamente indisponível. Por favor, tente novamente em alguns instantes.";
-    }
-  }
-}
+      if (!resultadoUpload.sucesso) return resultadoUpload; // Propagar falha
+      nomeArquivoGoogle = resultadoUpload.dados.file.name; // Guardar nome para cleanup
+      registrador.info(`[${tipo}] Upload concluído: ${nomeArquivoGoogle} (Mimetype Upload: ${mimeTypeParaUpload})`);
 
-  /**
- * Implementação do método processarVideo da interface IAPort
- * @param {string} caminhoVideo - Caminho para o arquivo de vídeo
- * @param {string} prompt - Instruções para processamento
- * @param {Object} config - Configurações de processamento
- * @returns {Promise<string>} Resposta gerada
- */
-async processarVideo(caminhoVideo, prompt, config) {
-  try {
-    // Fazer upload para o Google AI
-    const respostaUpload = await this.gerenciadorArquivos.uploadFile(caminhoVideo, {
-      mimeType: config.mimeType || 'video/mp4',
-      displayName: "Vídeo Enviado"
-    });
-    
-    // Aguardar processamento
-    let arquivo = await this.gerenciadorArquivos.getFile(respostaUpload.file.name);
-    let tentativas = 0;
-    
-    while (arquivo.state === "PROCESSING" && tentativas < 12) {
-      this.registrador.info(`Vídeo ainda em processamento, aguardando... (tentativa ${tentativas + 1})`);
-      await new Promise(resolve => setTimeout(resolve, 10000));
-      arquivo = await this.gerenciadorArquivos.getFile(respostaUpload.file.name);
-      tentativas++;
-    }
-    
-    if (arquivo.state === "FAILED") {
-      throw new Error("Falha no processamento do vídeo pelo Google AI");
-    }
-    
-    // Estados válidos para prosseguir: SUCCEEDED ou ACTIVE
-    if (arquivo.state !== "SUCCEEDED" && arquivo.state !== "ACTIVE") {
-      throw new Error(`Estado inesperado do arquivo: ${arquivo.state}`);
-    }
-    
-    // Registrar informação sobre o estado do arquivo
-    if (arquivo.state === "ACTIVE") {
-      this.registrador.info("Arquivo ainda está ativo, mas pronto para processamento");
-    }
-    
-    // Verificar modo legenda
-    if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
-      this.registrador.info('🎬👂 Processando vídeo no MODO LEGENDA para acessibilidade de surdos');
-      
-      // Se não tiver instruções específicas, usar o prompt de legenda
-      if (!prompt.includes("timecodes") && !prompt.includes("verbatim")) {
-        prompt = obterPromptVideoLegenda();
-        this.registrador.info('📝 Usando prompt específico de legendagem');
+      // 3. Espera pelo Processamento
+      let arquivo;
+      let tentativasEspera = 0;
+      const maxTentativasEspera = 15;
+      const tempoEsperaPolling = 10000;
+      let resultadoGetArquivo;
+      do {
+        registrador.info(`[${tipo}] [${nomeArquivoGoogle}] Aguardando processamento... (tentativa ${tentativasEspera + 1}/${maxTentativasEspera})`);
+        await new Promise(resolve => setTimeout(resolve, tempoEsperaPolling));
+        resultadoGetArquivo = await executarComResiliencia(
+           'getFileDoc',
+           () => gerenciadorArquivosGoogle.getFile(nomeArquivoGoogle)
+        );
+        // Se falhar ao obter o estado, retornar a falha
+        if (!resultadoGetArquivo.sucesso) return resultadoGetArquivo;
+        arquivo = resultadoGetArquivo.dados;
+        tentativasEspera++;
+      } while (arquivo.state === "PROCESSING" && tentativasEspera < maxTentativasEspera);
+
+      // Verificar estado após o loop
+      if (arquivo.state === "FAILED") {
+        return Resultado.falha(new Error(`Falha no processamento do arquivo ${tipoDocLog} [${nomeArquivoGoogle}] pelo Google AI`));
       }
-    }
-    
-    // Obter modelo
-    const modelo = this.obterOuCriarModelo(config);
-    
-    // Preparar partes de conteúdo
-    const partesConteudo = [
-      {
-        fileData: {
-          mimeType: arquivo.mimeType,
-          fileUri: arquivo.uri
+      if (arquivo.state !== "SUCCEEDED" && arquivo.state !== "ACTIVE") {
+         if (tentativasEspera >= maxTentativasEspera) {
+             return Resultado.falha(new Error(`Timeout esperando processamento do arquivo ${tipoDocLog} [${nomeArquivoGoogle}]`));
+         }
+        return Resultado.falha(new Error(`Estado inesperado (${arquivo.state}) no processamento do arquivo ${tipoDocLog} [${nomeArquivoGoogle}]`));
+      }
+      registrador.info(`[${tipo}] [${nomeArquivoGoogle}] Pronto para análise. Estado: ${arquivo.state}`);
+
+      // 4. Geração de Conteúdo
+      const configAI = { ...config, systemInstruction: config.systemInstruction || obterInstrucaoDocumento() };
+      const modelo = obterOuCriarModelo(configAI);
+      const promptTexto = prompt || `Analise este documento (${tipoDocLog}) e forneça um resumo.`;
+      const partesConteudo = [{ fileData: { mimeType: arquivo.mimeType, fileUri: arquivo.uri } }, { text: promptTexto }];
+      const resultadoGenerate = await executarComResiliencia(
+        'generateContentDocArquivo',
+        () => modelo.generateContent(partesConteudo),
+        TIMEOUT_API_UPLOAD_MS
+      );
+      if (!resultadoGenerate.sucesso) return resultadoGenerate; // Propagar falha
+
+      // 5. Processar Resposta IA
+      const resultadoProc = processarRespostaIA(resultadoGenerate.dados, tipoDocLog, config.dadosOrigem);
+      if (!resultadoProc.sucesso) return resultadoProc; // Propagar falha
+
+      // 6. Sucesso: Salvar no cache e retornar
+      const respostaFinal = resultadoProc.dados;
+      if (chaveCache) {
+        
+        cacheRespostas.set(chaveCache, respostaFinal);
+      }
+      // Adicionar prefixo (se necessário)
+      // const prefixo = "[Resumo Documento]\n\n";
+      // return Resultado.sucesso(`${prefixo}${respostaFinal}`);
+      return Resultado.sucesso(respostaFinal);
+
+    })(); // Fim da IIFE async
+
+    // --- Cleanup (Executa após o resultado do pipeline, seja sucesso ou falha) ---
+    // Usar o nome do arquivo guardado anteriormente
+    await tentarDeleteGoogle(nomeArquivoGoogle);
+
+    // Retornar o resultado final do pipeline
+    return resultadoProcessamento;
+  };
+
+  const processarVideo = async (caminhoVideo, prompt, config) => {
+    const tipo = 'video';
+    // const origemInfo = config.dadosOrigem ? `[Origem: ${config.dadosOrigem.tipo} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : '[Origem desconhecida]'; // Log removido
+    // registrador.info(`[AdpAI - ${tipo}] Iniciando processamento: ${caminhoVideo}. ${origemInfo}`); // Log removido
+    const mimeType = config.mimeType || 'video/mp4';
+    let nomeArquivoGoogle = null;
+    let chaveCache = null;
+
+    // --- Funções Auxiliares Específicas ---
+    const tentarDeleteGoogle = async (nomeArquivo) => {
+      if (!nomeArquivo) return;
+      registrador.info(`[${tipo}] Tentando deletar arquivo [${nomeArquivo}] do Google AI (cleanup).`);
+      const resultadoDelete = await executarComResiliencia(
+        'deleteFileVideoCleanup',
+        () => gerenciadorArquivosGoogle.deleteFile(nomeArquivo)
+      );
+      if (!resultadoDelete.sucesso) {
+        registrador.error(`[${tipo}] Erro no cleanup ao deletar arquivo [${nomeArquivo}]: ${resultadoDelete.erro.message}`);
+      } else {
+        registrador.info(`[${tipo}] Arquivo [${nomeArquivo}] deletado com sucesso (cleanup).`);
+      }
+    };
+
+    // --- Fluxo Principal com Ferrovia (usando IIFE async) ---
+    const resultadoProcessamento = await (async () => {
+      // 1. Verificar Cache
+      const resultadoCache = await verificarCache(tipo, { caminhoArquivo: caminhoVideo, prompt }, config, cacheRespostas, registrador);
+      if (!resultadoCache.sucesso) {
+        registrador.error(`[${tipo}] Falha ao verificar cache: ${resultadoCache.erro.message}`);
+      } else {
+        chaveCache = resultadoCache.dados.chaveCache;
+        if (resultadoCache.dados.hit) {
+          return Resultado.sucesso(resultadoCache.dados.valor); // Cache HIT
         }
-      },
-      {
-        text: prompt
       }
-    ];
+
+      // 2. Upload
+      registrador.info(`[${tipo}] Iniciando processamento: ${caminhoVideo}`);
+      const resultadoUpload = await executarComResiliencia(
+        'uploadFileVideo',
+        () => gerenciadorArquivosGoogle.uploadFile(caminhoVideo, {
+          mimeType: mimeType,
+          displayName: path.basename(caminhoVideo) || "Vídeo Enviado"
+        }),
+        TIMEOUT_API_UPLOAD_MS
+      );
+      if (!resultadoUpload.sucesso) return resultadoUpload;
+      nomeArquivoGoogle = resultadoUpload.dados.file.name;
+      registrador.info(`[${tipo}] Upload concluído: ${nomeArquivoGoogle}`);
+
+      // 3. Espera pelo Processamento
+      let arquivo;
+      let tentativasEspera = 0;
+      const maxTentativasEspera = 18;
+      const tempoEsperaPolling = 10000;
+      let resultadoGetArquivo;
+      do {
+        registrador.info(`[${tipo}] [${nomeArquivoGoogle}] Aguardando processamento... (tentativa ${tentativasEspera + 1}/${maxTentativasEspera})`);
+        await new Promise(resolve => setTimeout(resolve, tempoEsperaPolling));
+        resultadoGetArquivo = await executarComResiliencia(
+           'getFileVideo',
+           () => gerenciadorArquivosGoogle.getFile(nomeArquivoGoogle)
+        );
+        if (!resultadoGetArquivo.sucesso) return resultadoGetArquivo;
+        arquivo = resultadoGetArquivo.dados;
+        tentativasEspera++;
+      } while (arquivo.state === "PROCESSING" && tentativasEspera < maxTentativasEspera);
+
+      // Verificar estado após o loop
+      if (arquivo.state === "FAILED") {
+        return Resultado.falha(new Error(`Falha no processamento do vídeo [${nomeArquivoGoogle}] pelo Google AI`));
+      }
+      if (arquivo.state !== "SUCCEEDED" && arquivo.state !== "ACTIVE") {
+        if (tentativasEspera >= maxTentativasEspera) {
+             return Resultado.falha(new Error(`Timeout esperando processamento do vídeo [${nomeArquivoGoogle}]`));
+         }
+        return Resultado.falha(new Error(`Estado inesperado (${arquivo.state}) no processamento do vídeo [${nomeArquivoGoogle}]`));
+      }
+      registrador.info(`[${tipo}] [${nomeArquivoGoogle}] Pronto para análise. Estado: ${arquivo.state}`);
+
+      // 4. Geração de Conteúdo
+      const modoLegenda = config.modoDescricao === 'legenda' || config.usarLegenda === true;
+      const promptTexto = modoLegenda ? (prompt || obterPromptVideoLegenda()) : (prompt || "Analise este vídeo e forneça um resumo.");
+      const configAI = { ...config, systemInstruction: config.systemInstruction || obterInstrucaoPadrao() };
+      const modelo = obterOuCriarModelo(configAI);
+      const partesConteudo = [{ fileData: { mimeType: arquivo.mimeType, fileUri: arquivo.uri } }, { text: promptTexto }];
+      const resultadoGenerate = await executarComResiliencia(
+        'generateContentVideo',
+        () => modelo.generateContent(partesConteudo),
+        TIMEOUT_API_UPLOAD_MS
+      );
+      if (!resultadoGenerate.sucesso) return resultadoGenerate;
+
+      // 5. Processar Resposta IA
+      const resultadoProc = processarRespostaIA(resultadoGenerate.dados, tipo, config.dadosOrigem);
+      if (!resultadoProc.sucesso) return resultadoProc;
+
+      // 6. Sucesso: Salvar no cache, adicionar prefixo e retornar
+      const respostaFinal = resultadoProc.dados;
+      if (chaveCache) {
+        
+        cacheRespostas.set(chaveCache, respostaFinal);
+      }
+      return Resultado.sucesso(`${respostaFinal}`);
+
+    })(); // Fim da IIFE async
+
+    // --- Cleanup ---
+    await tentarDeleteGoogle(nomeArquivoGoogle);
+
+    // Retornar o resultado final (que pode ser sucesso ou falha)
+    // Se ocorreu um erro dentro da IIFE, tratarErroAPI não é mais chamado aqui,
+    // pois o Resultado.falha já foi retornado e será tratado pelo chamador.
+    return resultadoProcessamento;
+  };
+
+  // --- Funções Auxiliares para Gerenciamento de Arquivos Google ---
+
+  const uploadArquivoGoogle = async (caminhoArquivo, opcoesUpload, timeoutMs = TIMEOUT_API_UPLOAD_MS) => {
     
-    // Adicionar timeout para a chamada à IA
-    const promessaRespostaIA = modelo.generateContent(partesConteudo);
-    const promessaTimeoutIA = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Tempo esgotado na análise de vídeo")), 120000)
+    // executarComResiliencia já retorna Promise<Resultado>
+    const resultado = await executarComResiliencia(
+      'uploadArquivoGoogle',
+      () => gerenciadorArquivosGoogle.uploadFile(caminhoArquivo, opcoesUpload),
+      timeoutMs
     );
-    
-    const resultado = await Promise.race([promessaRespostaIA, promessaTimeoutIA]);
-    let resposta = resultado.response.text();
-    
-    if (!resposta || typeof resposta !== 'string' || resposta.trim() === '') {
-      resposta = "Não consegui gerar uma descrição clara para este vídeo.";
+    // Apenas retornamos o resultado encapsulado
+    return resultado;
+  };
+
+  const deleteArquivoGoogle = async (nomeArquivoGoogle, timeoutMs = TIMEOUT_API_GERAL_MS) => {
+    if (!nomeArquivoGoogle) {
+      // Retornar um sucesso silencioso se não houver nome, pois não há o que deletar
+      return Resultado.sucesso(true);
     }
     
-    // Limpar o arquivo do Google
-    await this.gerenciadorArquivos.deleteFile(respostaUpload.file.name);
-    
-    // Formatar o início da resposta com base no modo
-    let prefixoResposta = "";
-    if (config.modoDescricao === 'legenda' || config.usarLegenda === true) {
-      prefixoResposta = "📋 *Transcrição com timecodes:*\n\n";
+    // executarComResiliencia já retorna Promise<Resultado>
+    const resultado = await executarComResiliencia(
+      'deleteArquivoGoogle',
+      () => gerenciadorArquivosGoogle.deleteFile(nomeArquivoGoogle),
+      timeoutMs
+    );
+
+    if (resultado.sucesso) {
+      registrador.info(`[AdpAI] Arquivo Google deletado: ${nomeArquivoGoogle}`);
+      // Retornar sucesso explícito
+      return Resultado.sucesso(true);
     } else {
-      prefixoResposta = "✅ *Análise do seu vídeo:*\n\n";
+      // Logar o erro, mas retornar sucesso mesmo assim para não interromper fluxos de cleanup
+      registrador.error(`[AdpAI] Falha ao deletar arquivo Google ${nomeArquivoGoogle}: ${resultado.erro.message}`);
+      // Consideramos a falha na exclusão como não crítica para o fluxo principal
+      return Resultado.sucesso(false); // Indica que a exclusão falhou, mas não é um erro bloqueante
     }
-    
-    const respostaFinal = `${prefixoResposta}${resposta}`;
-    return respostaFinal;
-  } catch (erro) {
-    // NOVA PARTE: Verificar se é erro de safety
-    if (erro.message.includes('SAFETY') || erro.message.includes('safety') || 
-        erro.message.includes('blocked') || erro.message.includes('Blocked')) {
-      
-      const origemInfo = config.dadosOrigem ? 
-        `[Origem: ${config.dadosOrigem.tipo === 'grupo' ? 'Grupo' : 'Usuário'} "${config.dadosOrigem.nome}" (${config.dadosOrigem.id})]` : 
-        '[Origem desconhecida]';
-        
-      this.registrador.warn(`⚠️ Conteúdo de vídeo bloqueado por políticas de segurança ${origemInfo}`);
-      
-      // NOVA PARTE: Salvar conteúdo bloqueado para auditoria
-      const diretorioBloqueados = path.join(process.cwd(), 'blocked');
-      const salvarVideoBloqueado = salvarConteudoBloqueado('video', diretorioBloqueados);
-      
-      // Executar salvamento, mas não aguardar para continuar o fluxo principal
-      salvarVideoBloqueado({
-        origemInfo: config.dadosOrigem,
-        prompt,
-        mimeType: config.mimeType || 'video/mp4',
-        caminhoVideo
-      }, erro).then(resultado => {
-        if (resultado.sucesso) {
-          this.registrador.info(`Conteúdo de vídeo bloqueado salvo para auditoria: ${resultado.dados.caminhoJson}`);
-        }
-      }).catch(erroSalvar => {
-        this.registrador.error(`Erro ao salvar diagnóstico de vídeo bloqueado: ${erroSalvar.message}`);
-      });
-      
-      return "Este conteúdo não pôde ser processado por questões de segurança.";
-    }
-    
-    this.registrador.error(`Erro ao processar vídeo: ${erro.message}`);
-    return "Desculpe, ocorreu um erro ao processar este vídeo. Por favor, tente novamente com outro vídeo ou reformule seu pedido.";
-  }
-}
+  };
+
+  const getArquivoGoogle = async (nomeArquivoGoogle, timeoutMs = TIMEOUT_API_GERAL_MS) => {
+     
+     // executarComResiliencia já retorna Promise<Resultado>
+     const resultado = await executarComResiliencia(
+        'getArquivoGoogle',
+        () => gerenciadorArquivosGoogle.getFile(nomeArquivoGoogle),
+        timeoutMs
+     );
+     // Apenas retornamos o resultado encapsulado
+     return resultado;
+  };
 
   /**
-   * Limpa e formata a resposta da IA
-   * @param {string} texto - Texto para limpar
-   * @returns {string} Texto limpo
+   * Gera conteúdo a partir de um arquivo já existente no Google AI (via URI).
+   * Usado pelas filas após o upload e processamento inicial.
    */
-  limparResposta(texto) {
-    if (!texto || typeof texto !== 'string') {
-      return "Não foi possível gerar uma resposta válida.";
-    }
-    let textoLimpo = texto
-      .replace(/^(?:amélie|amelie):[\s]*/gi, '')
-      .replace(/\r\n|\r|\n{2,}/g, '\n\n')
-      .trim();
-    return textoLimpo;
-  }
-}
+  const gerarConteudoDeArquivoUri = async (fileUri, mimeType, prompt, config) => {
+    const tipo = config.tipoMidia || 'arquivoUri';
+    
 
-module.exports = GerenciadorAI;
+    // 1. Preparar Conteúdo e Config para API
+    // Usar a config recebida, que já contém a systemInstruction correta (persona)
+    const modelo = obterOuCriarModelo(config); // Configura o modelo SÓ com a persona (ou padrão geral)
+    // Enviar a instrução PADRÃO da mídia (tarefa) como o prompt de texto junto com o arquivo.
+    const textoParaEnviar = config.instrucaoPadraoMidia || prompt; // Usa prompt original se instrução padrão não veio
+    const partesConteudo = [{ fileData: { mimeType: mimeType, fileUri: fileUri } }, { text: textoParaEnviar }];
+
+    // 2. Executar Geração (com resiliência e timeout maior)
+    const resultadoExec = await executarComResiliencia(
+      `generateContent${_.capitalize(tipo)}`, // Nome dinâmico para log
+      () => modelo.generateContent(partesConteudo),
+      TIMEOUT_API_UPLOAD_MS // Usar timeout maior para análise de arquivos
+    );
+    if (!resultadoExec.sucesso) {
+      // Propagar falha (erro já logado)
+      // O chamador (FilasProcessadores) decidirá como notificar o usuário
+      return resultadoExec;
+    }
+
+    // 3. Processar Resposta (tratar safety, etc.)
+    const resultadoProc = processarRespostaIA(resultadoExec.dados, tipo, config.dadosOrigem);
+    if (!resultadoProc.sucesso) {
+      // Propagar falha (erro já logado)
+      return resultadoProc;
+    }
+
+    // 4. Sucesso: Adicionar prefixo (se necessário) e retornar Resultado.sucesso
+    const respostaFinal = resultadoProc.dados;
+    let respostaComPrefixo = respostaFinal; // Inicializa sem prefixo
+
+    return Resultado.sucesso(respostaFinal);
+  };
+
+
+  // --- Retorno da Fábrica ---
+  // Expõe as funções que implementam a interface IAPort (implicitamente)
+  return {
+    processarTexto,
+    processarImagem,
+    processarAudio,
+    processarDocumentoInline,
+    processarDocumentoArquivo,
+    processarVideo,
+
+    // Funções de gerenciamento de arquivos expostas para as filas
+    uploadArquivoGoogle,
+    deleteArquivoGoogle,
+    getArquivoGoogle,
+    gerarConteudoDeArquivoUri,
+  };
+};
+
+module.exports = criarAdaptadorAI; // Exporta a fábrica

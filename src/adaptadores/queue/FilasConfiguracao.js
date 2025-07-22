@@ -71,20 +71,24 @@ const FilasConfiguracao = {
         config.modoDescricao = 'legenda';
       }
 
-      // Usar composição para selecionar a instrução correta
-      const obterInstrucao = _.cond([
+      const modoDescricao = config.modoDescricao || 'curto';
+      
+
+      // Obter a instrução padrão para a mídia/modo
+      const obterInstrucaoPadrao = _.cond([
         [_.matches({ tipo: 'imagem', modo: 'curto' }), _.constant(obterInstrucaoImagemCurta())],
         [_.matches({ tipo: 'imagem', modo: 'longo' }), _.constant(obterInstrucaoImagem())],
         [_.matches({ tipo: 'video', modo: 'curto' }), _.constant(obterInstrucaoVideoCurta())],
         [_.matches({ tipo: 'video', modo: 'longo' }), _.constant(obterInstrucaoVideo())],
         [_.matches({ tipo: 'video', modo: 'legenda' }), _.constant(obterInstrucaoVideoLegenda())],
-        [_.stubTrue, _.constant(null)]
+        [_.stubTrue, _.constant(null)] // Caso padrão (sem instrução específica)
       ]);
+      const instrucaoPadraoMidia = obterInstrucaoPadrao({ tipo: tipoMidia, modo: modoDescricao });
 
-      const modoDescricao = config.modoDescricao || 'curto';
-      registrador.debug(`Modo de descrição: ${modoDescricao} para ${tipoMidia} no chat ${chatId}`);
-
-      const systemInstructions = obterInstrucao({ tipo: tipoMidia, modo: modoDescricao });
+      // Não combinar aqui. Retornar ambos separadamente.
+      const promptPersonalizado = config.systemInstructions; // Pode ser nulo
+      
+      
 
       return Resultado.sucesso({
         temperature: config.temperature || 0.7,
@@ -92,7 +96,8 @@ const FilasConfiguracao = {
         topP: config.topP || 0.95,
         maxOutputTokens: config.maxOutputTokens || 1024,
         model: "gemini-2.0-flash",
-        systemInstructions,
+        systemInstructions: promptPersonalizado, // Retorna SÓ o prompt personalizado (ou null)
+        instrucaoPadraoMidia: instrucaoPadraoMidia, // Retorna a instrução padrão separadamente
         modoDescricao,
         usarLegenda: config.usarLegenda
       });
@@ -130,23 +135,23 @@ const FilasConfiguracao = {
       // Resto do código com o cond original
       return _.cond([
         [_.matches({ tipo: 'imagem', modo: 'longo' }), () => {
-          registrador.debug('Usando prompt LONGO para imagem');
+          
           return obterPromptImagem();
         }],
         [_.matches({ tipo: 'imagem', modo: 'curto' }), () => {
-          registrador.debug('Usando prompt CURTO para imagem');
+          
           return obterPromptImagemCurto();
         }],
         [_.matches({ tipo: 'video', modo: 'longo' }), () => {
-          registrador.debug('Usando prompt LONGO para vídeo');
+          
           return obterPromptVideo();
         }],
         [_.matches({ tipo: 'video', modo: 'curto' }), () => {
-          registrador.debug('Usando prompt CURTO para vídeo');
+          
           return obterPromptVideoCurto();
         }],
         [_.matches({ tipo: 'video', modo: 'legenda' }), () => {
-          registrador.debug('Usando prompt LEGENDA para vídeo');
+          
           return obterPromptVideoLegenda();
         }],
         [_.stubTrue, _.constant(promptUsuario)]

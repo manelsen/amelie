@@ -62,7 +62,8 @@ const criarComandoUsers = (dependencias) => {
       }
     )()
     .catch(erro => {
-      if (erro.message !== "Não é um grupo") {
+      // Usar includes() para tornar a verificação mais robusta
+      if (!erro.message?.includes("Não é um grupo")) {
         registrador.error(`Erro ao listar usuários do grupo: ${erro.message}`);
       }
       return Resultado.falha(erro);

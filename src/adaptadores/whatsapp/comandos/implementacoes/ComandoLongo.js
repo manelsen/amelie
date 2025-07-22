@@ -24,12 +24,12 @@ const criarComandoLongo = (dependencias) => {
       
       // Enviar confirmação
       () => {
-        registrador.debug(`Modo longo ativado para ${chatId}, verificando configuração...`);
+        
         return Trilho.dePromise(gerenciadorConfig.obterConfig(chatId));
       },
       
       config => {
-        registrador.debug(`Modo de descrição atual: ${config.modoDescricao}`);
+        
         return Trilho.dePromise(servicoMensagem.enviarResposta(
           mensagem, 
           'Modo de descrição longa e detalhada ativado para imagens e vídeos. Toda mídia visual será descrita com o máximo de detalhes possível.'
@@ -38,7 +38,7 @@ const criarComandoLongo = (dependencias) => {
     )()
     .then(resultado => {
       if (resultado.sucesso) {
-        registrador.debug(`Modo de descrição longa ativado para o chat ${chatId}`);
+        
       }
       return resultado;
     });
