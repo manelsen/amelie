@@ -10,21 +10,14 @@ Posso:
 - Transcrever áudios palavra por palavra
 - Interpretar vídeos
 - Conversar sobre diversos assuntos
-- Ajudar em grupos, tornando o conteúdo mais acessível
 
 ## Como me usar 📱
 
 Para falar comigo:
 
-1. Me adicione como contato: (31) 99740 2728
+1. Me adicione como contato: (31) 97234-4065
 2. Me envie uma mensagem no WhatsApp
 3. Use o comando `.ajuda` para ver todas as minhas funcionalidades
-
-Para me adicionar em um grupo:
-
-1. Me salve como contato
-2. Me adicione diretamente no grupo
-3. Pronto! Vou ajudar a tornar o grupo mais acessível
 
 ## Meus comandos 🎯
 
@@ -90,17 +83,12 @@ Se quiser mais detalhes sobre uma imagem ou vídeo:
 
 ## Dicas de uso 💡
 
-1. Em grupos, só respondo quando:
-   - Sou mencionada
-   - Alguém responde minhas mensagens
-   - Recebo um comando (começando com ponto)
-
-2. Para descrições de imagem:
+1. Para descrições de imagem:
    - Uso linguagem clara e objetiva
    - Descrevo elementos importantes como texto, pessoas e objetos
    - Mantenho uma ordem lógica na descrição
 
-3. Para transcrições de áudio:
+2. Para transcrições de áudio:
    - Transcrevo exatamente o que foi dito
    - Mantenho a fidelidade do conteúdo
    - Indico pausas e elementos sonoros relevantes
