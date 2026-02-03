@@ -9,7 +9,7 @@ const obterInformacoesChat = _.curry(async (registrador, dados) => {
   try {
     const { mensagem } = dados;
     const chat = await mensagem.getChat();
-    const chatId = chat.id._serialized;
+    const chatId = chat.id?._serialized;
     const ehGrupo = chatId.endsWith('@g.us');
 
     return Resultado.sucesso({
@@ -139,8 +139,8 @@ const verificarPermissaoComando = _.curry(async (mensagem, clienteWhatsApp, regi
     const remetenteId = mensagem.author || mensagem.from;
     
     if (chat.groupMetadata && chat.groupMetadata.participants) {
-      const participante = chat.groupMetadata.participants.find(p => 
-        p.id._serialized === remetenteId
+      const participante = chat.groupMetadata.participants.find(p =>
+        p.id?._serialized === remetenteId
       );
       
       if (participante) {

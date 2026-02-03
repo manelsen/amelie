@@ -87,34 +87,25 @@ class ClienteWhatsApp extends EventEmitter {
     });
 
     this.configurarOuvinteEventos();
-    this.cliente.initialize().then(() => {
-      this.registrador.info('[Whats] Cliente inicializado, aguardando para solicitar código de pareamento...');
+    this.cliente.initialize().then(async () => {
+      this.registrador.info('[Whats] Cliente inicializado.');
       
-      // Aguarda um tempo definido para verificar se a conexão automática falhou
-      // e então tenta solicitar o código de pareamento se necessário.
-      setTimeout(async () => {
-          // VERIFICAÇÃO ADICIONADA: Só tenta solicitar o código se o cliente NÃO estiver pronto
-          if (!this.pronto) {
-              this.registrador.info('[Whats] Cliente não conectou automaticamente via sessão salva. Tentando solicitar código de pareamento...');
-              const phoneNumber = process.env.PAIRING_PHONE_NUMBER;
-              if (!phoneNumber) {
-                  this.registrador.warn('[Whats] Variável PAIRING_PHONE_NUMBER não definida e conexão automática falhou. Use o QR Code se aparecer.');
-                  return;
-              }
-              
-              try {
-                  this.registrador.info(`[Whats] Solicitando código de pareamento para o número: ${phoneNumber}`);
-                  const code = await this.cliente.requestPairingCode(phoneNumber);
-                  this.registrador.info(`[Whats] Código de pareamento recebido: ${code}. Insira este código no seu telefone.`);
-                  this.emit('pairing_code', code);
-              } catch (error) {
-                  this.registrador.error(`[Whats] Erro ao solicitar código de pareamento: ${error.message}`);
-                  this.registrador.info('[Whats] Falha ao obter código de pareamento. Se um QR Code for exibido, use-o.');
-              }
-          } else {
-              
-          }
-      }, 15000); // Aguarda 15 segundos para dar chance à LocalAuth
+      // Lógica de Pairing Code otimizada
+      if (process.env.PAIRING_PHONE_NUMBER && !this.pronto) {
+          // Aguarda um breve momento para inicialização
+          setTimeout(async () => {
+            if (!this.pronto) {
+               try {
+                   this.registrador.info(`[Whats] Solicitando código de pareamento para ${process.env.PAIRING_PHONE_NUMBER}`);
+                   const code = await this.cliente.requestPairingCode(process.env.PAIRING_PHONE_NUMBER);
+                   this.registrador.info(`[Whats] Código de pareamento recebido: ${code}`);
+                   this.emit('pairing_code', code);
+               } catch (e) {
+                   this.registrador.error(`[Whats] Erro ao solicitar Pairing Code: ${e.message}`);
+               }
+            }
+          }, 5000); // 5 segundos para dar chance ao LocalAuth
+      }
     });
   }
 
@@ -124,6 +115,10 @@ class ClienteWhatsApp extends EventEmitter {
   configurarOuvinteEventos() {
     // Evento para código QR
     this.cliente.on('qr', (qr) => {
+      if (process.env.PAIRING_PHONE_NUMBER) {
+        this.registrador.info('[Whats] QR Code recebido, mas PAIRING_PHONE_NUMBER está definido. Aguardando Pairing Code...');
+        return;
+      }
       qrcode.generate(qr, { small: true });
       this.registrador.info('[Whats] Código QR gerado para autenticação.');
       this.emit('qr', qr);
@@ -527,8 +522,8 @@ class ClienteWhatsApp extends EventEmitter {
    * @returns {Promise<boolean>} Verdadeiro se deve responder
    */
   async deveResponderNoGrupo(msg, chat) {
-    const chatId = chat.id._serialized;
-    const msgId = msg.id._serialized;
+    const chatId = chat.id?._serialized;
+    const msgId = msg.id?._serialized;
     const botId = this.cliente?.info?.wid?._serialized;
     const nomeGrupo = chat.name || chatId;
     const prefixoLog = `[Whats][GrupoResp][${nomeGrupo}]`; // Contexto mais curto
@@ -560,7 +555,7 @@ class ClienteWhatsApp extends EventEmitter {
     if (botId) {
       try {
         const mencoes = await msg.getMentions();
-        const botMencionado = mencoes.some(mencao => mencao.id._serialized === botId);
+        const botMencionado = mencoes.some(mencao => mencao.id?._serialized === botId);
         
         if (botMencionado) {
           

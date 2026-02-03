@@ -5,7 +5,7 @@
  * Adapta a interface Repositorio para o NeDB, tratando erros de forma funcional.
  */
 
-const Datastore = require('nedb');
+const Datastore = require('@seald-io/nedb');
 const { Repositorio, Resultado } = require('./Repositorio');
 const fs = require('fs');
 const path = require('path');
