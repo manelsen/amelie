@@ -550,6 +550,12 @@ const criarServicoMensagem = (registrador, clienteWhatsApp, gerenciadorTransacoe
     
     const textoSeguro = resultadoTexto.dados;
     
+    // Proteção contra envio para Status
+    if (destinatario === 'status@broadcast') {
+      registrador.warn(`[MsgServ] Tentativa de envio para status@broadcast bloqueada.`);
+      return Resultado.falha(new Error("Envio para Status não permitido"));
+    }
+    
     try {
       await clienteWhatsApp.cliente.sendMessage(destinatario, textoSeguro);
       

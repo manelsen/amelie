@@ -115,13 +115,17 @@ Meu repositório fica em https://github.com/manelsen/amelie`;
         // Etapa 3: Obter informações do chat
         (dados) => obterInformacoesChat(registrador, dados), // Adiciona chatId, chat, ehGrupo aos dados
 
-        // Etapa 4: Verificar se a mensagem é de um grupo e, em caso afirmativo, encerrar o processamento.
+        // Etapa 4: Verificar se a mensagem é de um grupo ou status e, em caso afirmativo, encerrar o processamento.
         (dados) => {
           if (dados.ehGrupo) {
             // Se for uma mensagem de grupo, retorna uma falha controlada para parar o pipeline.
             return Resultado.falha(new Error("Mensagem de grupo ignorada."), true); // O 'true' indica que a falha é silenciosa.
           }
-          // Se não for de grupo, continua o fluxo normalmente.
+          if (dados.chatId === 'status@broadcast') {
+            // Se for uma atualização de status, ignora silenciosamente.
+            return Resultado.falha(new Error("Mensagem de status ignorada."), true);
+          }
+          // Se não for de grupo nem status, continua o fluxo normalmente.
           return Resultado.sucesso(dados);
         },
 
