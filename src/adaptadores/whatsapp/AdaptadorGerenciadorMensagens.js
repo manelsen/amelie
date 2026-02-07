@@ -1,23 +1,27 @@
 const criarGerenciadorMensagens = require('./GerenciadorMensagens');
 
-// Classe adaptadora que mantém a mesma API mas usa a implementação funcional
-class AdaptadorGerenciadorMensagens {
-  constructor(registrador, clienteWhatsApp, gerenciadorConfig, gerenciadorAI, filasMidia, gerenciadorTransacoes, servicoMensagem) {
-    const dependencias = {
-      registrador,
-      clienteWhatsApp,
-      gerenciadorConfig,
-      gerenciadorAI,
-      filasMidia,
-      gerenciadorTransacoes,
-      servicoMensagem
-    };
-    
-    this.gerenciador = criarGerenciadorMensagens(dependencias);
-    this.processarMensagem = this.gerenciador.processarMensagem;
-    this.iniciar = this.gerenciador.iniciar;
-    this.registrarComoHandler = this.gerenciador.registrarComoHandler;
-  }
-}
+/**
+ * Fábrica para o Adaptador de Gerenciador de Mensagens
+ * Mantém a mesma API mas usa a implementação funcional.
+ */
+const criarAdaptadorGerenciadorMensagens = (registrador, clienteWhatsApp, gerenciadorConfig, gerenciadorAI, filasMidia, gerenciadorTransacoes, servicoMensagem) => {
+  const dependencias = {
+    registrador,
+    clienteWhatsApp,
+    gerenciadorConfig,
+    gerenciadorAI,
+    filasMidia,
+    gerenciadorTransacoes,
+    servicoMensagem
+  };
+  
+  const gerenciador = criarGerenciadorMensagens(dependencias);
+  
+  return {
+    processarMensagem: gerenciador.processarMensagem,
+    iniciar: gerenciador.iniciar,
+    registrarComoHandler: gerenciador.registrarComoHandler
+  };
+};
 
-module.exports = AdaptadorGerenciadorMensagens;
+module.exports = { criarAdaptadorGerenciadorMensagens };

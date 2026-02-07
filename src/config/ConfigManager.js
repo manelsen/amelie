@@ -1,230 +1,178 @@
 // src/config/ConfigManager.js
 const path = require('path');
 const { Resultado } = require('../bancodedados/Repositorio');
+const { criarFabricaRepositorio } = require('../bancodedados/FabricaRepositorio');
 
-class ConfigManager {
-  constructor(registrador, diretorioDB = path.join(process.cwd(), 'db')) {
-    this.registrador = registrador;
-    this.diretorioDB = diretorioDB;
-    
-    // Usando a nova arquitetura internamente
-    const FabricaRepositorio = require('../bancodedados/FabricaRepositorio');
-    this.fabricaRepositorio = new FabricaRepositorio(registrador, diretorioDB);
-    this.repoConfig = this.fabricaRepositorio.obterRepositorioConfiguracao();
-    this.repoPrompts = this.fabricaRepositorio.obterRepositorioPrompts();
-    this.repoGrupos = this.fabricaRepositorio.obterRepositorioGrupos();
-    this.repoUsuarios = this.fabricaRepositorio.obterRepositorioUsuarios();
-    
-    // Configuração padrão
-    this.configPadrao = {
-      temperature: 0.9,
-      topK: 1,
-      topP: 0.95,
-      maxOutputTokens: 1024,
-      mediaImage: true,  
-      mediaAudio: false,  
-      mediaVideo: true,
-      modoDescricao: 'curto'
-    };
-    
-  }
-
-  async definirConfig(chatId, param, valor) {
-    const resultado = await this.repoConfig.definirConfig(chatId, param, valor);
-    
-    return Resultado.dobrar(
-      resultado,
-      () => {
-        
-        return true;
-      },
-      (erro) => {
-        this.registrador.error(`Erro ao definir configuração: ${erro.message}`);
-        return Resultado.falha(erro); // Retorna falha em vez de lançar
-      }
-    );
-  }
-
-  async obterConfig(chatId) {
-    const resultado = await this.repoConfig.obterConfigChat(chatId, this.configPadrao);
-    
-    return Resultado.dobrar(
-      resultado,
-      async (config) => {
-        // Verificação explícita para legenda
-        if (config.usarLegenda === true) {
-          
-          config.modoDescricao = 'legenda';
-        }
-        
-        // Resto do código original
-        if (config.activePrompt) {
-          const promptAtivo = await this.obterPromptSistema(chatId, config.activePrompt);
-          if (promptAtivo) {
-            config.systemInstructions = promptAtivo.text;
-            const match = config.systemInstructions.match(/^Seu nome é (\w+)\./);
-            config.botName = match ? match[1] : process.env.BOT_NAME || 'Amélie';
-          }
-        } else {
-          config.botName = process.env.BOT_NAME || 'Amélie';
-        }
+/**
+ * Fábrica para o ConfigManager funcional
+ */
+const criarConfigManager = (registrador, diretorioDB = path.join(process.cwd(), 'db')) => {
+  const fabricaRepositorio = criarFabricaRepositorio(registrador, diretorioDB);
+  const repoConfig = fabricaRepositorio.obterRepositorioConfiguracao();
+  const repoPrompts = fabricaRepositorio.obterRepositorioPrompts();
+  const repoGrupos = fabricaRepositorio.obterRepositorioGrupos();
+  const repoUsuarios = fabricaRepositorio.obterRepositorioUsuarios();
   
-        if (config.systemInstructions && typeof config.systemInstructions !== 'string') {
-          config.systemInstructions = String(config.systemInstructions);
-        }
-  
-        return config;
-      },
-      (erro) => {
-        this.registrador.error(`Erro ao obter configuração: ${erro.message}`);
-        return Resultado.falha(erro); // Retorna falha em vez de lançar
-      }
-    );
-  }
+  const configPadrao = {
+    temperature: 0.9,
+    topK: 1,
+    topP: 0.95,
+    maxOutputTokens: 1024,
+    mediaImage: true,  
+    mediaAudio: false,  
+    mediaVideo: true,
+    modoDescricao: 'curto'
+  };
 
-  async resetarConfig(chatId) {
-    const configReset = {
-      ...this.configPadrao,
-      modoDescricao: 'curto',
-      descricaoLonga: false,
-      descricaoCurta: true,
-      activePrompt: null
-    };
-    
-    const resultado = await this.repoConfig.resetarConfig(chatId, configReset);
-    
-    return Resultado.dobrar(
-      resultado,
-      () => {
-        this.registrador.info(`Configurações resetadas para ${chatId}`);
-        return true;
-      },
-      (erro) => {
-        this.registrador.error(`Erro ao resetar configuração: ${erro.message}`);
-        return Resultado.falha(erro); // Retorna falha em vez de lançar
-      }
-    );
-  }
+  /**
+   * Obtém um prompt de sistema pelo nome
+   */
+  const obterPromptSistema = async (chatId, nome) => {
+    const resultado = await repoPrompts.obterPrompt(chatId, nome);
+    return Resultado.dobrar(resultado, (p) => p, (e) => {
+      registrador.error(`Erro ao obter prompt: ${e.message}`);
+      return Resultado.falha(e);
+    });
+  };
 
-  async definirPromptSistema(chatId, nome, texto) {
-    const resultado = await this.repoPrompts.definirPrompt(chatId, nome, texto);
-    
-    return Resultado.dobrar(
-      resultado,
-      () => {
-        
-        return true;
-      },
-      (erro) => {
-        this.registrador.error(`Erro ao definir prompt: ${erro.message}`);
-        return Resultado.falha(erro); // Retorna falha em vez de lançar
-      }
-    );
-  }
+  /**
+   * Define configuração para um chat
+   */
+  const definirConfig = async (chatId, param, valor) => {
+    const resultado = await repoConfig.definirConfig(chatId, param, valor);
+    return Resultado.dobrar(resultado, () => true, (e) => {
+      registrador.error(`Erro ao definir configuração: ${e.message}`);
+      return Resultado.falha(e);
+    });
+  };
 
-  async obterPromptSistema(chatId, nome) {
-    const resultado = await this.repoPrompts.obterPrompt(chatId, nome);
-    
-    return Resultado.dobrar(
-      resultado,
-      (prompt) => prompt,
-      (erro) => {
-        this.registrador.error(`Erro ao obter prompt: ${erro.message}`);
-        return Resultado.falha(erro); // Retorna falha em vez de lançar
-      }
-    );
-  }
+  return {
+    definirConfig,
 
-  async listarPromptsSistema(chatId) {
-    const resultado = await this.repoPrompts.listarPrompts(chatId);
-    
-    return Resultado.dobrar(
-      resultado,
-      (prompts) => prompts,
-      (erro) => {
-        this.registrador.error(`Erro ao listar prompts: ${erro.message}`);
-        return Resultado.falha(erro); // Retorna falha em vez de lançar
-      }
-    );
-  }
-
-  async definirPromptSistemaAtivo(chatId, nomePrompt) {
-    try {
-      const prompt = await this.obterPromptSistema(chatId, nomePrompt);
-      if (prompt) {
-        await this.definirConfig(chatId, 'activePrompt', nomePrompt);
-        
-        return true;
-      }
-      this.registrador.warn(`Prompt ${nomePrompt} não encontrado para ${chatId}`);
-      return false;
-    } catch (erro) {
-      this.registrador.error(`Erro ao definir prompt ativo: ${erro.message}`);
-      return false;
-    }
-  }
-
-  async limparPromptSistemaAtivo(chatId) {
-    try {
-      await this.definirConfig(chatId, 'activePrompt', null);
+    obterConfig: async (chatId) => {
+      const resultado = await repoConfig.obterConfigChat(chatId, configPadrao);
       
-      return true;
-    } catch (erro) {
-      this.registrador.error(`Erro ao limpar prompt ativo: ${erro.message}`);
-      return false;
-    }
-  }
-
-  async excluirPromptSistema(chatId, nome) {
-    const resultado = await this.repoPrompts.excluirPrompt(chatId, nome);
+      return Resultado.dobrar(
+        resultado,
+        async (config) => {
+          if (config.usarLegenda === true) config.modoDescricao = 'legenda';
+          
+          if (config.activePrompt) {
+            const promptAtivo = await obterPromptSistema(chatId, config.activePrompt);
+            if (promptAtivo && !promptAtivo.sucesso === false) { // Verifica se não é Resultado.falha
+              config.systemInstructions = promptAtivo.text;
+              const match = config.systemInstructions.match(/^Seu nome é (\w+)\./);
+              config.botName = match ? match[1] : process.env.BOT_NAME || 'Amélie';
+            }
+          } else {
+            config.botName = process.env.BOT_NAME || 'Amélie';
+          }
     
-    return Resultado.dobrar(
-      resultado,
-      (sucesso) => {
-        if (sucesso) {
-          this.registrador.info(`Prompt ${nome} excluído para ${chatId}`);
-          return true;
-        } else {
-          this.registrador.warn(`Prompt ${nome} não encontrado para exclusão`);
-          return false;
+          if (config.systemInstructions && typeof config.systemInstructions !== 'string') {
+            config.systemInstructions = String(config.systemInstructions);
+          }
+    
+          return config;
+        },
+        (erro) => {
+          registrador.error(`Erro ao obter configuração: ${erro.message}`);
+          return Resultado.falha(erro);
         }
-      },
-      (erro) => {
-        this.registrador.error(`Erro ao excluir prompt: ${erro.message}`);
-        return Resultado.falha(erro); // Retorna falha em vez de lançar
-      }
-    );
-  }
+      );
+    },
 
-  async obterOuCriarGrupo(chat) {
-    // Refatorado: Passa apenas ID e dados relevantes, não o objeto chat completo
-    const resultado = await this.repoGrupos.obterOuCriarGrupo(chat.id._serialized, { nome: chat.name });
-    
-    return Resultado.dobrar(
-      resultado,
-      (grupo) => grupo,
-      (erro) => {
-        this.registrador.error(`Erro ao processar grupo: ${erro.message}`);
-        return Resultado.falha(erro); // Retorna falha em vez de lançar
-      }
-    );
-  }
-
-  async obterOuCriarUsuario(remetente, cliente) {
-    // Refatorado: Passa apenas ID e dados relevantes, não os objetos completos remetente/cliente
-    const resultado = await this.repoUsuarios.obterOuCriarUsuario(remetente.id._serialized, { nome: remetente.pushname });
-    
-    return Resultado.dobrar(
-      resultado,
-      (usuario) => usuario,
-      (erro) => {
-        this.registrador.error(`Erro ao processar usuário: ${erro.message}`);
-        // Retorna falha em vez de criar usuário básico aqui.
-        // A lógica de fallback, se necessária, deve ser tratada pelo chamador.
+    resetarConfig: async (chatId) => {
+      const configReset = {
+        ...configPadrao,
+        modoDescricao: 'curto',
+        descricaoLonga: false,
+        descricaoCurta: true,
+        activePrompt: null
+      };
+      const resultado = await repoConfig.resetarConfig(chatId, configReset);
+      return Resultado.dobrar(resultado, () => {
+        registrador.info(`Configurações resetadas para ${chatId}`);
+        return true;
+      }, (erro) => {
+        registrador.error(`Erro ao resetar configuração: ${erro.message}`);
         return Resultado.falha(erro);
-      }
-    );
-  }
-}
+      });
+    },
 
-module.exports = ConfigManager;
+    definirPromptSistema: async (chatId, nome, texto) => {
+      const resultado = await repoPrompts.definirPrompt(chatId, nome, texto);
+      return Resultado.dobrar(resultado, () => true, (e) => {
+        registrador.error(`Erro ao definir prompt: ${e.message}`);
+        return Resultado.falha(e);
+      });
+    },
+
+    obterPromptSistema,
+
+    listarPromptsSistema: async (chatId) => {
+      const resultado = await repoPrompts.listarPrompts(chatId);
+      return Resultado.dobrar(resultado, (p) => p, (e) => {
+        registrador.error(`Erro ao listar prompts: ${e.message}`);
+        return Resultado.falha(e);
+      });
+    },
+
+    definirPromptSistemaAtivo: async (chatId, nomePrompt) => {
+      try {
+        const prompt = await obterPromptSistema(chatId, nomePrompt);
+        if (prompt && !prompt.sucesso === false) {
+          await definirConfig(chatId, 'activePrompt', nomePrompt);
+          return true;
+        }
+        registrador.warn(`Prompt ${nomePrompt} não encontrado para ${chatId}`);
+        return false;
+      } catch (erro) {
+        registrador.error(`Erro ao definir prompt ativo: ${erro.message}`);
+        return false;
+      }
+    },
+
+    limparPromptSistemaAtivo: async (chatId) => {
+      try {
+        await definirConfig(chatId, 'activePrompt', null);
+        return true;
+      } catch (erro) {
+        registrador.error(`Erro ao limpar prompt ativo: ${erro.message}`);
+        return false;
+      }
+    },
+
+    excluirPromptSistema: async (chatId, nome) => {
+      const resultado = await repoPrompts.excluirPrompt(chatId, nome);
+      return Resultado.dobrar(resultado, (sucesso) => {
+        if (sucesso) {
+          registrador.info(`Prompt ${nome} excluído para ${chatId}`);
+          return true;
+        }
+        registrador.warn(`Prompt ${nome} não encontrado para exclusão`);
+        return false;
+      }, (erro) => {
+        registrador.error(`Erro ao excluir prompt: ${erro.message}`);
+        return Resultado.falha(erro);
+      });
+    },
+
+    obterOuCriarGrupo: async (chat) => {
+      const resultado = await repoGrupos.obterOuCriarGrupo(chat.id._serialized, { nome: chat.name });
+      return Resultado.dobrar(resultado, (g) => g, (e) => {
+        registrador.error(`Erro ao processar grupo: ${e.message}`);
+        return Resultado.falha(e);
+      });
+    },
+
+    obterOuCriarUsuario: async (remetente) => {
+      const resultado = await repoUsuarios.obterOuCriarUsuario(remetente.id._serialized, { nome: remetente.pushname });
+      return Resultado.dobrar(resultado, (u) => u, (e) => {
+        registrador.error(`Erro ao processar usuário: ${e.message}`);
+        return Resultado.falha(e);
+      });
+    }
+  };
+};
+
+module.exports = { criarConfigManager };

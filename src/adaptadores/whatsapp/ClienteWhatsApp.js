@@ -1,284 +1,186 @@
 /**
- * ClienteWhatsApp - Módulo para gerenciamento da conexão com WhatsApp
- * 
- * Refatorado para adotar apenas responsabilidades de baixo nível,
- * mantendo o foco na comunicação direta com a API do WhatsApp.
+ * ClienteWhatsApp - Módulo funcional para gerenciamento da conexão com WhatsApp
  * 
  * @author Manel
- * @version 3.0.0
+ * @version 3.1.0 (Funcional)
  */
 
-const { Client, LocalAuth } = require('whatsapp-web.js'); // Reintroduzido LocalAuth
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const EventEmitter = require('events');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 
-// Padrão Railway para operações funcionais
-const Resultado = {
-  sucesso: dados => ({ sucesso: true, dados, erro: null }),
-  falha: erro => ({ sucesso: false, dados: null, erro }),
-  
-  dobrar: (resultado, aoSucesso, aoFalhar) => 
-    resultado.sucesso ? aoSucesso(resultado.dados) : aoFalhar(resultado.erro)
-};
+/**
+ * Cria uma nova instância funcional do cliente WhatsApp
+ * @param {Object} registrador - Objeto logger para registro de eventos
+ * @param {Object} opcoes - Opções de configuração
+ */
+const criarClienteWhatsApp = (registrador, opcoes = {}) => {
+  const eventos = new EventEmitter();
+  let pronto = false;
+  let tentativasReconexao = 0;
+  const maxTentativasReconexao = opcoes.maxTentativasReconexao || 5;
+  let cliente = null;
+  let ultimoEnvio = Date.now();
+  const clienteId = opcoes.clienteId || 'principal';
+  const diretorioTemp = opcoes.diretorioTemp || './temp';
 
-class ClienteWhatsApp extends EventEmitter {
-  /**
-   * Cria uma nova instância do cliente WhatsApp
-   * @param {Object} registrador - Objeto logger para registro de eventos
-   * @param {Object} opcoes - Opções de configuração
-   */
-  constructor(registrador, opcoes = {}) {
-    super();
-    this.registrador = registrador;
-    this.pronto = false;
-    this.tentativasReconexao = 0;
-    this.maxTentativasReconexao = opcoes.maxTentativasReconexao || 5;
-    this.cliente = null;
-    this.ultimoEnvio = Date.now();
-    this.clienteId = opcoes.clienteId || 'principal';
-    this.diretorioTemp = opcoes.diretorioTemp || './temp';
-
-    // Garantir que o diretório de arquivos temporários exista
-    this._garantirDiretorioExiste(this.diretorioTemp);
-
-    this.inicializarCliente();
-  }
-
-  /**
-   * Garantir que um diretório exista
-   * @param {string} diretorio - Caminho do diretório
-   * @private
-   */
-  _garantirDiretorioExiste(diretorio) {
+  const garantirDiretorioExiste = (diretorio) => {
     if (!fs.existsSync(diretorio)) {
       try {
         fs.mkdirSync(diretorio, { recursive: true });
-        
       } catch (erro) {
-        this.registrador.error(`[Whats] Erro ao criar diretório: ${erro.message}`);
+        registrador.error(`[Whats] Erro ao criar diretório: ${erro.message}`);
       }
     }
-  }
+  };
 
-  /**
-   * Inicializa o cliente WhatsApp
-   */
-  inicializarCliente() {
-    this.cliente = new Client({
-      authStrategy: new LocalAuth({ clientId: this.clienteId }), // Reintroduzido LocalAuth para salvar sessão
+  garantirDiretorioExiste(diretorioTemp);
+
+  const configurarOuvinteEventos = (instanciaCliente) => {
+    instanciaCliente.on('qr', (qr) => {
+      if (process.env.PAIRING_PHONE_NUMBER) {
+        registrador.info('[Whats] QR Code recebido, mas PAIRING_PHONE_NUMBER está definido. Aguardando Pairing Code...');
+        return;
+      }
+      qrcode.generate(qr, { small: true });
+      registrador.info('[Whats] Código QR gerado para autenticação.');
+      eventos.emit('qr', qr);
+    });
+
+    instanciaCliente.on('ready', () => {
+      pronto = true;
+      tentativasReconexao = 0;
+      registrador.info('[Whats] Evento "ready" recebido. Cliente pronto.');
+      eventos.emit('pronto');
+    });
+
+    instanciaCliente.on('disconnected', (razao) => {
+      const timestamp = new Date().toISOString();
+      registrador.error(`[Whats][${timestamp}] Evento "disconnected" recebido. Razão: ${razao}`);
+      pronto = false;
+      eventos.emit('desconectado', razao);
+      tratarReconexao();
+    });
+
+    instanciaCliente.on('change_state', state => {
+        registrador.info(`[Whats] Evento "change_state" recebido. Novo estado: ${state}`);
+    });
+
+    instanciaCliente.on('message_create', async (msg) => {
+      if (!msg.fromMe) {
+        eventos.emit('mensagem', msg);
+      }
+    });
+
+    instanciaCliente.on('group_join', (notificacao) => {
+      eventos.emit('entrada_grupo', notificacao);
+    });
+
+    instanciaCliente.on('group_leave', (notificacao) => {
+      eventos.emit('saida_grupo', notificacao);
+    });
+    
+    instanciaCliente.on('auth_failure', (msg) => {
+      const timestamp = new Date().toISOString();
+      registrador.error(`[Whats][DEBUG][${timestamp}] Evento "auth_failure" recebido: ${msg}`);
+      pronto = false;
+      eventos.emit('falha_autenticacao', msg);
+    });
+  };
+
+  const inicializarCliente = () => {
+    cliente = new Client({
+      authStrategy: new LocalAuth({ clientId: clienteId }),
       puppeteer: {
-        //executablePath: '/usr/bin/google-chrome',
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-gpu',
           '--js-flags=--expose-gc',
         ],
-        defaultViewport: {
-          width: 800,
-          height: 600
-        },
+        defaultViewport: { width: 800, height: 600 },
         timeout: 60000,
         ignoreHTTPSErrors: true
       }
     });
 
-    this.configurarOuvinteEventos();
-    this.cliente.initialize().then(async () => {
-      this.registrador.info('[Whats] Cliente inicializado.');
+    configurarOuvinteEventos(cliente);
+    
+    cliente.initialize().then(async () => {
+      registrador.info('[Whats] Cliente inicializado.');
       
-      // Lógica de Pairing Code otimizada
-      if (process.env.PAIRING_PHONE_NUMBER && !this.pronto) {
-          // Aguarda um breve momento para inicialização
+      if (process.env.PAIRING_PHONE_NUMBER && !pronto) {
           setTimeout(async () => {
-            if (!this.pronto) {
+            if (!pronto) {
                try {
-                   this.registrador.info(`[Whats] Solicitando código de pareamento para ${process.env.PAIRING_PHONE_NUMBER}`);
-                   const code = await this.cliente.requestPairingCode(process.env.PAIRING_PHONE_NUMBER);
-                   this.registrador.info(`[Whats] Código de pareamento recebido: ${code}`);
-                   this.emit('pairing_code', code);
+                   registrador.info(`[Whats] Solicitando código de pareamento para ${process.env.PAIRING_PHONE_NUMBER}`);
+                   const code = await cliente.requestPairingCode(process.env.PAIRING_PHONE_NUMBER);
+                   registrador.info(`[Whats] Código de pareamento recebido: ${code}`);
+                   eventos.emit('pairing_code', code);
                } catch (e) {
-                   this.registrador.error(`[Whats] Erro ao solicitar Pairing Code: ${e.message}`);
+                   registrador.error(`[Whats] Erro ao solicitar Pairing Code: ${e.message}`);
                }
             }
-          }, 5000); // 5 segundos para dar chance ao LocalAuth
+          }, 5000);
       }
     });
-  }
+  };
 
-  /**
-   * Configura todos os listeners de eventos do cliente
-   */
-  configurarOuvinteEventos() {
-    // Evento para código QR
-    this.cliente.on('qr', (qr) => {
-      if (process.env.PAIRING_PHONE_NUMBER) {
-        this.registrador.info('[Whats] QR Code recebido, mas PAIRING_PHONE_NUMBER está definido. Aguardando Pairing Code...');
-        return;
-      }
-      qrcode.generate(qr, { small: true });
-      this.registrador.info('[Whats] Código QR gerado para autenticação.');
-      this.emit('qr', qr);
-    });
-
-    // Evento quando o cliente está pronto
-    this.cliente.on('ready', () => {
-      this.pronto = true;
-      this.tentativasReconexao = 0;
-      this.registrador.info('[Whats] Evento "ready" recebido. Cliente pronto.'); // Log modificado para info
-      this.emit('pronto');
-    });
-
-    // Evento de desconexão
-    this.cliente.on('disconnected', (razao) => {
-      const timestamp = new Date().toISOString();
-      this.registrador.error(`[Whats][${timestamp}] Evento "disconnected" recebido. Razão: ${razao}`); // Log modificado
-      this.registrador.info(`[Whats] Estado antes da desconexão: pronto=${this.pronto}, tentativasReconexao=${this.tentativasReconexao}`); // Log modificado
-      this.pronto = false;
-      this.emit('desconectado', razao);
-      this.registrador.info(`[Whats][DEBUG] Chamando tratarReconexao() devido a: ${razao}`); // Log adicionado
-      this.tratarReconexao();
-    });
-
-    // Evento para mudança de estado (NOVO)
-    this.cliente.on('change_state', state => {
-        this.registrador.info(`[Whats] Evento "change_state" recebido. Novo estado: ${state}`); // Log modificado
-    });
-
-    // Evento para novas mensagens
-    this.cliente.on('message_create', async (msg) => {
-      if (!msg.fromMe) {
-        this.emit('mensagem', msg);
-      }
-    });
-
-    // Evento para entrada em grupo
-    this.cliente.on('group_join', (notificacao) => {
-      this.emit('entrada_grupo', notificacao);
-    });
-
-    // Evento para saída de grupo
-    this.cliente.on('group_leave', (notificacao) => {
-      this.emit('saida_grupo', notificacao);
-    });
-    
-    // Evento de falha na autenticação
-    this.cliente.on('auth_failure', (msg) => {
-      const timestamp = new Date().toISOString();
-      this.registrador.error(`[Whats][DEBUG][${timestamp}] Evento "auth_failure" recebido: ${msg}`); // Log aprimorado
-      this.pronto = false; // Garante que o estado 'pronto' seja falso
-      this.emit('falha_autenticacao', msg);
-      // Poderia tentar reiniciar aqui, mas a desconexão já deve tratar isso
-    });
-  }
-
-  /**
-   * Trata a lógica de reconexão automática
-   */
-  async tratarReconexao() {
-    if (this.tentativasReconexao < this.maxTentativasReconexao) {
-      this.tentativasReconexao++;
-      this.registrador.info(`[Whats] Tentativa de reconexão ${this.tentativasReconexao}/${this.maxTentativasReconexao}`);
-
+  const tratarReconexao = () => {
+    if (tentativasReconexao < maxTentativasReconexao) {
+      tentativasReconexao++;
+      registrador.info(`[Whats] Tentativa de reconexão ${tentativasReconexao}/${maxTentativasReconexao}`);
       setTimeout(() => {
         try {
-          this.inicializarCliente();
+          inicializarCliente();
         } catch (erro) {
-          this.registrador.error(`[Whats] Erro na tentativa de reconexão: ${erro.message}`);
+          registrador.error(`[Whats] Erro na tentativa de reconexão: ${erro.message}`);
         }
-      }, 5000); // Espera 5 segundos antes de tentar
+      }, 5000);
     } else {
-      this.registrador.error(`[Whats] Máximo de tentativas (${this.maxTentativasReconexao}) atingido.`);
-      this.emit('falha_reconexao');
+      registrador.error(`[Whats] Máximo de tentativas (${maxTentativasReconexao}) atingido.`);
+      eventos.emit('falha_reconexao');
     }
-  }
+  };
 
-  /**
-   * Verifica se o cliente realmente está pronto para uso
-   * @returns {Promise<boolean>} Verdadeiro se o cliente estiver realmente pronto
-   */
-  async estaProntoRealmente() {
-    // Verificação básica
-    if (!this.pronto || !this.cliente) {
-      return false;
-    }
-
+  const estaProntoRealmente = async () => {
+    if (!pronto || !cliente) return false;
     try {
-      // Verificação simplificada - se o cliente tem um ID (wid) e diz que está pronto
-      // já é suficiente na maioria dos casos
-      if (this.cliente.info && this.cliente.info.wid) {
-        return true;
-      }
-
-      // Apenas se a verificação acima falhar, tentamos uma verificação mais profunda
-      if (this.cliente.pupPage) {
-        const estadoConexao = await this.cliente.pupPage.evaluate(() => {
-          return window.Store &&
-            window.Store.Conn &&
-            window.Store.Conn.connected;
+      if (cliente.info && cliente.info.wid) return true;
+      if (cliente.pupPage) {
+        const estadoConexao = await cliente.pupPage.evaluate(() => {
+          return window.Store && window.Store.Conn && window.Store.Conn.connected;
         }).catch(() => null);
-
-        // Se conseguimos verificar que está conectado, retornamos true
-        // Mas se não conseguimos verificar (erro ou null), ainda assim retornamos true
-        // desde que o cliente esteja em estado "pronto"
         return estadoConexao !== false;
       }
-
-      // Se chegou aqui, o cliente parece estar inicializado, mas não conseguimos verificar completamente
-      // Vamos considerar pronto se o status básico estiver ok
-      return this.pronto;
+      return pronto;
     } catch (erro) {
-      this.registrador.error(`[Whats] Erro ao verificar estado real: ${erro.message}`);
-      // Em caso de erro, ainda retornamos true se o cliente disser que está pronto
-      return this.pronto;
+      registrador.error(`[Whats] Erro ao verificar estado real: ${erro.message}`);
+      return pronto;
     }
-  }
+  };
 
-  /**
-   * Envia uma mensagem (versão simplificada - apenas comunicação básica)
-   * @param {string} para - ID do destinatário 
-   * @param {string} conteudo - Texto da mensagem
-   * @param {Object|null} opcoes - Opções de envio como quotedMessageId
-   * @returns {Promise<boolean>} Sucesso do envio
-   */
-  async enviarMensagem(para, conteudo, opcoes = null) {
+  const enviarMensagem = async (para, conteudo, opcoesEnvio = null) => {
     try {
-      // Transformar o ID para o formato esperado caso necessário
       const destinatarioReal = para.includes('@') ? para : `${para}@c.us`;
-      
-      if (opcoes && opcoes.quotedMessageId) {
-        // Envio com citação
-        await this.cliente.sendMessage(destinatarioReal, conteudo, { quotedMessageId: opcoes.quotedMessageId });
+      if (opcoesEnvio && opcoesEnvio.quotedMessageId) {
+        await cliente.sendMessage(destinatarioReal, conteudo, { quotedMessageId: opcoesEnvio.quotedMessageId });
       } else {
-        // Envio direto
-        await this.cliente.sendMessage(destinatarioReal, conteudo);
+        await cliente.sendMessage(destinatarioReal, conteudo);
       }
-      
-      this.ultimoEnvio = Date.now();
+      ultimoEnvio = Date.now();
       return true;
     } catch (erro) {
-      this.registrador.error(`[Whats] Erro ao enviar mensagem: ${erro.message}`);
+      registrador.error(`[Whats] Erro ao enviar mensagem: ${erro.message}`);
       return false;
     }
-  }
+  };
 
-  /**
-   * Salva uma notificação para ser entregue posteriormente
-   * @param {string} destinatario - ID do destinatário
-   * @param {string} conteudo - Texto da mensagem
-   * @param {Object} opcoes - Opções adicionais
-   * @returns {Promise<string>} Caminho do arquivo de notificação
-   */
-  async salvarNotificacaoPendente(destinatario, conteudo, opcoes = {}) {
+  const salvarNotificacaoPendente = async (destinatario, conteudo, opcoesNotif = {}) => {
     try {
-      // Diretório para salvar as notificações pendentes
-      const diretorioTemp = this.diretorioTemp;
-      this._garantirDiretorioExiste(diretorioTemp);
-
-      // Criar dados da notificação
+      garantirDiretorioExiste(diretorioTemp);
       const notificacao = {
         para: destinatario,
         conteudo,
@@ -287,322 +189,165 @@ class ClienteWhatsApp extends EventEmitter {
         criadoEm: new Date().toISOString(),
         ultimaTentativa: null,
         statusEntrega: 'pendente',
-        ...opcoes
+        ...opcoesNotif
       };
-
-      // Nome do arquivo baseado no destinatário e timestamp
       const nomeArquivo = `notificacao_${destinatario.replace('@c.us', '')}_${Date.now()}.json`;
       const caminhoArquivo = path.join(diretorioTemp, nomeArquivo);
-
-      // Salvar no arquivo
       await fs.promises.writeFile(caminhoArquivo, JSON.stringify(notificacao, null, 2), 'utf8');
-      this.registrador.info(`[Whats] Notificação salva para envio posterior: ${caminhoArquivo}`);
-
+      registrador.info(`[Whats] Notificação salva para envio posterior: ${caminhoArquivo}`);
       return caminhoArquivo;
     } catch (erro) {
-      this.registrador.error(`[Whats] Erro ao salvar notificação pendente: ${erro.message}`);
+      registrador.error(`[Whats] Erro ao salvar notificação pendente: ${erro.message}`);
       throw erro;
     }
-  }
+  };
 
-  /**
-   * Processa notificações pendentes
-   * @returns {Promise<number>} Número de notificações processadas
-   */
-  async processarNotificacoesPendentes() {
+  const processarNotificacoesPendentes = async () => {
     try {
-      const diretorioTemp = this.diretorioTemp;
       if (!fs.existsSync(diretorioTemp)) return 0;
-
-      // Obter todos os arquivos de notificação
       const arquivos = await fs.promises.readdir(diretorioTemp);
       const notificacoes = arquivos.filter(file => file.startsWith('notificacao_') && file.endsWith('.json'));
-
       if (notificacoes.length === 0) return 0;
 
-      this.registrador.info(`[Whats] Encontradas ${notificacoes.length} notificações pendentes.`); // Simplificado
+      registrador.info(`[Whats] Encontradas ${notificacoes.length} notificações pendentes.`);
       let processadas = 0;
 
       for (const arquivo of notificacoes) {
         try {
           const caminhoArquivo = path.join(diretorioTemp, arquivo);
-          const conteudo = await fs.promises.readFile(caminhoArquivo, 'utf8');
-          const notificacao = JSON.parse(conteudo);
+          const conteudoJson = await fs.promises.readFile(caminhoArquivo, 'utf8');
+          const notificacao = JSON.parse(conteudoJson);
 
-          // Verificar se o cliente está pronto
-          if (!await this.estaProntoRealmente()) {
-            this.registrador.warn(`[Whats] Cliente não pronto para processar notificação: ${arquivo}`);
+          if (!await estaProntoRealmente()) {
+            registrador.warn(`[Whats] Cliente não pronto para processar notificação: ${arquivo}`);
             continue;
           }
 
-          // Marcar chat como visto antes de enviar (evita problemas de estado)
           try {
-            const chat = await this.cliente.getChatById(notificacao.para);
+            const chat = await cliente.getChatById(notificacao.para);
             await chat.sendSeen();
           } catch (erroChat) {
-            this.registrador.warn(`[Whats] Não foi possível marcar chat como visto: ${erroChat.message}`);
-            // Continuar mesmo assim
+            registrador.warn(`[Whats] Não foi possível marcar chat como visto: ${erroChat.message}`);
           }
 
-          // Pequena pausa antes de enviar (estabilidade)
           await new Promise(resolve => setTimeout(resolve, 800));
 
-          // Tentar enviar a mensagem
           try {
-            await this.cliente.sendMessage(notificacao.para, notificacao.conteudo);
-            
-            // Remover o arquivo após envio bem-sucedido
+            await cliente.sendMessage(notificacao.para, notificacao.conteudo);
             await fs.promises.unlink(caminhoArquivo);
-            this.registrador.info(`[Whats] ✅ Notificação pendente enviada.`); // Removido 'para'
-
+            registrador.info(`[Whats] ✅ Notificação pendente enviada.`);
             processadas++;
           } catch (erroEnvio) {
-            // Atualizar contadores de tentativas na notificação
             notificacao.tentativas = (notificacao.tentativas || 0) + 1;
             notificacao.ultimaTentativa = Date.now();
-
-            // Salvar notificação atualizada
             await fs.promises.writeFile(caminhoArquivo, JSON.stringify(notificacao, null, 2), 'utf8');
-            this.registrador.warn(`[Whats] ❌ Falha ao processar notificação (${notificacao.tentativas} tentativas): ${erroEnvio.message}`);
+            registrador.warn(`[Whats] ❌ Falha ao processar notificação (${notificacao.tentativas} tentativas): ${erroEnvio.message}`);
           }
         } catch (erroProcessamento) {
-          this.registrador.error(`[Whats] Erro ao processar arquivo de notificação ${arquivo}: ${erroProcessamento.message}`);
+          registrador.error(`[Whats] Erro ao processar arquivo de notificação ${arquivo}: ${erroProcessamento.message}`);
         }
       }
 
       if (processadas > 0) {
-        this.registrador.info(`[Whats] Processadas ${processadas} notificações pendentes.`); // Simplificado
+        registrador.info(`[Whats] Processadas ${processadas} notificações pendentes.`);
       }
 
       return processadas;
     } catch (erro) {
-      this.registrador.error(`[Whats] Erro ao verificar diretório de notificações: ${erro.message}`);
+      registrador.error(`[Whats] Erro ao verificar diretório de notificações: ${erro.message}`);
       return 0;
     }
-  }
+  };
 
-  /**
-   * Força uma reconexão do WhatsApp sem reiniciar completamente
-   * @returns {Promise<boolean>} Sucesso da reconexão
-   */
-  async reconectar() {
-    
-
+  const obterHistoricoMensagens = async (chatId, limite = 50) => {
     try {
-      // Tentar reconectar sem reiniciar tudo
-      await this.cliente.pupPage.evaluate(() => {
-        if (window.Store && window.Store.Conn) {
-          window.Store.Conn.reconnect();
-          return true;
-        }
-        return false;
-      }).catch(() => false);
-
-      // Dar um tempo para a reconexão ocorrer
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Verificar se realmente reconectou
-      const reconectouRealmente = await this.estaProntoRealmente();
-
-      if (reconectouRealmente) {
-        
-        this.tentativasReconexao = 0;
-        return true;
-      } else {
-        this.registrador.warn('[Whats] Reconexão não surtiu efeito.');
-        return false;
-      }
-    } catch (erro) {
-      this.registrador.error(`[Whats] Erro na reconexão: ${erro.message}`);
-      return false;
-    }
-  }
-
-  /**
-   * Realiza uma reinicialização completa do cliente
-   * @returns {Promise<boolean>} Sucesso da reinicialização
-   */
-  async reiniciarCompleto() {
-    this.registrador.info('[Whats] Iniciando reinicialização completa...');
-    this.pronto = false;
-
-    try {
-      // 1. Desconectar completamente
-      if (this.cliente.pupBrowser) {
-        try {
-          // Destruir a página atual antes para evitar falhas
-          if (this.cliente.pupPage) {
-            await this.cliente.pupPage.close().catch(() => { });
-          }
-          await this.cliente.pupBrowser.close().catch(() => { });
-        } catch (err) {
-          this.registrador.warn(`[Whats] Erro ao fechar navegador: ${err.message}`);
-        }
-      }
-
-      // 2. Pausa para garantir liberação de recursos
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // 3. Destruir completamente o cliente
-      try {
-        await this.cliente.destroy().catch(() => { });
-      } catch (err) {
-        this.registrador.warn(`[Whats] Erro na destruição do cliente: ${err.message}`);
-      }
-
-      // 4. Pausa para garantir liberação de recursos
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      // 5. Limpar todos os listeners
-      this.cliente.removeAllListeners();
-
-      // 6. Inicializar um cliente totalmente novo
-      this.inicializarCliente();
-
-      this.registrador.info('[Whats] Reinicialização completa concluída. Aguardando reconexão...');
-      return true;
-    } catch (erro) {
-      this.registrador.error(`[Whats] Erro grave na reinicialização: ${erro.message}`);
-      return false;
-    }
-  }
-
-  /**
-   * Obtém histórico de mensagens do chat
-   * @param {string} chatId - ID do chat
-   * @param {number} limite - Número máximo de mensagens
-   * @returns {Promise<Array>} Lista de mensagens formatada
-   */
-  async obterHistoricoMensagens(chatId, limite = 50) {
-    try {
-      // Obter o objeto de chat pelo ID
-      const chat = await this.cliente.getChatById(chatId);
-
-      // Carregar as mensagens diretamente
+      const chat = await cliente.getChatById(chatId);
       const mensagensObtidas = await chat.fetchMessages({ limit: limite * 2 });
+      if (!mensagensObtidas || !Array.isArray(mensagensObtidas)) return [];
 
-      if (!mensagensObtidas || !Array.isArray(mensagensObtidas)) {
-        this.registrador.warn(`[Whats] Não foi possível obter mensagens para o chat ${chatId}`);
-        return [];
-      }
-
-      // Filtrar e mapear as mensagens
-      const mensagens = mensagensObtidas
-        .filter(msg => msg.body && !msg.body.startsWith('.')) // Filtra comandos
-        .slice(-limite * 2) // Limita ao número de mensagens
+      return mensagensObtidas
+        .filter(msg => msg.body && !msg.body.startsWith('.'))
+        .slice(-limite * 2)
         .map(msg => {
-          const remetente = msg.fromMe ?
-            (process.env.BOT_NAME || 'Amélie') :
-            (msg._data.notifyName || msg.author || 'Usuário');
-
+          const remetente = msg.fromMe ? (process.env.BOT_NAME || 'Amélie') : (msg._data.notifyName || msg.author || 'Usuário');
           let conteudo = msg.body || '';
-
-          // Adiciona informação sobre mídia
           if (msg.hasMedia) {
             if (msg.type === 'image') conteudo = `[Image] ${conteudo}`;
             else if (msg.type === 'audio' || msg.type === 'ptt') conteudo = `[Áudio] ${conteudo}`;
             else if (msg.type === 'video') conteudo = `[Vídeo] ${conteudo}`;
             else conteudo = `[Mídia] ${conteudo}`;
           }
-
           return `${remetente}: ${conteudo}`;
         });
-
-      return mensagens;
     } catch (erro) {
-      this.registrador.error(`[Whats] Erro ao obter histórico de mensagens: ${erro.message}`);
-      return []; // Retorna array vazio em caso de erro
+      registrador.error(`[Whats] Erro ao obter histórico de mensagens: ${erro.message}`);
+      return [];
     }
-  }
+  };
 
-  /**
-   * Verifica se devemos responder a uma mensagem em grupo
-   * @param {Object} msg - Objeto da mensagem
-   * @param {Object} chat - Objeto do chat
-   * @returns {Promise<boolean>} Verdadeiro se deve responder
-   */
-  async deveResponderNoGrupo(msg, chat) {
-    const chatId = chat.id?._serialized;
-    const msgId = msg.id?._serialized;
-    const botId = this.cliente?.info?.wid?._serialized;
-    const nomeGrupo = chat.name || chatId;
-    const prefixoLog = `[Whats][GrupoResp][${nomeGrupo}]`; // Contexto mais curto
-
-     // Removido Bot ID
-
-    // Log inicial das propriedades da mensagem
-     // Mais curto
-
-    // 1. Verificar se é comando
-    
-    if (typeof msg.body === 'string' && msg.body.startsWith('.')) {
-      const comando = msg.body.split(' ')[0];
-      
-      return true;
-    }
-    
-
-    // 2. Verificar se tem mídia
-    
-    if (msg.hasMedia) {
-      
-      return true;
-    }
-    
-
-    // 3. Verificar menções
-    
+  const deveResponderNoGrupo = async (msg, chat) => {
+    const botId = cliente?.info?.wid?._serialized;
+    if (typeof msg.body === 'string' && msg.body.startsWith('.')) return true;
+    if (msg.hasMedia) return true;
     if (botId) {
       try {
         const mencoes = await msg.getMentions();
-        const botMencionado = mencoes.some(mencao => mencao.id?._serialized === botId);
-        
-        if (botMencionado) {
-          
-          return true;
-        }
+        if (mencoes.some(mencao => mencao.id?._serialized === botId)) return true;
       } catch (errorMencao) {
-        // Manter como erro, pois é uma falha inesperada
-        this.registrador.error(`${prefixoLog} FALHA CRÍTICA ao verificar menções: ${errorMencao.message}`);
-        
+        registrador.error(`[Whats] Erro ao verificar menções: ${errorMencao.message}`);
         return false;
       }
-    } else {
-      this.registrador.warn(`${prefixoLog} ID do bot não disponível, pulando verif. menção.`);
     }
-    
-
-    // 4. Verificar citação de mensagem do bot
-    
     if (msg.hasQuotedMsg) {
       try {
         const msgCitada = await msg.getQuotedMessage();
-        if (msgCitada) {
-            
-            if (msgCitada.fromMe) {
-              
-              return true;
-            } else {
-              
-            }
-        } else {
-             this.registrador.warn(`${prefixoLog} Msg citada retornou null/undefined.`);
-        }
+        if (msgCitada && msgCitada.fromMe) return true;
       } catch (errorCitacao) {
-        // Manter como erro, pois é uma falha inesperada
-        this.registrador.error(`${prefixoLog} FALHA CRÍTICA ao verificar msg citada: ${errorCitacao.message}`);
-        
+        registrador.error(`[Whats] Erro ao verificar msg citada: ${errorCitacao.message}`);
         return false;
       }
-    } else {
-        
     }
-    
-
-    // 5. Nenhuma condição atendida
-    
     return false;
-  }
-}
+  };
 
-module.exports = ClienteWhatsApp;
+  const reiniciarCompleto = async () => {
+    registrador.info('[Whats] Iniciando reinicialização completa...');
+    pronto = false;
+    try {
+      if (cliente && cliente.pupBrowser) {
+        if (cliente.pupPage) await cliente.pupPage.close().catch(() => { });
+        await cliente.pupBrowser.close().catch(() => { });
+      }
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (cliente) await cliente.destroy().catch(() => { });
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      cliente.removeAllListeners();
+      inicializarCliente();
+      registrador.info('[Whats] Reinicialização completa concluída.');
+      return true;
+    } catch (erro) {
+      registrador.error(`[Whats] Erro grave na reinicialização: ${erro.message}`);
+      return false;
+    }
+  };
+
+  // Inicializa o cliente pela primeira vez
+  inicializarCliente();
+
+  return {
+    on: eventos.on.bind(eventos),
+    emit: eventos.emit.bind(eventos),
+    estaProntoRealmente,
+    enviarMensagem,
+    salvarNotificacaoPendente,
+    processarNotificacoesPendentes,
+    obterHistoricoMensagens,
+    deveResponderNoGrupo,
+    reiniciarCompleto,
+    getRawClient: () => cliente,
+    getPronto: () => pronto,
+    getUltimoEnvio: () => ultimoEnvio
+  };
+};
+
+module.exports = { criarClienteWhatsApp };

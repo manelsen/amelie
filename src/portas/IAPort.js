@@ -1,20 +1,22 @@
 /**
- * IAPort - Interface para serviços de IA
+ * IAPort - Interface funcional para serviços de IA
  * 
  * Define os contratos que os adaptadores de IA devem implementar para
  * interagir com o núcleo da aplicação.
+ * Versão funcional baseada em composição.
  */
 
-class IAPort {
+const criarIAPort = () => {
+  return {
     /**
      * Processa uma entrada de texto e gera uma resposta
      * @param {string} texto - Texto de entrada
      * @param {Object} config - Configurações do processamento
      * @returns {Promise<string>} Texto de resposta
      */
-    async processarTexto(texto, config) {
-      throw new Error("Método processarTexto deve ser implementado pela classe concreta");
-    }
+    processarTexto: async (texto, config) => {
+      throw new Error("Método processarTexto não implementado");
+    },
   
     /**
      * Processa uma imagem e gera uma descrição ou resposta
@@ -23,9 +25,9 @@ class IAPort {
      * @param {Object} config - Configurações do processamento
      * @returns {Promise<string>} Texto de resposta
      */
-    async processarImagem(imagemData, prompt, config) {
-      throw new Error("Método processarImagem deve ser implementado pela classe concreta");
-    }
+    processarImagem: async (imagemData, prompt, config) => {
+      throw new Error("Método processarImagem não implementado");
+    },
   
     /**
      * Processa um áudio e gera uma transcrição ou resposta
@@ -34,9 +36,9 @@ class IAPort {
      * @param {Object} config - Configurações do processamento
      * @returns {Promise<string>} Texto de resposta
      */
-    async processarAudio(audioData, audioId, config) {
-      throw new Error("Método processarAudio deve ser implementado pela classe concreta");
-    }
+    processarAudio: async (audioData, audioId, config) => {
+      throw new Error("Método processarAudio não implementado");
+    },
   
     /**
      * Processa um vídeo e gera uma descrição ou resposta
@@ -45,9 +47,9 @@ class IAPort {
      * @param {Object} config - Configurações do processamento
      * @returns {Promise<string>} Texto de resposta
      */
-    async processarVideo(caminhoVideo, prompt, config) {
-      throw new Error("Método processarVideo deve ser implementado pela classe concreta");
-    }
+    processarVideo: async (caminhoVideo, prompt, config) => {
+      throw new Error("Método processarVideo não implementado");
+    },
 
     /**
      * Processa um documento (PDF, TXT, HTML, etc.) e gera uma resposta
@@ -56,9 +58,10 @@ class IAPort {
      * @param {Object} config - Configurações do processamento (inclui mimeType)
      * @returns {Promise<string>} Texto de resposta
      */
-    async processarDocumentoArquivo(caminhoDocumento, prompt, config) {
-      throw new Error("Método processarDocumentoArquivo deve ser implementado pela classe concreta");
+    processarDocumentoArquivo: async (caminhoDocumento, prompt, config) => {
+      throw new Error("Método processarDocumentoArquivo não implementado");
     }
-  }
-  
-  module.exports = IAPort;
+  };
+};
+
+module.exports = { criarIAPort };

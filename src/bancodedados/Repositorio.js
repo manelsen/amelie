@@ -1,6 +1,6 @@
-// src/db/Repositorio.js
+// src/bancodedados/Repositorio.js
 /**
- * Repositorio - Interface base para acesso a dados
+ * Repositorio - Interface base funcional para acesso a dados
  * 
  * Define o contrato para todas as implementações de repositórios
  * seguindo princípios de programação funcional.
@@ -21,67 +21,69 @@ const Resultado = {
 };
 
 /**
- * Interface base para todos os repositórios
+ * Fábrica para a interface base de todos os repositórios
  * Todas as operações retornam um Resultado para tratamento funcional de erros
  */
-class Repositorio {
-  /**
-   * Encontra um único documento
-   * @param {Object} consulta - Critérios de busca
-   * @returns {Promise<Resultado>} Resultado da operação
-   */
-  async encontrarUm(consulta) {
-    throw new Error("Método encontrarUm deve ser implementado pela classe concreta");
-  }
+const criarRepositorio = () => {
+  return {
+    /**
+     * Encontra um único documento
+     * @param {Object} consulta - Critérios de busca
+     * @returns {Promise<Resultado>} Resultado da operação
+     */
+    encontrarUm: async (consulta) => {
+      throw new Error("Método encontrarUm não implementado");
+    },
 
-  /**
-   * Encontra múltiplos documentos
-   * @param {Object} consulta - Critérios de busca
-   * @param {Object} opcoes - Opções como limite, pular, ordenar
-   * @returns {Promise<Resultado>} Resultado da operação
-   */
-  async encontrar(consulta, opcoes = {}) {
-    throw new Error("Método encontrar deve ser implementado pela classe concreta");
-  }
+    /**
+     * Encontra múltiplos documentos
+     * @param {Object} consulta - Critérios de busca
+     * @param {Object} opcoes - Opções como limite, pular, ordenar
+     * @returns {Promise<Resultado>} Resultado da operação
+     */
+    encontrar: async (consulta, opcoes = {}) => {
+      throw new Error("Método encontrar não implementado");
+    },
 
-  /**
-   * Insere um novo documento
-   * @param {Object} documento - Documento a ser inserido
-   * @returns {Promise<Resultado>} Resultado da operação
-   */
-  async inserir(documento) {
-    throw new Error("Método inserir deve ser implementado pela classe concreta");
-  }
+    /**
+     * Insere um novo documento
+     * @param {Object} documento - Documento a ser inserido
+     * @returns {Promise<Resultado>} Resultado da operação
+     */
+    inserir: async (documento) => {
+      throw new Error("Método inserir não implementado");
+    },
 
-  /**
-   * Atualiza documentos
-   * @param {Object} consulta - Critérios de busca
-   * @param {Object} atualizacao - Atualizações a aplicar
-   * @param {Object} opcoes - Opções como upsert, multi
-   * @returns {Promise<Resultado>} Resultado da operação
-   */
-  async atualizar(consulta, atualizacao, opcoes = {}) {
-    throw new Error("Método atualizar deve ser implementado pela classe concreta");
-  }
+    /**
+     * Atualiza documentos
+     * @param {Object} consulta - Critérios de busca
+     * @param {Object} atualizacao - Atualizações a aplicar
+     * @param {Object} opcoes - Opções como upsert, multi
+     * @returns {Promise<Resultado>} Resultado da operação
+     */
+    atualizar: async (consulta, atualizacao, opcoes = {}) => {
+      throw new Error("Método atualizar não implementado");
+    },
 
-  /**
-   * Remove documentos
-   * @param {Object} consulta - Critérios de busca
-   * @param {Object} opcoes - Opções como multi
-   * @returns {Promise<Resultado>} Resultado da operação
-   */
-  async remover(consulta, opcoes = {}) {
-    throw new Error("Método remover deve ser implementado pela classe concreta");
-  }
+    /**
+     * Remove documentos
+     * @param {Object} consulta - Critérios de busca
+     * @param {Object} opcoes - Opções como multi
+     * @returns {Promise<Resultado>} Resultado da operação
+     */
+    remover: async (consulta, opcoes = {}) => {
+      throw new Error("Método remover não implementado");
+    },
 
-  /**
-   * Conta documentos
-   * @param {Object} consulta - Critérios de busca
-   * @returns {Promise<Resultado>} Resultado da operação
-   */
-  async contar(consulta) {
-    throw new Error("Método contar deve ser implementado pela classe concreta");
-  }
-}
+    /**
+     * Conta documentos
+     * @param {Object} consulta - Critérios de busca
+     * @returns {Promise<Resultado>} Resultado da operação
+     */
+    contar: async (consulta) => {
+      throw new Error("Método contar não implementado");
+    }
+  };
+};
 
-module.exports = { Repositorio, Resultado };
+module.exports = { criarRepositorio, Resultado };
