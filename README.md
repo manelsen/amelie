@@ -1,10 +1,12 @@
 # Olá! Eu sou a Amélie 👋
 
-![Node.js](https://img.shields.io/badge/Node.js-v18%2B-green?style=flat-square&logo=node.js&logoColor=white)
-![Google Gemini](https://img.shields.io/badge/Powered%20by-Gemini%202.0-blue?style=flat-square&logo=google-gemini&logoColor=white)
-![WhatsApp](https://img.shields.io/badge/WhatsApp-Baileys-25D366?style=flat-square&logo=whatsapp&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)
-![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)
+[![CI](https://github.com/manelsen/amelie/workflows/CI/badge.svg)](https://github.com/manelsen/amelie/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/manelsen/amelie/branch/master/graph/badge.svg)](https://codecov.io/gh/manelsen/amelie)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+[![Node.js](https://img.shields.io/badge/Node.js-v18%2B-green?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Google Gemini](https://img.shields.io/badge/Powered%20by-Gemini%202.5-blue?style=flat-square&logo=google-gemini&logoColor=white)](https://ai.google.dev/)
+[![WhatsApp](https://img.shields.io/badge/WhatsApp-Baileys-25D366?style=flat-square&logo=whatsapp&logoColor=white)](https://github.com/WhiskeySockets/Baileys)
 
 Prazer em conhecer você! Sou uma assistente de IA multimídia acessível integrada ao WhatsApp, criada e idealizada pela Belle Utsch. Minha missão é tornar o WhatsApp mais acessível para todas as pessoas, especialmente aquelas com deficiência visual.
 
@@ -29,11 +31,11 @@ Para falar comigo:
 
 Você pode conectar a Amélie ao WhatsApp de duas formas:
 
-1.  **QR Code (Padrão):** O QR Code será gerado no terminal. Basta escanear com o seu WhatsApp em "Aparelhos Conectados".
-2.  **Pairing Code (Código de Login):** Ideal para quando você não tem acesso fácil ao terminal ou quer logar remotamente.
-    *   No seu arquivo `.env`, adicione a variável `MOBILE_NUMBER=55319XXXXXXXX` (com código do país e DDD).
-    *   Ao iniciar, a Amélie exibirá um código de 8 dígitos no log/terminal.
-    *   No WhatsApp, vá em "Aparelhos Conectados" > "Conectar com número de telefone" e insira o código exibido.
+1. **QR Code (Padrão):** O QR Code será gerado no terminal. Basta escanear com o seu WhatsApp em "Aparelhos Conectados".
+2. **Pairing Code (Código de Login):** Ideal para quando você não tem acesso fácil ao terminal ou quer logar remotamente.
+   - No seu arquivo `.env`, adicione a variável `MOBILE_NUMBER=55319XXXXXXXX` (com código do país e DDD).
+   - Ao iniciar, a Amélie exibirá um código de 8 dígitos no log/terminal.
+   - No WhatsApp, vá em "Aparelhos Conectados" > "Conectar com número de telefone" e insira o código exibido.
 
 ## Meus comandos 🎯
 
@@ -99,10 +101,65 @@ Amélie foi construída com foco em **acessibilidade** e **eficiência**. Sua es
 - **Arquitetura Funcional:** O sistema é construído sobre fábricas de funções, garantindo um código modular, fácil de testar e manter.
 - **Filas de Processamento:** Para garantir que nenhuma mídia seja perdida, utilizamos o `Better-Queue`. Isso permite que áudios, imagens e vídeos sejam processados de forma assíncrona e organizada, respeitando os limites das APIs de IA.
 - **Pipelines Multimídia:**
-    - **Imagens e Áudios:** Processamento rápido e direto.
-    - **Vídeos e Documentos:** Fluxos robustos que incluem upload para nuvem e análise profunda para fornecer descrições detalhadas.
+  - **Imagens e Áudios:** Processamento rápido e direto.
+  - **Vídeos e Documentos:** Fluxos robustos que incluem upload para nuvem e análise profunda para fornecer descrições detalhadas.
 
 Para saber mais sobre os detalhes técnicos, consulte a nossa [Documentação de Arquitetura](./docs/ARCHITECTURE.md).
+
+## Desenvolvimento 🛠️
+
+### Pré-requisitos
+
+- Node.js 18+
+- npm ou yarn
+- Conta no Google Cloud (para Gemini API)
+
+### Instalação
+
+```bash
+# Clone o repositório
+git clone https://github.com/manelsen/amelie.git
+cd amelie
+
+# Instale as dependências
+npm install
+
+# Configure as variáveis de ambiente
+cp .env.example .env
+# Edite o .env com suas credenciais
+
+# Execute o bot
+npm start
+```
+
+### Scripts disponíveis
+
+```bash
+npm start              # Iniciar o bot
+npm test               # Executar testes
+npm run test:coverage  # Executar testes com cobertura
+npm run lint           # Verificar linting
+npm run lint:fix       # Corrigir linting
+npm run format         # Formatar código
+npm run format:check   # Verificar formatação
+```
+
+### Testes
+
+```bash
+# Executar testes
+npm test
+
+# Executar com cobertura
+npm run test:coverage
+
+# Ver relatório de cobertura
+open coverage/lcov-report/index.html
+```
+
+## Contribuindo 🤝
+
+Contribuições são bem-vindas! Por favor, leia o [CONTRIBUTING.md](CONTRIBUTING.md) para detalhes sobre nosso código de conduta e processo de submissão de pull requests.
 
 ## Grupos oficiais e contatos 👥
 
@@ -130,13 +187,9 @@ Se tiver dúvidas ou precisar de ajuda:
 2. Entre no grupo oficial para suporte
 3. Fale com a Belle Utsch através do link do perfil dela
 
-## Contribuindo com o projeto 🤝
+## Changelog 📝
 
-Meu código é open source! Se quiser contribuir:
-
-1. Visite meu repositório: https://github.com/manelsen/amelie
-2. Faça um fork
-3. Envie suas melhorias através de pull requests
+Veja o [CHANGELOG.md](CHANGELOG.md) para histórico de mudanças.
 
 ## Sobre mim ℹ️
 
