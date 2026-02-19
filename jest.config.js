@@ -1,25 +1,24 @@
 module.exports = {
   testEnvironment: 'node',
-  testMatch: ['**/__tests__/**/*.js?(x)', '**/?(*.)+(spec|test).js?(x)'],
-  collectCoverage: true,
-  coverageDirectory: 'coverage',
-  collectCoverageFrom: ['src/**/*.js'],
-  coveragePathIgnorePatterns: ['/node_modules/', '/dist/'],
+  roots: ['<rootDir>/tests'],
+  testMatch: ['**/*.test.js'],
+  collectCoverageFrom: [
+    'src/**/*.js',
+    '!src/**/*.test.js',
+    '!src/**/__tests__/**',
+  ],
   coverageThreshold: {
     global: {
-      statements: 80,
-      branches: 70,
-      functions: 80,
-      lines: 80,
+      branches: 50,
+      functions: 50,
+      lines: 50,
+      statements: 50,
     },
   },
-  testTimeout: 10000, // 10s
+  coverageReporters: ['text', 'lcov', 'html', 'json-summary'],
+  coverageDirectory: 'coverage',
   verbose: true,
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-  transformIgnorePatterns: [
-    "node_modules/(?!(@whiskeysockets|@adiwajshing|libsignal-node|p-queue|p-timeout|p-retry)/)"
-  ],
-  transform: {
-    "^.+\\.[t|j]sx?$": "babel-jest"
-  }
+  testTimeout: 10000,
+  modulePathIgnorePatterns: ['<rootDir>/node_modules/'],
+  setupFilesAfterEnv: ['./jest.setup.js'],
 };

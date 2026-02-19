@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo '🧪 Executando testes com cobertura...'
+npm run test:coverage
+
+echo '✅ Pre-push checks passaram!'

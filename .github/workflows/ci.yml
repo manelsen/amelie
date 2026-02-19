@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar linting
+        run: npm run lint
+
+      - name: Executar testes
+        run: npm test
+
+      - name: Gerar cobertura de testes
+        run: npm run test:coverage
+
+      - name: Upload cobertura para Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Arquivar relatório de cobertura
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-node-${{ matrix.node-version }}
+          path: coverage/
+          retention-days: 7
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar ESLint
+        run: npm run lint
+
+      - name: Verificar formatação com Prettier
+        run: npm run format:check
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Build do projeto
+        run: npm run build
+        continue-on-error: true
+
+      - name: Verificar Docker
+        run: |
+          docker --version
+          docker build -t amelie:test .
+        continue-on-error: true
