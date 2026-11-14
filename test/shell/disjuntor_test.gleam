@@ -183,24 +183,47 @@ pub fn prova_que_falha_nao_reavisa_test() {
 }
 
 pub fn decidir_aviso_segura_oscilacao_test() {
-  let inicio = disjuntor.sem_aviso()
-  let #(enviar, a1) = disjuntor.decidir_aviso(inicio, disjuntor.Abriu, 1000)
-  enviar |> should.equal(option.Some(disjuntor.Abriu))
+  let decidir = disjuntor.decidir_aviso
+  let fechado = Fechado(0)
+  let aberto = Aberto(0)
+  let semi = SemiAberto(probe_em_voo: True, desde_ms: 0)
 
-  let #(enviar, a2) =
-    disjuntor.decidir_aviso(a1, disjuntor.Fechou(fora_ms: 0), 61_000)
+  let #(enviar, a) = decidir(disjuntor.sem_aviso(), fechado, aberto, 1000)
+  enviar |> should.equal(option.Some(disjuntor.Abriu))
+  // Continuar aberto não repete o aviso.
+  let #(enviar, a) = decidir(a, aberto, semi, 2000)
+  enviar |> should.equal(option.None)
+  let #(enviar, a) = decidir(a, semi, fechado, 61_000)
   enviar |> should.equal(option.Some(disjuntor.Fechou(fora_ms: 60_000)))
 
-  // Caiu de novo 1 min depois de voltar: dentro do intervalo, sem aviso,
-  // e o "voltou" dessa queda também fica em silêncio.
-  let #(enviar, a3) = disjuntor.decidir_aviso(a2, disjuntor.Abriu, 121_000)
+  // Oscilou: caiu 1 min depois de voltar e voltou logo. Nenhum aviso.
+  let #(enviar, a) = decidir(a, fechado, aberto, 121_000)
   enviar |> should.equal(option.None)
-  let #(enviar, a4) =
-    disjuntor.decidir_aviso(a3, disjuntor.Fechou(fora_ms: 0), 181_000)
+  let #(enviar, a) = decidir(a, semi, fechado, 181_000)
   enviar |> should.equal(option.None)
+  let _ = a
+}
 
-  // Passado o intervalo desde o último "voltou", avisa de novo.
-  let depois = 61_000 + disjuntor.intervalo_avisos_ms
-  let #(enviar, _) = disjuntor.decidir_aviso(a4, disjuntor.Abriu, depois)
+pub fn queda_adiada_e_avisada_quando_o_intervalo_termina_test() {
+  let decidir = disjuntor.decidir_aviso
+  let fechado = Fechado(0)
+  let aberto = Aberto(0)
+  let semi = SemiAberto(probe_em_voo: True, desde_ms: 0)
+
+  let #(_, a) = decidir(disjuntor.sem_aviso(), fechado, aberto, 1000)
+  let #(_, a) = decidir(a, semi, fechado, 61_000)
+  // Caiu de novo dentro do intervalo e não voltou mais.
+  let #(enviar, a) = decidir(a, fechado, aberto, 121_000)
+  enviar |> should.equal(option.None)
+  let fim_intervalo = 61_000 + disjuntor.intervalo_avisos_ms
+  let #(enviar, a) = decidir(a, aberto, aberto, fim_intervalo - 1)
+  enviar |> should.equal(option.None)
+  let #(enviar, a) = decidir(a, aberto, semi, fim_intervalo)
   enviar |> should.equal(option.Some(disjuntor.Abriu))
+  // O "voltou" conta desde o início real da queda.
+  let #(enviar, _) = decidir(a, semi, fechado, fim_intervalo + 1000)
+  enviar
+  |> should.equal(
+    option.Some(disjuntor.Fechou(fora_ms: fim_intervalo + 1000 - 121_000)),
+  )
 }

@@ -160,7 +160,7 @@ Messages starting with `.` or `/` (or without prefix where supported) are parsed
 
 #### Admin notices (Telegram, to `TELEGRAM_ADMIN_CHAT_ID`)
 - WhatsApp down, back up, and new pairing code: `shell/avisos_ponte`, from the bridge's `/webhook/bridge-event`.
-- AI provider down and back up: `shell/avisos_ia`, hooked into each provider's circuit breaker (`disjuntor`). At most one down/up pair per `disjuntor.intervalo_avisos_ms` (15 min) per provider.
+- AI provider down and back up: `shell/avisos_ia`, hooked into each provider's circuit breaker (`disjuntor`). At most one down/up pair per `disjuntor.intervalo_avisos_ms` (15 min) per provider; an outage that starts inside that window is announced when it ends, if the circuit is still open.
 - Without `TELEGRAM_BOT_TOKEN`, the entry point passes no admin and nothing is sent.
 
 #### Admin Commands (Telegram only, restricted to `TELEGRAM_ADMIN_CHAT_ID`)

@@ -37,24 +37,26 @@ pub type Transicao {
 pub type Aviso {
   Aviso(
     ao_mudar: fn(Transicao) -> Nil,
-    /// O `Abriu` desta queda foi avisado (e o `Fechou` também deve ser).
+    /// Início da queda atual (circuito fora de `Fechado`), avisada ou não.
+    queda_desde_ms: Option(Int),
+    /// O `Abriu` da queda atual foi avisado (e o `Fechou` também deve ser).
     avisado: Bool,
-    /// Quando o último `Abriu` avisado aconteceu.
-    aberto_desde_ms: Int,
     /// Quando saiu o último `Fechou`; conta para o intervalo mínimo.
     ultimo_fechou_ms: Int,
   )
 }
 
 /// Intervalo mínimo entre o último "voltou" e um novo "caiu": um provedor
-/// oscilando gera no máximo um par de avisos nesse tempo.
+/// oscilando gera no máximo um par de avisos nesse tempo. Uma queda que
+/// começa dentro do intervalo não se perde: é avisada quando ele termina,
+/// se o circuito continuar aberto.
 pub const intervalo_avisos_ms = 900_000
 
 pub fn sem_aviso() -> Aviso {
   Aviso(
     ao_mudar: fn(_) { Nil },
+    queda_desde_ms: None,
     avisado: False,
-    aberto_desde_ms: 0,
     ultimo_fechou_ms: -intervalo_avisos_ms,
   )
 }
@@ -148,49 +150,58 @@ fn tratar(
 
 /// Troca o estado e avisa quando o circuito abre ou volta a fechar.
 fn mudar(actor_state: EstadoActor, novo: Estado) -> EstadoActor {
-  let transicao = case actor_state.estado, novo {
-    Fechado(_), Aberto(_) -> Some(Abriu)
-    Fechado(_), _ -> None
-    _, Fechado(_) -> Some(Fechou(fora_ms: 0))
-    _, _ -> None
-  }
-  let aviso = case transicao {
-    None -> actor_state.aviso
-    Some(t) -> {
-      let #(enviar, aviso) =
-        decidir_aviso(actor_state.aviso, t, sistema.agora_ms())
-      case enviar {
-        Some(t) -> aviso.ao_mudar(t)
-        None -> Nil
-      }
-      aviso
-    }
+  let #(enviar, aviso) =
+    decidir_aviso(
+      actor_state.aviso,
+      actor_state.estado,
+      novo,
+      sistema.agora_ms(),
+    )
+  case enviar {
+    Some(t) -> aviso.ao_mudar(t)
+    None -> Nil
   }
   EstadoActor(..actor_state, estado: novo, aviso: aviso)
 }
 
-/// Decide se a transição vira aviso. Um `Abriu` só é avisado se o último
-/// `Fechou` avisado foi há mais de `intervalo_avisos_ms`; um `Fechou` só é
-/// avisado se o `Abriu` daquela queda foi, e leva quanto tempo ficou fora.
+/// Decide o aviso de cada mensagem do disjuntor. Roda a cada mensagem (e não
+/// só nas transições) para que uma queda adiada pelo intervalo mínimo seja
+/// avisada assim que ele terminar, enquanto houver chamadas ao provedor.
 pub fn decidir_aviso(
   aviso: Aviso,
-  transicao: Transicao,
+  anterior: Estado,
+  novo: Estado,
   agora_ms: Int,
 ) -> #(Option(Transicao), Aviso) {
-  case transicao, aviso.avisado {
-    Abriu, False ->
-      case agora_ms - aviso.ultimo_fechou_ms >= intervalo_avisos_ms {
-        True -> #(
-          Some(Abriu),
-          Aviso(..aviso, avisado: True, aberto_desde_ms: agora_ms),
+  case anterior, novo {
+    // Continua fechado: nada a avisar.
+    Fechado(_), Fechado(_) -> #(None, aviso)
+    // Fechou: avisa só se a queda foi avisada.
+    _, Fechado(_) -> {
+      let limpo = Aviso(..aviso, queda_desde_ms: None, avisado: False)
+      case aviso.avisado, aviso.queda_desde_ms {
+        True, Some(desde) -> #(
+          Some(Fechou(fora_ms: agora_ms - desde)),
+          Aviso(..limpo, ultimo_fechou_ms: agora_ms),
         )
+        _, _ -> #(None, limpo)
+      }
+    }
+    // Fora de `Fechado`: registra o início da queda e avisa quando puder.
+    _, _ -> {
+      let desde = case anterior, aviso.queda_desde_ms {
+        Fechado(_), _ | _, None -> agora_ms
+        _, Some(desde) -> desde
+      }
+      let aviso = Aviso(..aviso, queda_desde_ms: Some(desde))
+      let pode =
+        !aviso.avisado
+        && agora_ms - aviso.ultimo_fechou_ms >= intervalo_avisos_ms
+      case pode {
+        True -> #(Some(Abriu), Aviso(..aviso, avisado: True))
         False -> #(None, aviso)
       }
-    Fechou(_), True -> #(
-      Some(Fechou(fora_ms: agora_ms - aviso.aberto_desde_ms)),
-      Aviso(..aviso, avisado: False, ultimo_fechou_ms: agora_ms),
-    )
-    _, _ -> #(None, aviso)
+    }
   }
 }
 
