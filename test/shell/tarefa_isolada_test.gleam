@@ -27,14 +27,16 @@ pub fn tarefa_travada_estoura_e_morre_test() {
   let ref = process.new_subject()
   tarefa_isolada.executar(
     fn() {
-      process.sleep(200)
+      // Bem acima do limite de 20 ms: numa máquina ocupada, 200 ms chegavam
+      // a passar antes de a tarefa ser encerrada.
+      process.sleep(1000)
       process.send(ref, Nil)
     },
     20,
   )
   |> should.equal(tarefa_isolada.Estourou)
   // Encerrada: o envio de depois da espera nunca acontece.
-  process.receive(ref, 400) |> should.be_error
+  process.receive(ref, 1200) |> should.be_error
 }
 
 pub fn tarefa_morre_junto_com_quem_chama_test() {
