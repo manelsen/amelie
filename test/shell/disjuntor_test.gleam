@@ -208,20 +208,23 @@ pub fn espera_aviso_conta_o_resto_do_intervalo_test() {
 
 pub fn queda_adiada_e_avisada_sem_novas_chamadas_test() {
   // Com intervalo real de 15 min o teste não cabe; usa o estado inicial com
-  // `ultimo_fechou_ms` recente para a espera ficar curta.
+  // `ultimo_fechou_ms` recente para a espera ficar curta. O callback anota
+  // quando o aviso saiu, para conferir que não saiu antes do prazo.
   let caixa = process.new_subject()
+  let prazo = sistema.agora_ms() + 200
   let aviso =
     disjuntor.Aviso(
-      ..transicoes(caixa),
-      ultimo_fechou_ms: sistema.agora_ms() + 50 - disjuntor.intervalo_avisos_ms,
+      ..disjuntor.avisando(fn(t) {
+        process.send(caixa, #(t, sistema.agora_ms()))
+      }),
+      ultimo_fechou_ms: prazo - disjuntor.intervalo_avisos_ms,
     )
   let cfg = Config(limite_falhas: 1, reset_ms: 60_000, timeout_sondagem_ms: 50)
   let assert Ok(iniciado) = disjuntor.iniciar_actor(cfg, option.None, aviso)
   registrar_falha(iniciado.data)
-  sincronizar(iniciado.data)
-  process.receive(caixa, 0) |> should.be_error
   // Nenhuma outra chamada: o próprio ator reavalia no fim do intervalo.
-  process.receive(caixa, 1000) |> should.equal(Ok(disjuntor.Abriu))
+  let assert Ok(#(disjuntor.Abriu, quando)) = process.receive(caixa, 2000)
+  { quando >= prazo } |> should.be_true
 }
 
 pub fn decidir_aviso_segura_oscilacao_test() {

@@ -155,7 +155,19 @@ fn tratar(
       actor.continue(actor_state)
     }
     Sucesso -> actor.continue(mudar(actor_state, Fechado(0)))
-    Reavaliar -> actor.continue(mudar(actor_state, actor_state.estado))
+    Reavaliar -> {
+      // O temporizador e o relógio de parede podem divergir por alguns ms:
+      // se ainda faltar tempo, agenda de novo em vez de perder o aviso.
+      let novo = mudar(actor_state, actor_state.estado)
+      case espera_aviso(novo.aviso, sistema.agora_ms()) {
+        Some(espera) -> {
+          process.send_after(novo.eu, int.max(espera, 1), Reavaliar)
+          Nil
+        }
+        None -> Nil
+      }
+      actor.continue(novo)
+    }
     Falha -> {
       let novo_estado = ao_falhar(actor_state.estado, actor_state.config)
       actor.continue(mudar(actor_state, novo_estado))
