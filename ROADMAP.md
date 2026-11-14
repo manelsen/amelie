@@ -106,7 +106,7 @@ de integração entre os processos Gleam e Go.
 - [x] Painel administrativo remoto e comando de pareamento proativo via Telegram (`/status`, `/reset_whatsapp`, `/parear`) com controle de acesso por ID.
 - [x] Procedimento operacional de backup, restauração e pareamento documentado em `DEPLOYMENT.md`.
 - [x] Classificar erros da fila offline em transitórios e definitivos (descarte imediato de `invalid_chat_id`, payloads malformados e sessões revogadas sem esgotar retries desnecessários).
-- [ ] Adicionar teste end-to-end automatizado entre webhook, processamento, IA fake, auditoria e envio pelo bridge fake.
+- [x] Teste ponta a ponta em `test/ponta_a_ponta_test.gleam`: JSON da ponte → `whatsmeow_webhook` → receptor → tratador → IA fake → `entrega_auditada` → `whatsmeow_http` → ponte falsa (servidor HTTP real), com SQLite em memória e reenvio pela fila offline.
 
 ### P1 — Concorrência e observabilidade
 
