@@ -7,6 +7,7 @@ import shell/disjuntor.{
   Aberto, Config, Fechado, SemiAberto, iniciar_com_config, obter_estado,
   pode_executar, registrar_falha, registrar_sucesso,
 }
+import shell/sistema
 
 pub fn circuito_inicia_fechado_e_permite_execucao_test() {
   let cfg = Config(limite_falhas: 3, reset_ms: 100, timeout_sondagem_ms: 50)
@@ -153,14 +154,16 @@ pub fn circuito_avisa_quando_abre_e_quando_volta_test() {
   let cb = iniciado.data
 
   registrar_falha(cb)
-  process.receive(caixa, 30) |> should.be_error
+  sincronizar(cb)
+  process.receive(caixa, 0) |> should.be_error
   registrar_falha(cb)
   process.receive(caixa, 100) |> should.equal(Ok(disjuntor.Abriu))
 
   process.sleep(20)
   // Aberto → SemiAberto não é transição avisada.
   pode_executar(cb) |> should.be_true
-  process.receive(caixa, 30) |> should.be_error
+  sincronizar(cb)
+  process.receive(caixa, 0) |> should.be_error
 
   registrar_sucesso(cb)
   let assert Ok(disjuntor.Fechou(fora_ms)) = process.receive(caixa, 100)
@@ -179,7 +182,46 @@ pub fn prova_que_falha_nao_reavisa_test() {
   pode_executar(cb) |> should.be_true
   // SemiAberto → Aberto: continua a mesma queda.
   registrar_falha(cb)
-  process.receive(caixa, 50) |> should.be_error
+  sincronizar(cb)
+  process.receive(caixa, 0) |> should.be_error
+}
+
+/// Barreira: o ator responde em ordem, então quando `obter_estado` volta,
+/// as mensagens anteriores (e seus avisos) já foram tratadas.
+fn sincronizar(cb) -> Nil {
+  let _ = disjuntor.obter_estado(cb)
+  Nil
+}
+
+pub fn espera_aviso_conta_o_resto_do_intervalo_test() {
+  let decidir = disjuntor.decidir_aviso
+  let #(_, a) = decidir(disjuntor.sem_aviso(), Fechado(0), Aberto(0), 1000)
+  // Queda avisada: nada a esperar.
+  disjuntor.espera_aviso(a, 1000) |> should.equal(option.None)
+  let #(_, a) = decidir(a, Aberto(0), Fechado(0), 61_000)
+  disjuntor.espera_aviso(a, 61_000) |> should.equal(option.None)
+  // Caiu de novo dentro do intervalo: espera até o fim dele.
+  let #(_, a) = decidir(a, Fechado(0), Aberto(0), 121_000)
+  disjuntor.espera_aviso(a, 121_000)
+  |> should.equal(option.Some(61_000 + disjuntor.intervalo_avisos_ms - 121_000))
+}
+
+pub fn queda_adiada_e_avisada_sem_novas_chamadas_test() {
+  // Com intervalo real de 15 min o teste não cabe; usa o estado inicial com
+  // `ultimo_fechou_ms` recente para a espera ficar curta.
+  let caixa = process.new_subject()
+  let aviso =
+    disjuntor.Aviso(
+      ..transicoes(caixa),
+      ultimo_fechou_ms: sistema.agora_ms() + 50 - disjuntor.intervalo_avisos_ms,
+    )
+  let cfg = Config(limite_falhas: 1, reset_ms: 60_000, timeout_sondagem_ms: 50)
+  let assert Ok(iniciado) = disjuntor.iniciar_actor(cfg, option.None, aviso)
+  registrar_falha(iniciado.data)
+  sincronizar(iniciado.data)
+  process.receive(caixa, 0) |> should.be_error
+  // Nenhuma outra chamada: o próprio ator reavalia no fim do intervalo.
+  process.receive(caixa, 1000) |> should.equal(Ok(disjuntor.Abriu))
 }
 
 pub fn decidir_aviso_segura_oscilacao_test() {

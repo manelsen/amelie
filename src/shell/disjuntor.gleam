@@ -3,6 +3,7 @@
 // Estados: Fechado (normal) → Aberto (bloqueado) → SemiAberto (prova única com contenção)
 
 import gleam/erlang/process.{type Subject}
+import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/otp/supervision
@@ -66,7 +67,13 @@ pub fn avisando(ao_mudar: fn(Transicao) -> Nil) -> Aviso {
 }
 
 pub type EstadoActor {
-  EstadoActor(estado: Estado, config: Config, aviso: Aviso)
+  EstadoActor(
+    estado: Estado,
+    config: Config,
+    aviso: Aviso,
+    /// O próprio ator, para agendar a reavaliação de uma queda adiada.
+    eu: Subject(Mensagem),
+  )
 }
 
 pub type Mensagem {
@@ -74,6 +81,8 @@ pub type Mensagem {
   ObterEstado(Subject(Estado))
   Sucesso
   Falha
+  /// Fim do intervalo mínimo: avisa a queda adiada se o circuito seguir aberto.
+  Reavaliar
 }
 
 pub fn iniciar() -> Result(Subject(Mensagem), actor.StartError) {
@@ -97,7 +106,12 @@ pub fn iniciar_actor(
   aviso: Aviso,
 ) -> Result(actor.Started(Subject(Mensagem)), actor.StartError) {
   let builder =
-    actor.new(EstadoActor(estado: Fechado(0), config: config, aviso: aviso))
+    actor.new_with_initialiser(1000, fn(eu) {
+      EstadoActor(estado: Fechado(0), config: config, aviso: aviso, eu: eu)
+      |> actor.initialised
+      |> actor.returning(eu)
+      |> Ok
+    })
     |> actor.on_message(tratar)
 
   let builder = case name {
@@ -141,6 +155,7 @@ fn tratar(
       actor.continue(actor_state)
     }
     Sucesso -> actor.continue(mudar(actor_state, Fechado(0)))
+    Reavaliar -> actor.continue(mudar(actor_state, actor_state.estado))
     Falha -> {
       let novo_estado = ao_falhar(actor_state.estado, actor_state.config)
       actor.continue(mudar(actor_state, novo_estado))
@@ -148,25 +163,41 @@ fn tratar(
   }
 }
 
-/// Troca o estado e avisa quando o circuito abre ou volta a fechar.
+/// Troca o estado e avisa quando o circuito abre ou volta a fechar. Uma queda
+/// que começa calada pelo intervalo mínimo agenda um `Reavaliar` para o fim
+/// dele, para ser avisada mesmo sem novas chamadas ao provedor.
 fn mudar(actor_state: EstadoActor, novo: Estado) -> EstadoActor {
+  let agora = sistema.agora_ms()
   let #(enviar, aviso) =
-    decidir_aviso(
-      actor_state.aviso,
-      actor_state.estado,
-      novo,
-      sistema.agora_ms(),
-    )
+    decidir_aviso(actor_state.aviso, actor_state.estado, novo, agora)
   case enviar {
     Some(t) -> aviso.ao_mudar(t)
     None -> Nil
   }
+  case actor_state.aviso.queda_desde_ms, espera_aviso(aviso, agora) {
+    None, Some(espera) -> {
+      process.send_after(actor_state.eu, espera, Reavaliar)
+      Nil
+    }
+    _, _ -> Nil
+  }
   EstadoActor(..actor_state, estado: novo, aviso: aviso)
+}
+
+/// Quanto falta para poder avisar a queda em curso, se ela ainda não foi
+/// avisada; `None` se não há queda calada.
+pub fn espera_aviso(aviso: Aviso, agora_ms: Int) -> Option(Int) {
+  case aviso.queda_desde_ms, aviso.avisado {
+    Some(_), False ->
+      Some(int.max(0, aviso.ultimo_fechou_ms + intervalo_avisos_ms - agora_ms))
+    _, _ -> None
+  }
 }
 
 /// Decide o aviso de cada mensagem do disjuntor. Roda a cada mensagem (e não
 /// só nas transições) para que uma queda adiada pelo intervalo mínimo seja
-/// avisada assim que ele terminar, enquanto houver chamadas ao provedor.
+/// avisada assim que ele terminar (por uma chamada ao provedor ou pelo
+/// `Reavaliar` agendado).
 pub fn decidir_aviso(
   aviso: Aviso,
   anterior: Estado,
