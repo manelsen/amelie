@@ -1,11 +1,13 @@
 // Testes do Circuit Breaker e contenção no estado SemiAberto.
 
 import gleam/erlang/process
+import gleam/option
 import gleeunit/should
 import shell/disjuntor.{
   Aberto, Config, Fechado, SemiAberto, iniciar_com_config, obter_estado,
   pode_executar, registrar_falha, registrar_sucesso,
 }
+import shell/sistema
 
 pub fn circuito_inicia_fechado_e_permite_execucao_test() {
   let cfg = Config(limite_falhas: 3, reset_ms: 100, timeout_sondagem_ms: 50)
@@ -136,4 +138,137 @@ pub fn semi_aberto_permite_novo_probe_apos_timeout_do_anterior_test() {
   // Se o probe original sumir ou travar, após timeout_sondagem_ms um novo probe pode tentar
   process.sleep(40)
   pode_executar(cb) |> should.be_true
+}
+
+// --- Avisos de transição ---------------------------------------------------
+
+fn transicoes(caixa: process.Subject(disjuntor.Transicao)) -> disjuntor.Aviso {
+  disjuntor.avisando(fn(t) { process.send(caixa, t) })
+}
+
+pub fn circuito_avisa_quando_abre_e_quando_volta_test() {
+  let caixa = process.new_subject()
+  let cfg = Config(limite_falhas: 2, reset_ms: 10, timeout_sondagem_ms: 50)
+  let assert Ok(iniciado) =
+    disjuntor.iniciar_actor(cfg, option.None, transicoes(caixa))
+  let cb = iniciado.data
+
+  registrar_falha(cb)
+  sincronizar(cb)
+  process.receive(caixa, 0) |> should.be_error
+  registrar_falha(cb)
+  process.receive(caixa, 100) |> should.equal(Ok(disjuntor.Abriu))
+
+  process.sleep(20)
+  // Aberto → SemiAberto não é transição avisada.
+  pode_executar(cb) |> should.be_true
+  sincronizar(cb)
+  process.receive(caixa, 0) |> should.be_error
+
+  registrar_sucesso(cb)
+  let assert Ok(disjuntor.Fechou(fora_ms)) = process.receive(caixa, 100)
+  { fora_ms >= 0 } |> should.be_true
+}
+
+pub fn prova_que_falha_nao_reavisa_test() {
+  let caixa = process.new_subject()
+  let cfg = Config(limite_falhas: 1, reset_ms: 10, timeout_sondagem_ms: 50)
+  let assert Ok(iniciado) =
+    disjuntor.iniciar_actor(cfg, option.None, transicoes(caixa))
+  let cb = iniciado.data
+  registrar_falha(cb)
+  process.receive(caixa, 100) |> should.equal(Ok(disjuntor.Abriu))
+  process.sleep(20)
+  pode_executar(cb) |> should.be_true
+  // SemiAberto → Aberto: continua a mesma queda.
+  registrar_falha(cb)
+  sincronizar(cb)
+  process.receive(caixa, 0) |> should.be_error
+}
+
+/// Barreira: o ator responde em ordem, então quando `obter_estado` volta,
+/// as mensagens anteriores (e seus avisos) já foram tratadas.
+fn sincronizar(cb) -> Nil {
+  let _ = disjuntor.obter_estado(cb)
+  Nil
+}
+
+pub fn espera_aviso_conta_o_resto_do_intervalo_test() {
+  let decidir = disjuntor.decidir_aviso
+  let #(_, a) = decidir(disjuntor.sem_aviso(), Fechado(0), Aberto(0), 1000)
+  // Queda avisada: nada a esperar.
+  disjuntor.espera_aviso(a, 1000) |> should.equal(option.None)
+  let #(_, a) = decidir(a, Aberto(0), Fechado(0), 61_000)
+  disjuntor.espera_aviso(a, 61_000) |> should.equal(option.None)
+  // Caiu de novo dentro do intervalo: espera até o fim dele.
+  let #(_, a) = decidir(a, Fechado(0), Aberto(0), 121_000)
+  disjuntor.espera_aviso(a, 121_000)
+  |> should.equal(option.Some(61_000 + disjuntor.intervalo_avisos_ms - 121_000))
+}
+
+pub fn queda_adiada_e_avisada_sem_novas_chamadas_test() {
+  // Com intervalo real de 15 min o teste não cabe; usa o estado inicial com
+  // `ultimo_fechou_ms` recente para a espera ficar curta. O callback anota
+  // quando o aviso saiu, para conferir que não saiu antes do prazo.
+  let caixa = process.new_subject()
+  let prazo = sistema.agora_ms() + 200
+  let aviso =
+    disjuntor.Aviso(
+      ..disjuntor.avisando(fn(t) {
+        process.send(caixa, #(t, sistema.agora_ms()))
+      }),
+      ultimo_fechou_ms: prazo - disjuntor.intervalo_avisos_ms,
+    )
+  let cfg = Config(limite_falhas: 1, reset_ms: 60_000, timeout_sondagem_ms: 50)
+  let assert Ok(iniciado) = disjuntor.iniciar_actor(cfg, option.None, aviso)
+  registrar_falha(iniciado.data)
+  // Nenhuma outra chamada: o próprio ator reavalia no fim do intervalo.
+  let assert Ok(#(disjuntor.Abriu, quando)) = process.receive(caixa, 2000)
+  { quando >= prazo } |> should.be_true
+}
+
+pub fn decidir_aviso_segura_oscilacao_test() {
+  let decidir = disjuntor.decidir_aviso
+  let fechado = Fechado(0)
+  let aberto = Aberto(0)
+  let semi = SemiAberto(probe_em_voo: True, desde_ms: 0)
+
+  let #(enviar, a) = decidir(disjuntor.sem_aviso(), fechado, aberto, 1000)
+  enviar |> should.equal(option.Some(disjuntor.Abriu))
+  // Continuar aberto não repete o aviso.
+  let #(enviar, a) = decidir(a, aberto, semi, 2000)
+  enviar |> should.equal(option.None)
+  let #(enviar, a) = decidir(a, semi, fechado, 61_000)
+  enviar |> should.equal(option.Some(disjuntor.Fechou(fora_ms: 60_000)))
+
+  // Oscilou: caiu 1 min depois de voltar e voltou logo. Nenhum aviso.
+  let #(enviar, a) = decidir(a, fechado, aberto, 121_000)
+  enviar |> should.equal(option.None)
+  let #(enviar, a) = decidir(a, semi, fechado, 181_000)
+  enviar |> should.equal(option.None)
+  let _ = a
+}
+
+pub fn queda_adiada_e_avisada_quando_o_intervalo_termina_test() {
+  let decidir = disjuntor.decidir_aviso
+  let fechado = Fechado(0)
+  let aberto = Aberto(0)
+  let semi = SemiAberto(probe_em_voo: True, desde_ms: 0)
+
+  let #(_, a) = decidir(disjuntor.sem_aviso(), fechado, aberto, 1000)
+  let #(_, a) = decidir(a, semi, fechado, 61_000)
+  // Caiu de novo dentro do intervalo e não voltou mais.
+  let #(enviar, a) = decidir(a, fechado, aberto, 121_000)
+  enviar |> should.equal(option.None)
+  let fim_intervalo = 61_000 + disjuntor.intervalo_avisos_ms
+  let #(enviar, a) = decidir(a, aberto, aberto, fim_intervalo - 1)
+  enviar |> should.equal(option.None)
+  let #(enviar, a) = decidir(a, aberto, semi, fim_intervalo)
+  enviar |> should.equal(option.Some(disjuntor.Abriu))
+  // O "voltou" conta desde o início real da queda.
+  let #(enviar, _) = decidir(a, semi, fechado, fim_intervalo + 1000)
+  enviar
+  |> should.equal(
+    option.Some(disjuntor.Fechou(fora_ms: fim_intervalo + 1000 - 121_000)),
+  )
 }

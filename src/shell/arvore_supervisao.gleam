@@ -12,6 +12,7 @@ import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/ponte_porta.{type PontePorta}
 import portas/transacao_porta.{type TransacaoPorta}
 import shell/anti_spam
+import shell/avisos_ia
 import shell/cache_ia
 import shell/disjuntor
 import shell/fila_atrasadas
@@ -112,8 +113,14 @@ pub fn iniciar_completo(
   let builder =
     static_supervisor.new(static_supervisor.OneForOne)
     |> static_supervisor.restart_tolerance(intensity: 5, period: 10)
-    |> static_supervisor.add(disjuntor.supervisionado(name_cb_gemini))
-    |> static_supervisor.add(disjuntor.supervisionado(name_cb_openrouter))
+    |> static_supervisor.add(disjuntor.supervisionado(
+      name_cb_gemini,
+      avisos_ia.notificador("Gemini", mensageiro, admin_chat_id),
+    ))
+    |> static_supervisor.add(disjuntor.supervisionado(
+      name_cb_openrouter,
+      avisos_ia.notificador("OpenRouter", mensageiro, admin_chat_id),
+    ))
     |> static_supervisor.add(cache_ia.supervisionado(name_cache_gemini))
     |> static_supervisor.add(cache_ia.supervisionado(name_cache_openrouter))
     |> static_supervisor.add(metricas.supervisionado(name_metricas))

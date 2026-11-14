@@ -158,6 +158,11 @@ Messages starting with `.` or `/` (or without prefix where supported) are parsed
 - `.cego` — accessibility mode for visually impaired users.
 - `.modelo [provedor/modelo]` — display the active provider and model; switching (e.g. `.modelo gemini/gemini-2.5-pro`) is admin-only, because the list includes models far more expensive than the default.
 
+#### Admin notices (Telegram, to `TELEGRAM_ADMIN_CHAT_ID`)
+- WhatsApp down, back up, and new pairing code: `shell/avisos_ponte`, from the bridge's `/webhook/bridge-event`.
+- AI provider down and back up: `shell/avisos_ia`, hooked into each provider's circuit breaker (`disjuntor`). At most one down/up pair per `disjuntor.intervalo_avisos_ms` (15 min) per provider; an outage that starts inside that window is announced when it ends, if the circuit is still open.
+- Without `TELEGRAM_BOT_TOKEN`, the entry point passes no admin and nothing is sent.
+
 #### Admin Commands (Telegram only, restricted to `TELEGRAM_ADMIN_CHAT_ID`)
 - `/status` — real-time status of WhatsApp and Telegram channels, BEAM memory/process metrics, and message counters.
 - `/reset_whatsapp` — unlinks WhatsApp session, resets session database, recreates client device, and triggers pairing code generation.
