@@ -22,7 +22,9 @@ pub fn texto(provedor: String, transicao: Transicao) -> String {
       <> " falhas seguidas, a Amélie parou de chamar o "
       <> provedor
       <> ". Quem usa esse provedor fica sem resposta da IA até ele voltar.\n\n"
-      <> "Ela testa de novo a cada minuto e avisa aqui quando voltar."
+      <> "Passado 1 minuto, a próxima mensagem que precisar do "
+      <> provedor
+      <> " serve de teste. Quando ele responder, aviso aqui."
     Fechou(fora_ms) ->
       "🟢 *"
       <> provedor
