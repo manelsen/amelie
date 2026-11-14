@@ -343,9 +343,10 @@ pub fn resposta_espera_a_sessao_voltar_e_sai_pela_fila_offline_test() {
 
   chegar(webhook_imagem("M3"), portas)
 
-  // A ponte recusou: a resposta fica pendente, não se perde.
+  // A ponte recusou: a falha fica gravada e a resposta não se perde. (Esperar
+  // `Pendente` não serve: toda transação nasce assim, antes do envio.)
   let _ = esperar_envio(ponte, "Resposta guardada.")
-  let _ = esperar_status(portas, transacao.Pendente, 100)
+  let _ = esperar_status(portas, transacao.Falha, 100)
 
   // A sessão volta e a fila offline faz o reenvio.
   process.send(ponte.modo, Definir(NoAr))
