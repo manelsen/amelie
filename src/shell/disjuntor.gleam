@@ -25,8 +25,46 @@ pub type Config {
   Config(limite_falhas: Int, reset_ms: Int, timeout_sondagem_ms: Int)
 }
 
+/// Mudança de estado que interessa a quem opera a Amélie.
+pub type Transicao {
+  /// Fechado → aberto: o provedor parou de ser chamado.
+  Abriu
+  /// Voltou a fechar depois de aberto; `fora_ms` é quanto tempo ficou fora.
+  Fechou(fora_ms: Int)
+}
+
+/// Quem é avisado das transições, e a memória que evita aviso repetido.
+pub type Aviso {
+  Aviso(
+    ao_mudar: fn(Transicao) -> Nil,
+    /// O `Abriu` desta queda foi avisado (e o `Fechou` também deve ser).
+    avisado: Bool,
+    /// Quando o último `Abriu` avisado aconteceu.
+    aberto_desde_ms: Int,
+    /// Quando saiu o último `Fechou`; conta para o intervalo mínimo.
+    ultimo_fechou_ms: Int,
+  )
+}
+
+/// Intervalo mínimo entre o último "voltou" e um novo "caiu": um provedor
+/// oscilando gera no máximo um par de avisos nesse tempo.
+pub const intervalo_avisos_ms = 900_000
+
+pub fn sem_aviso() -> Aviso {
+  Aviso(
+    ao_mudar: fn(_) { Nil },
+    avisado: False,
+    aberto_desde_ms: 0,
+    ultimo_fechou_ms: -intervalo_avisos_ms,
+  )
+}
+
+pub fn avisando(ao_mudar: fn(Transicao) -> Nil) -> Aviso {
+  Aviso(..sem_aviso(), ao_mudar: ao_mudar)
+}
+
 pub type EstadoActor {
-  EstadoActor(estado: Estado, config: Config)
+  EstadoActor(estado: Estado, config: Config, aviso: Aviso)
 }
 
 pub type Mensagem {
@@ -47,16 +85,17 @@ pub fn iniciar() -> Result(Subject(Mensagem), actor.StartError) {
 pub fn iniciar_com_config(
   config: Config,
 ) -> Result(Subject(Mensagem), actor.StartError) {
-  iniciar_actor(config, None)
+  iniciar_actor(config, None, sem_aviso())
   |> result.map(fn(started) { started.data })
 }
 
 pub fn iniciar_actor(
   config: Config,
   name: Option(process.Name(Mensagem)),
+  aviso: Aviso,
 ) -> Result(actor.Started(Subject(Mensagem)), actor.StartError) {
   let builder =
-    actor.new(EstadoActor(estado: Fechado(0), config: config))
+    actor.new(EstadoActor(estado: Fechado(0), config: config, aviso: aviso))
     |> actor.on_message(tratar)
 
   let builder = case name {
@@ -67,8 +106,10 @@ pub fn iniciar_actor(
   actor.start(builder)
 }
 
+/// `ao_mudar` roda dentro do ator: deve só despachar o aviso, sem bloquear.
 pub fn supervisionado(
   name: process.Name(Mensagem),
+  ao_mudar: fn(Transicao) -> Nil,
 ) -> supervision.ChildSpecification(Subject(Mensagem)) {
   supervision.worker(fn() {
     iniciar_actor(
@@ -78,6 +119,7 @@ pub fn supervisionado(
         timeout_sondagem_ms: timeout_sondagem_ms_padrao,
       ),
       Some(name),
+      avisando(ao_mudar),
     )
   })
 }
@@ -90,17 +132,65 @@ fn tratar(
     Verificar(reply) -> {
       let #(pode, novo_estado) = checar(actor_state.estado, actor_state.config)
       process.send(reply, pode)
-      actor.continue(EstadoActor(..actor_state, estado: novo_estado))
+      actor.continue(mudar(actor_state, novo_estado))
     }
     ObterEstado(reply) -> {
       process.send(reply, actor_state.estado)
       actor.continue(actor_state)
     }
-    Sucesso -> actor.continue(EstadoActor(..actor_state, estado: Fechado(0)))
+    Sucesso -> actor.continue(mudar(actor_state, Fechado(0)))
     Falha -> {
       let novo_estado = ao_falhar(actor_state.estado, actor_state.config)
-      actor.continue(EstadoActor(..actor_state, estado: novo_estado))
+      actor.continue(mudar(actor_state, novo_estado))
     }
+  }
+}
+
+/// Troca o estado e avisa quando o circuito abre ou volta a fechar.
+fn mudar(actor_state: EstadoActor, novo: Estado) -> EstadoActor {
+  let transicao = case actor_state.estado, novo {
+    Fechado(_), Aberto(_) -> Some(Abriu)
+    Fechado(_), _ -> None
+    _, Fechado(_) -> Some(Fechou(fora_ms: 0))
+    _, _ -> None
+  }
+  let aviso = case transicao {
+    None -> actor_state.aviso
+    Some(t) -> {
+      let #(enviar, aviso) =
+        decidir_aviso(actor_state.aviso, t, sistema.agora_ms())
+      case enviar {
+        Some(t) -> aviso.ao_mudar(t)
+        None -> Nil
+      }
+      aviso
+    }
+  }
+  EstadoActor(..actor_state, estado: novo, aviso: aviso)
+}
+
+/// Decide se a transição vira aviso. Um `Abriu` só é avisado se o último
+/// `Fechou` avisado foi há mais de `intervalo_avisos_ms`; um `Fechou` só é
+/// avisado se o `Abriu` daquela queda foi, e leva quanto tempo ficou fora.
+pub fn decidir_aviso(
+  aviso: Aviso,
+  transicao: Transicao,
+  agora_ms: Int,
+) -> #(Option(Transicao), Aviso) {
+  case transicao, aviso.avisado {
+    Abriu, False ->
+      case agora_ms - aviso.ultimo_fechou_ms >= intervalo_avisos_ms {
+        True -> #(
+          Some(Abriu),
+          Aviso(..aviso, avisado: True, aberto_desde_ms: agora_ms),
+        )
+        False -> #(None, aviso)
+      }
+    Fechou(_), True -> #(
+      Some(Fechou(fora_ms: agora_ms - aviso.aberto_desde_ms)),
+      Aviso(..aviso, avisado: False, ultimo_fechou_ms: agora_ms),
+    )
+    _, _ -> #(None, aviso)
   }
 }
 

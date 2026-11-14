@@ -117,13 +117,20 @@ pub fn main() {
   let mensageiro = roteador_mensageiro.criar(whatsapp, telegram)
   let ponte = whatsmeow_http.criar_ponte(conexao_ponte)
 
+  // O admin recebe os avisos (ponte, provedores de IA, anti-spam) pelo
+  // Telegram; sem bot, não há a quem avisar.
+  let admin_avisos = case telegram_bot_token {
+    "" -> option.None
+    _ -> telegram_admin_chat_id
+  }
+
   let #(_supervisor, procs) =
     arvore_supervisao.iniciar_completo(
       transacoes_p,
       mensageiro,
       ponte,
       manutencao_intervalo_ms,
-      telegram_admin_chat_id,
+      admin_avisos,
     )
     |> result.lazy_unwrap(fn() {
       panic as "falha ao iniciar árvore de supervisão de processos de suporte"
@@ -168,13 +175,6 @@ pub fn main() {
   case string.trim(telegram_bot_token) {
     "" -> Nil
     _ -> receptor_telegram.iniciar(telegram_api, portas, procs.fila_atrasadas)
-  }
-
-  // O admin recebe os avisos da ponte pelo Telegram; sem bot, não há a quem
-  // avisar e o evento é só aceito.
-  let admin_avisos = case telegram_bot_token {
-    "" -> option.None
-    _ -> telegram_admin_chat_id
   }
 
   let rotas =
