@@ -19,6 +19,7 @@ import dominio/transacao.{Entregue}
 import gleam/bit_array
 import gleam/bytes_tree
 import gleam/erlang/process.{type Subject}
+import gleam/http
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
 import gleam/int
@@ -120,23 +121,36 @@ fn tratar_autenticado(
   modo: Subject(Pedido),
   envios: Subject(String),
 ) -> Response(ResponseData) {
-  case req.path, modo_atual(modo) {
+  case req.method, req.path {
+    http.Post, "/send" -> registrar_envio(req, modo_atual(modo), envios)
+    _, "/send" -> responder(405, "{\"code\":\"method_not_allowed\"}")
+    _, _ -> tratar_resto(req.path, modo_atual(modo))
+  }
+}
+
+fn registrar_envio(
+  req: Request(Connection),
+  estado: Modo,
+  envios: Subject(String),
+) -> Response(ResponseData) {
+  let assert Ok(lido) = mist.read_body(req, 1024 * 1024)
+  let assert Ok(corpo) = bit_array.to_string(lido.body)
+  process.send(envios, corpo)
+  case estado {
+    NoAr -> responder(200, "{\"ok\":true}")
+    SessaoFora ->
+      responder(
+        503,
+        "{\"code\":\"whatsapp_disconnected\",\"error\":\"sessão fora\"}",
+      )
+  }
+}
+
+fn tratar_resto(caminho: String, estado: Modo) -> Response(ResponseData) {
+  case caminho, estado {
     "/health", NoAr -> responder(200, "{\"connected\":true,\"logged_in\":true}")
     "/health", SessaoFora ->
       responder(200, "{\"connected\":false,\"logged_in\":false}")
-    "/send", estado -> {
-      let assert Ok(lido) = mist.read_body(req, 1024 * 1024)
-      let assert Ok(corpo) = bit_array.to_string(lido.body)
-      process.send(envios, corpo)
-      case estado {
-        NoAr -> responder(200, "{\"ok\":true}")
-        SessaoFora ->
-          responder(
-            503,
-            "{\"code\":\"whatsapp_disconnected\",\"error\":\"sessão fora\"}",
-          )
-      }
-    }
     // Reações, "digitando" e afins: aceitas sem registro.
     _, _ -> responder(200, "{\"ok\":true}")
   }
