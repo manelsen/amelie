@@ -58,11 +58,10 @@ pub fn arvore_supervisao_recuperacao_apos_crash_test() {
   // Simula um crash fatal no worker
   process.kill(pid_antigo)
 
-  // Aguarda 100ms para o supervisor OneForOne reiniciar o processo
-  process.sleep(100)
-
-  // Verifica que o processo ressuscitou com um novo PID
-  let assert Ok(pid_novo) = process.subject_owner(procs.metricas)
+  // Verifica que o supervisor OneForOne recriou o processo com um novo PID.
+  // Espera ativa, não tempo fixo: numa máquina ocupada o reinício passa de
+  // 100 ms e o teste falhava sem haver defeito.
+  let assert Ok(pid_novo) = esperar_novo_dono(procs.metricas, pid_antigo, 200)
   { pid_antigo == pid_novo } |> should.be_false
 
   // O subject nomeado continua funcionando normalmente!
@@ -88,7 +87,8 @@ pub fn arvore_supervisao_isolamento_de_falhas_test() {
   let assert Ok(pid_cb) = process.subject_owner(procs.cb_gemini)
   process.kill(pid_cb)
 
-  process.sleep(100)
+  // Espera o supervisor recriar o disjuntor (ver `esperar_novo_dono`).
+  let assert Ok(_) = esperar_novo_dono(procs.cb_gemini, pid_cb, 200)
 
   // O cache permaneceu intacto e o dado ainda existe
   cache_ia.obter(procs.cache_gemini, "teste_isolamento")
@@ -96,4 +96,20 @@ pub fn arvore_supervisao_isolamento_de_falhas_test() {
 
   // E o circuit breaker foi reiniciado
   disjuntor.pode_executar(procs.cb_gemini) |> should.be_true
+}
+
+/// Até `tentativas` × 10 ms pelo dono do subject nomeado, diferente de `antigo`.
+fn esperar_novo_dono(
+  subject: process.Subject(m),
+  antigo: process.Pid,
+  tentativas: Int,
+) -> Result(process.Pid, Nil) {
+  case process.subject_owner(subject) {
+    Ok(pid) if pid != antigo -> Ok(pid)
+    _ if tentativas <= 0 -> Error(Nil)
+    _ -> {
+      process.sleep(10)
+      esperar_novo_dono(subject, antigo, tentativas - 1)
+    }
+  }
 }
