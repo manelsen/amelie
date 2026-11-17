@@ -1,5 +1,6 @@
 // Despacha comandos. Puro — retorna Acao, não executa efeitos.
 
+import core/validacao
 import dominio/acao.{
   type Acao, AlterarModelo, ConsultarSpammers, ConsultarStatus, DesbloquearChat,
   EnviarResposta, LimparHistorico, ResetarWhatsApp, SalvarConfig,
@@ -16,7 +17,7 @@ pub fn executar(
   args: String,
   config: Config,
 ) -> Result(List(Acao), Erro) {
-  case nome {
+  case validacao.normalizar_nome_comando(nome) {
     "ajuda" | "start" -> Ok(ajuda(config))
     "reset" -> Ok(reset(config))
     "resumo" | "snapshot" | "compactar" ->
