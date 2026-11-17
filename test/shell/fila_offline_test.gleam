@@ -473,3 +473,27 @@ pub fn sessao_fora_ve_o_prazo_de_todas_as_do_chat_test() {
     AtualizouStatus(32, t.Descartada),
   ])
 }
+
+// ---------------------------------------------------------------------------
+// Laço de agendamento
+// ---------------------------------------------------------------------------
+
+// Com a fila sem dono (reiniciando), o laço não morre nem derruba quem o
+// disparou; quando o nome volta a ter dono, os pedidos voltam a chegar.
+pub fn laco_sobrevive_a_nome_sem_dono_test() {
+  let nome = process.new_name("fila_offline_ausente")
+  let fila = process.named_subject(nome)
+
+  let laco = fila_offline.agendar_processamento(fila, 10)
+  // Algumas voltas com o nome sem dono.
+  process.sleep(50)
+  process.is_alive(laco) |> should.be_true
+
+  let assert Ok(Nil) = process.register(process.self(), nome)
+  process.receive(fila, 1000)
+  |> should.equal(Ok(fila_offline.ProcessarPendentes))
+
+  process.kill(laco)
+  let _ = process.unregister(nome)
+  Nil
+}
