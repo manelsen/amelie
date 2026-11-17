@@ -110,7 +110,10 @@ pub fn consultar_status(chat_id: IdChat, portas: Portas) -> Result(Nil, Erro) {
       <> int.to_string(total_midias)
       <> "`\n"
       <> "• Chats em quarentena (anti-spam): `"
-      <> int.to_string(anti_spam.contar_silenciados(portas.anti_spam))
+      <> case anti_spam.contar_silenciados(portas.anti_spam) {
+      Ok(qtd) -> int.to_string(qtd)
+      Error(Nil) -> "indisponível"
+    }
       <> "`",
     portas,
   )
@@ -157,13 +160,19 @@ pub fn desbloquear_chat(
       )
     alvo_id ->
       case anti_spam.desbloquear(portas.anti_spam, alvo_id) {
-        True ->
+        Ok(True) ->
           avisar(
             chat_id,
             "✅ Chat `" <> alvo_id <> "` desbloqueado com sucesso!",
             portas,
           )
-        False ->
+        Error(Nil) ->
+          avisar(
+            chat_id,
+            "⚠️ Anti-spam indisponível no momento (reiniciando). Tente de novo em instantes.",
+            portas,
+          )
+        Ok(False) ->
           avisar(
             chat_id,
             "ℹ️ O chat `" <> alvo_id <> "` não estava em quarentena ou bloqueio.",
