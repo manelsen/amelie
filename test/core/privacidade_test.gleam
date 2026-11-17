@@ -31,6 +31,16 @@ pub fn mascarar_id_curto_test() {
   |> should.equal("****@lid")
 }
 
+pub fn mascarar_texto_de_exibicao_telegram_test() {
+  privacidade.mascarar_id("Telegram: 987654321")
+  |> should.equal("****:9876****4321")
+}
+
+pub fn mascarar_texto_de_exibicao_lid_test() {
+  privacidade.mascarar_id("LID: 123456789012345")
+  |> should.equal("****:1234****2345")
+}
+
 pub fn mascarar_vazio_test() {
   privacidade.mascarar_id("")
   |> should.equal("****")
