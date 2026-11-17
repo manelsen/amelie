@@ -10,39 +10,38 @@ import helpers/fixtures
 
 pub fn montar_inclui_texto_usuario_test() {
   let cfg = fixtures.config_padrao()
-  let prompt = montador.montar("Qual é a capital do Brasil?", cfg, [])
+  let prompt = montador.montar("Qual é a capital do Brasil?", cfg)
   string.contains(prompt, "Qual é a capital do Brasil?") |> should.be_true
 }
 
 pub fn montar_inclui_prompt_padrao_test() {
   let cfg = fixtures.config_padrao()
-  let prompt = montador.montar("teste", cfg, [])
+  let prompt = montador.montar("teste", cfg)
   string.contains(prompt, "Amélie") |> should.be_true
 }
 
 pub fn montar_inclui_idioma_test() {
   let cfg = fixtures.config_padrao()
-  let prompt = montador.montar("teste", cfg, [])
+  let prompt = montador.montar("teste", cfg)
   string.contains(prompt, "pt-BR") |> should.be_true
 }
 
 pub fn montar_usa_prompt_personalizado_test() {
   let cfg = fixtures.config_com_prompt()
-  let prompt = montador.montar("teste", cfg, [])
+  let prompt = montador.montar("teste", cfg)
   string.contains(prompt, "assistente de testes") |> should.be_true
 }
 
-pub fn montar_inclui_historico_test() {
+pub fn montar_nao_repete_o_historico_no_texto_test() {
   let cfg = fixtures.config_padrao()
-  let hist = fixtures.historico_com_turnos()
-  let prompt = montador.montar("nova pergunta", cfg, hist)
-  string.contains(prompt, "Olá") |> should.be_true
-  string.contains(prompt, "nova pergunta") |> should.be_true
+  let prompt = montador.montar("nova pergunta", cfg)
+  string.contains(prompt, "Amélie: ") |> should.be_false
+  string.contains(prompt, "Usuário: nova pergunta") |> should.be_true
 }
 
 pub fn montar_historico_vazio_sem_separador_extra_test() {
   let cfg = fixtures.config_padrao()
-  let prompt = montador.montar("só isso", cfg, [])
+  let prompt = montador.montar("só isso", cfg)
   string.starts_with(prompt, "\n\n") |> should.be_false
 }
 
@@ -157,24 +156,55 @@ pub fn montar_para_imagem_com_caption_test() {
   string.contains(prompt, "foco em") |> should.be_true
 }
 
-pub fn montar_historico_respeita_max_test() {
-  let _cfg = fixtures.config_com_prompt()
-  let muitos_turnos =
-    int.range(from: 20, to: 0, with: [], run: fn(acc, i) { [i, ..acc] })
-    |> list.flat_map(fn(i) {
-      let s = int.to_string(i)
-      [
-        mensagem.TurnoUsuario("pergunta " <> s),
-        mensagem.TurnoAssistente("resposta " <> s),
-      ]
-    })
-  let prompt = montador.montar("atual", fixtures.config_padrao(), muitos_turnos)
+fn turnos(n: Int) -> List(mensagem.Turno) {
+  int.range(from: n, to: 0, with: [], run: fn(acc, i) { [i, ..acc] })
+  |> list.flat_map(fn(i) {
+    let s = int.to_string(i)
+    [
+      mensagem.TurnoUsuario("pergunta " <> s),
+      mensagem.TurnoAssistente("resposta " <> s),
+    ]
+  })
+}
+
+pub fn historico_para_ia_guarda_os_ultimos_max_turnos_test() {
+  montador.historico_para_ia(turnos(20), 4)
+  |> should.equal([
+    mensagem.TurnoUsuario("pergunta 19"),
+    mensagem.TurnoAssistente("resposta 19"),
+    mensagem.TurnoUsuario("pergunta 20"),
+    mensagem.TurnoAssistente("resposta 20"),
+  ])
+}
+
+pub fn historico_para_ia_comeca_por_turno_do_usuario_test() {
+  // Max ímpar corta no meio de um par: a resposta solta do início sai.
+  montador.historico_para_ia(turnos(20), 3)
+  |> should.equal([
+    mensagem.TurnoUsuario("pergunta 20"),
+    mensagem.TurnoAssistente("resposta 20"),
+  ])
+}
+
+pub fn historico_para_ia_curto_fica_inteiro_test() {
+  montador.historico_para_ia(turnos(2), 50) |> should.equal(turnos(2))
+}
+
+pub fn historico_para_ia_max_zero_ou_negativo_e_vazio_test() {
+  montador.historico_para_ia(turnos(3), 0) |> should.equal([])
+  montador.historico_para_ia(turnos(3), -1) |> should.equal([])
+}
+
+pub fn followup_video_respeita_max_test() {
+  let cfg = fixtures.config_padrao()
+  let prompt = montador.montar_followup_video(cfg, turnos(20), "e o final?")
   string.contains(prompt, "pergunta 1\n") |> should.be_false
+  string.contains(prompt, "pergunta 20") |> should.be_true
 }
 
 pub fn montar_inclui_diretrizes_de_voz_test() {
   let cfg = fixtures.config_padrao()
-  let prompt = montador.montar("olá", cfg, [])
+  let prompt = montador.montar("olá", cfg)
   string.contains(prompt, "sintetizadores de voz") |> should.be_true
   string.contains(prompt, "barras verticais") |> should.be_true
 }
