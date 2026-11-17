@@ -259,7 +259,7 @@ fn avisar_limite(
     "["
       <> extrair_trace_id(msg)
       <> "] Rate limit acionado para "
-      <> privacidade.mascarar_id(tel)
+      <> privacidade.mascarar(msg.remetente)
       <> " ("
       <> privacidade.mascarar(msg.chat_id)
       <> "): "
@@ -288,7 +288,7 @@ fn descartar_silenciado(
     "["
       <> extrair_trace_id(msg)
       <> "] Mensagem descartada silenciosamente por quarentena anti-spam: "
-      <> privacidade.mascarar_id(tel)
+      <> privacidade.mascarar(msg.remetente)
       <> " ("
       <> privacidade.mascarar(msg.chat_id)
       <> ")",
