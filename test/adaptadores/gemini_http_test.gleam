@@ -24,3 +24,18 @@ pub fn resposta_sem_texto_e_erro_test() {
   |> gemini_http.extrair_texto_resposta
   |> should.be_error
 }
+
+pub fn delecao_com_status_2xx_e_sucesso_test() {
+  gemini_http.interpretar_delecao(200) |> should.equal(Ok(Nil))
+  gemini_http.interpretar_delecao(204) |> should.equal(Ok(Nil))
+}
+
+pub fn delecao_de_arquivo_que_ja_nao_existe_e_sucesso_test() {
+  gemini_http.interpretar_delecao(404) |> should.equal(Ok(Nil))
+}
+
+pub fn delecao_recusada_e_erro_test() {
+  gemini_http.interpretar_delecao(403) |> should.be_error
+  gemini_http.interpretar_delecao(500) |> should.be_error
+  gemini_http.interpretar_delecao(302) |> should.be_error
+}

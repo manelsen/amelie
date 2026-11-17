@@ -147,7 +147,8 @@ fn processar_audio(
     use _ <- result.try(aguardar_arquivo_ativo(api_key, uri, "áudio"))
     processar_arquivo_com_system(api_key, uri, mime, prompt, modelo)
   }
-  let _ = deletar_arquivo(api_key, uri)
+  deletar_arquivo(api_key, uri)
+  |> registrar_falha_delecao
   resultado
 }
 
@@ -338,8 +339,42 @@ fn deletar_arquivo(api_key: String, uri: String) -> Result(Nil, Erro) {
   )
 
   let req = req |> request.set_method(http.Delete)
-  let _ = httpc.send(req)
-  Ok(Nil)
+  use resp <- result.try(
+    httpc.send(req)
+    |> result.map_error(fn(e) {
+      erro.ErroComunicacao(
+        "falha ao apagar arquivo no Gemini: " <> string.inspect(e),
+      )
+    }),
+  )
+  interpretar_delecao(resp.status)
+}
+
+/// O áudio enviado à File API é apagado logo após o uso; se não der, a
+/// resposta segue mesmo assim e a falha só vai para o log.
+fn registrar_falha_delecao(resultado: Result(Nil, Erro)) -> Nil {
+  case resultado {
+    Ok(Nil) -> Nil
+    Error(e) ->
+      logging.log(
+        logging.Warning,
+        "[Gemini] Falha ao apagar áudio temporário: " <> erro.descricao(e),
+      )
+  }
+}
+
+/// Resultado de um DELETE na File API pelo status HTTP. 404 conta como
+/// sucesso: o arquivo já não existe (a File API apaga sozinha após 48 h, ou
+/// outra limpeza chegou antes), que é o estado pedido.
+pub fn interpretar_delecao(status: Int) -> Result(Nil, Erro) {
+  case status {
+    s if s >= 200 && s < 300 -> Ok(Nil)
+    404 -> Ok(Nil)
+    s ->
+      Error(erro.ErroIA(
+        "Gemini recusou apagar arquivo: status " <> int.to_string(s),
+      ))
+  }
 }
 
 // ---------------------------------------------------------------------------
