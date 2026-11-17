@@ -25,7 +25,7 @@ pub fn executar(
     "imagem" -> toggle("imagem", args, config)
     "video" -> toggle("video", args, config)
     "doc" -> toggle("doc", args, config)
-    "legenda" -> Ok(legenda_cmd(config))
+    "legenda" -> toggle("legenda", args, config)
     "longo" -> Ok(modo_descricao_cmd(Longo, config))
     "curto" -> Ok(modo_descricao_cmd(Curto, config))
     "cego" -> Ok(cego_cmd(config))
@@ -118,26 +118,22 @@ fn toggle(
       let nova = aplicar_toggle(recurso, True, cfg)
       Ok([
         SalvarConfig(nova),
-        EnviarResposta(cfg.chat_id, recurso <> " ativado."),
+        EnviarResposta(cfg.chat_id, mensagem_toggle(recurso, True)),
       ])
     }
     "off" -> {
       let nova = aplicar_toggle(recurso, False, cfg)
       Ok([
         SalvarConfig(nova),
-        EnviarResposta(cfg.chat_id, recurso <> " desativado."),
+        EnviarResposta(cfg.chat_id, mensagem_toggle(recurso, False)),
       ])
     }
     "" -> {
       let atual = estado_recurso(recurso, cfg)
       let nova = aplicar_toggle(recurso, !atual, cfg)
-      let status = case !atual {
-        True -> "ativado"
-        False -> "desativado"
-      }
       Ok([
         SalvarConfig(nova),
-        EnviarResposta(cfg.chat_id, recurso <> " " <> status <> "."),
+        EnviarResposta(cfg.chat_id, mensagem_toggle(recurso, !atual)),
       ])
     }
     outro ->
@@ -155,15 +151,6 @@ fn modo_descricao_cmd(modo: config.ModoDescricao, cfg: Config) -> List(Acao) {
     SalvarConfig(nova),
     EnviarResposta(cfg.chat_id, "Modo de descrição: " <> label <> "."),
   ]
-}
-
-fn legenda_cmd(cfg: Config) -> List(Acao) {
-  let nova = Config(..cfg, legenda_ativo: !cfg.legenda_ativo)
-  let status = case nova.legenda_ativo {
-    True -> "ativada"
-    False -> "desativada"
-  }
-  [SalvarConfig(nova), EnviarResposta(cfg.chat_id, "Legenda " <> status <> ".")]
 }
 
 fn cego_cmd(cfg: Config) -> List(Acao) {
@@ -209,5 +196,14 @@ fn estado_recurso(recurso: String, cfg: Config) -> Bool {
     "doc" -> cfg.doc_ativo
     "legenda" -> cfg.legenda_ativo
     _ -> False
+  }
+}
+
+fn mensagem_toggle(recurso: String, ativo: Bool) -> String {
+  case recurso, ativo {
+    "legenda", True -> "Legenda ativada."
+    "legenda", False -> "Legenda desativada."
+    _, True -> recurso <> " ativado."
+    _, False -> recurso <> " desativado."
   }
 }
