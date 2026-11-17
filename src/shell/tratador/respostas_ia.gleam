@@ -175,10 +175,11 @@ fn entregar_resposta_ia(
 ) -> Result(Nil, Erro) {
   let resposta_limpa = acessibilidade.sanitizar_saida_voz(resposta)
   use _ <- result.try(entregar(para, RespostaIA, resposta_limpa, msg, portas))
-  portas.historico.adicionar(msg.chat_id, TurnoUsuario(texto_usuario))
-  |> sistema.registrar_falha("Falha ao gravar pergunta no histórico")
-  portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta_limpa))
-  |> sistema.registrar_falha("Falha ao gravar resposta no histórico")
+  portas.historico.adicionar(msg.chat_id, [
+    TurnoUsuario(texto_usuario),
+    TurnoAssistente(resposta_limpa),
+  ])
+  |> sistema.registrar_falha("Falha ao gravar pergunta e resposta no histórico")
   Ok(Nil)
 }
 

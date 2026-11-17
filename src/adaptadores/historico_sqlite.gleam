@@ -5,7 +5,9 @@ import dominio/erro.{type Erro}
 import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Turno, TurnoAssistente, TurnoUsuario}
 import gleam/dynamic/decode
+import gleam/list
 import gleam/result
+import gleam/string
 import portas/historico_porta.{type HistoricoPorta, HistoricoPorta}
 import sqlight
 
@@ -31,7 +33,7 @@ pub fn criar(conn: sqlight.Connection) -> HistoricoPorta {
   let _ = sqlight.exec(schema_idx, conn)
   HistoricoPorta(
     obter: fn(chat_id) { obter(conn, chat_id) },
-    adicionar: fn(chat_id, turno) { adicionar(conn, chat_id, turno) },
+    adicionar: fn(chat_id, turnos) { adicionar(conn, chat_id, turnos) },
     limpar: fn(chat_id) { limpar(conn, chat_id) },
   )
 }
@@ -60,26 +62,39 @@ fn turno_decoder() -> decode.Decoder(Turno) {
   }
 }
 
+/// Um INSERT de várias linhas é atômico e dá ids consecutivos aos turnos,
+/// mesmo com outros processos usando a mesma conexão.
 fn adicionar(
   conn: sqlight.Connection,
   chat_id: IdChat,
-  turno: Turno,
+  turnos: List(Turno),
 ) -> Result(Nil, Erro) {
-  let sql = "INSERT INTO historico (chat_id, papel, conteudo) VALUES (?, ?, ?)"
-  let #(papel, conteudo) = case turno {
-    TurnoUsuario(c) -> #("usuario", c)
-    TurnoAssistente(c) -> #("assistente", c)
-  }
-
+  use <- se_houver(turnos)
   let chat = sqlight.text(id_chat.para_texto(chat_id))
+  let linhas = list.map(turnos, fn(_) { "(?, ?, ?)" }) |> string.join(", ")
+  let valores =
+    list.flat_map(turnos, fn(turno) {
+      let #(papel, conteudo) = case turno {
+        TurnoUsuario(c) -> #("usuario", c)
+        TurnoAssistente(c) -> #("assistente", c)
+      }
+      [chat, sqlight.text(papel), sqlight.text(conteudo)]
+    })
   sqlight.query(
-    sql,
+    "INSERT INTO historico (chat_id, papel, conteudo) VALUES " <> linhas,
     on: conn,
-    with: [chat, sqlight.text(papel), sqlight.text(conteudo)],
+    with: valores,
     expecting: decode.dynamic,
   )
   |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
   |> result.try(fn(_) { podar(conn, chat) })
+}
+
+fn se_houver(turnos: List(Turno), seguir: fn() -> Result(Nil, Erro)) {
+  case turnos {
+    [] -> Ok(Nil)
+    _ -> seguir()
+  }
 }
 
 /// Apaga os turnos do chat além dos `turnos_guardados_por_chat` mais novos.

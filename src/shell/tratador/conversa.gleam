@@ -146,10 +146,9 @@ pub fn resumir_historico(
   use _ <- result.try(case turnos >= 10 {
     True -> {
       use _ <- result.try(portas.historico.limpar(chat_id))
-      portas.historico.adicionar(
-        chat_id,
+      portas.historico.adicionar(chat_id, [
         TurnoUsuario("Contexto anterior resumido: " <> resumo_limpo),
-      )
+      ])
     }
     False -> Ok(Nil)
   })
