@@ -2,6 +2,7 @@ import core/anti_spam as core_anti_spam
 import dominio/erro
 import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{Mensagem}
+
 import dominio/video_contexto.{VideoContexto}
 import gleam/erlang/process
 import gleam/int
@@ -11,6 +12,7 @@ import gleam/string
 import gleeunit/should
 import helpers/fixtures
 import helpers/portas_fake
+import portas/historico_porta
 import portas/ia_porta
 import shell/despachante_ia
 import shell/fila_midia
@@ -701,4 +703,107 @@ fn coletar_textos(
     Ok(#(_, texto)) -> coletar_textos(ref, [texto, ..acc])
     Error(Nil) -> list.reverse(acc)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Histórico enviado à IA e gravado depois da entrega
+// ---------------------------------------------------------------------------
+
+fn portas_com_historico(ref, despachante, historico) -> base.Portas {
+  base.Portas(
+    ..portas_com_video(ref, despachante, portas_fake.video_contexto_noop()),
+    historico: historico,
+  )
+}
+
+fn historico_que_nao_grava() -> historico_porta.HistoricoPorta {
+  historico_porta.HistoricoPorta(
+    ..portas_fake.historico_com_midia(),
+    adicionar: fn(_, _) { Error(erro.ErroBancoDados("disco cheio")) },
+  )
+}
+
+fn conversa_longa(n: Int) -> List(mensagem.Turno) {
+  list.flat_map(de_1_a(n), fn(i) {
+    let s = int.to_string(i)
+    [
+      mensagem.TurnoUsuario("[imagem] pergunta " <> s),
+      mensagem.TurnoAssistente("resposta " <> s),
+    ]
+  })
+}
+
+pub fn ia_recebe_historico_uma_vez_e_limitado_test() {
+  let envios = process.new_subject()
+  let chamadas = process.new_subject()
+  let ia =
+    ia_porta.IAPorta(
+      ..portas_fake.ia_ok("ok"),
+      gerar_texto: fn(prompt, hist, _) {
+        process.send(chamadas, #(prompt, hist))
+        Ok("ok")
+      },
+    )
+  let cfg = fixtures.config_padrao()
+  let portas =
+    portas_com_historico(
+      envios,
+      despachante_ia.DespachanteIA(gemini: ia, openrouter: ia),
+      portas_fake.historico_com(conversa_longa(30)),
+    )
+
+  tratador_mensagem.tratar(fixtures.mensagem_texto("e agora?"), portas)
+  |> should.be_ok
+
+  let assert Ok(#(prompt, hist)) = process.receive(chamadas, 1000)
+  { list.length(hist) <= cfg.historico_max } |> should.be_true
+  list.first(hist)
+  |> should.equal(Ok(mensagem.TurnoUsuario("[imagem] pergunta 26")))
+  list.last(hist) |> should.equal(Ok(mensagem.TurnoAssistente("resposta 30")))
+  // O histórico vai só como turnos: o texto do prompt não o repete.
+  string.contains(prompt, "resposta 30") |> should.be_false
+  string.contains(prompt, "pergunta 30") |> should.be_false
+  string.contains(prompt, "e agora?") |> should.be_true
+}
+
+pub fn falha_ao_gravar_historico_depois_da_entrega_nao_avisa_erro_test() {
+  let envios = process.new_subject()
+  let portas =
+    portas_com_historico(
+      envios,
+      portas_fake.despachante_ia_ok("resposta certa"),
+      historico_que_nao_grava(),
+    )
+
+  tratador_mensagem.tratar(fixtures.mensagem_texto("e agora?"), portas)
+  |> should.be_ok
+
+  // Só a resposta certa: nada de "ocorreu um erro" depois dela.
+  coletar_textos(envios, []) |> should.equal(["resposta certa"])
+}
+
+pub fn falha_ao_gravar_historico_no_followup_de_video_nao_avisa_erro_test() {
+  let envios = process.new_subject()
+  let eventos = process.new_subject()
+  let ctx =
+    VideoContexto(
+      chat_id: fixtures.chat_id(),
+      uri: "https://files.google.com/v",
+      perguntas_restantes: 2,
+      criado_em: now_ms() / 1000,
+    )
+  let portas =
+    base.Portas(
+      ..portas_com_video(
+        envios,
+        portas_fake.despachante_ia_ok("sobre o vídeo"),
+        portas_fake.video_contexto_capturar(Some(ctx), eventos),
+      ),
+      historico: historico_que_nao_grava(),
+    )
+
+  tratador_mensagem.tratar(fixtures.mensagem_texto("e o final?"), portas)
+  |> should.be_ok
+
+  coletar_textos(envios, []) |> should.equal(["sobre o vídeo"])
 }

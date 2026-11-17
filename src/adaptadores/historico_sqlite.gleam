@@ -17,6 +17,12 @@ const schema = "CREATE TABLE IF NOT EXISTS historico (
   criado_em INTEGER NOT NULL DEFAULT (unixepoch())
 )"
 
+/// Quantos turnos cada chat guarda. O que vai à IA é recortado por
+/// `historico_max` (padrão 50) no core; este teto, folgado acima dele, só
+/// impede a tabela de crescer sem fim e mantém a leitura de `obter` limitada.
+/// `.resumo` resume o que estiver guardado.
+pub const turnos_guardados_por_chat = 200
+
 const schema_idx = "CREATE INDEX IF NOT EXISTS idx_historico_chat
   ON historico (chat_id, id)"
 
@@ -65,14 +71,28 @@ fn adicionar(
     TurnoAssistente(c) -> #("assistente", c)
   }
 
+  let chat = sqlight.text(id_chat.para_texto(chat_id))
   sqlight.query(
     sql,
     on: conn,
-    with: [
-      sqlight.text(id_chat.para_texto(chat_id)),
-      sqlight.text(papel),
-      sqlight.text(conteudo),
-    ],
+    with: [chat, sqlight.text(papel), sqlight.text(conteudo)],
+    expecting: decode.dynamic,
+  )
+  |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
+  |> result.try(fn(_) { podar(conn, chat) })
+}
+
+/// Apaga os turnos do chat além dos `turnos_guardados_por_chat` mais novos.
+fn podar(conn: sqlight.Connection, chat: sqlight.Value) -> Result(Nil, Erro) {
+  let sql =
+    "DELETE FROM historico
+     WHERE chat_id = ?1
+       AND id <= (SELECT id FROM historico WHERE chat_id = ?1
+                  ORDER BY id DESC LIMIT 1 OFFSET ?2)"
+  sqlight.query(
+    sql,
+    on: conn,
+    with: [chat, sqlight.int(turnos_guardados_por_chat)],
     expecting: decode.dynamic,
   )
   |> result.map(fn(_) { Nil })

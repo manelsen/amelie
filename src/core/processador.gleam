@@ -89,7 +89,7 @@ fn processar_texto(
         option.None -> {
           case tem_midia_no_historico(historico) {
             True -> {
-              let prompt = montador.montar(texto_val, config, historico)
+              let prompt = montador.montar(texto_val, config)
               Ok([GerarEEnviar(para: config.chat_id, prompt: prompt)])
             }
             False -> {

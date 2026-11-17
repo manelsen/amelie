@@ -61,8 +61,8 @@ pub fn buscar_url_e_responder(
   portas: Portas,
 ) -> Result(Nil, Erro) {
   let prompt = case extrator_url.buscar(portas.ponte, url) {
-    Ok(conteudo) -> montador.montar_com_url(texto, url, conteudo, cfg, hist)
-    Error(_) -> montador.montar(texto, cfg, hist)
+    Ok(conteudo) -> montador.montar_com_url(texto, url, conteudo, cfg)
+    Error(_) -> montador.montar(texto, cfg)
   }
   responder_com_ia(para, prompt, msg, cfg, hist, portas)
 }
@@ -78,18 +78,11 @@ fn responder_com_ia(
   use resposta <- result.try(despachante_ia.gerar_texto(
     portas.despachante_ia,
     prompt,
-    hist,
+    montador.historico_para_ia(hist, cfg.historico_max),
     cfg.provedor,
     cfg.modelo,
   ))
-  use resposta_limpa <- result.try(entregar_resposta_ia(
-    para,
-    resposta,
-    extrair_texto_usuario(msg),
-    msg,
-    portas,
-  ))
-  portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta_limpa))
+  entregar_resposta_ia(para, resposta, extrair_texto_usuario(msg), msg, portas)
 }
 
 /// Pergunta de acompanhamento sobre o último vídeo do chat: responde com o
@@ -142,15 +135,13 @@ fn responder_sobre_video(
     encerrar_contexto_video(para, ctx.uri, cfg, portas)
     responder_com_ia(para, prompt, msg, cfg, hist, portas)
   })
-  use resposta_limpa <- result.try(entregar_resposta_ia(
+  use _ <- result.try(entregar_resposta_ia(
     para,
     resposta,
     texto_usuario,
     msg,
     portas,
   ))
-  portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta_limpa))
-  |> sistema.registrar_falha("Falha ao gravar resposta no histórico")
 
   let restantes =
     portas.video_contexto.decrementar_perguntas(para)
@@ -171,22 +162,24 @@ fn ou_entao(
   }
 }
 
-/// Entrega a resposta da IA ao usuário e grava a pergunta no histórico.
-/// Devolve a resposta já sanitizada, para o chamador gravá-la também.
+/// Entrega a resposta da IA ao usuário e grava a pergunta e a resposta no
+/// histórico. Só a entrega pode falhar: depois dela o usuário já tem a
+/// resposta, e uma falha ao gravar o histórico vai para o log, não para
+/// ele como "ocorreu um erro".
 fn entregar_resposta_ia(
   para: IdChat,
   resposta: String,
   texto_usuario: String,
   msg: Mensagem,
   portas: Portas,
-) -> Result(String, Erro) {
+) -> Result(Nil, Erro) {
   let resposta_limpa = acessibilidade.sanitizar_saida_voz(resposta)
   use _ <- result.try(entregar(para, RespostaIA, resposta_limpa, msg, portas))
-  use _ <- result.try(portas.historico.adicionar(
-    msg.chat_id,
-    TurnoUsuario(texto_usuario),
-  ))
-  Ok(resposta_limpa)
+  portas.historico.adicionar(msg.chat_id, TurnoUsuario(texto_usuario))
+  |> sistema.registrar_falha("Falha ao gravar pergunta no histórico")
+  portas.historico.adicionar(msg.chat_id, TurnoAssistente(resposta_limpa))
+  |> sistema.registrar_falha("Falha ao gravar resposta no histórico")
+  Ok(Nil)
 }
 
 /// Esquece o vídeo do chat e apaga o arquivo dele no provedor de IA.
