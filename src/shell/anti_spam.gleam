@@ -12,12 +12,15 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/otp/supervision
 import gleam/result
+import logging
 import shell/ator_vivo
 import shell/sistema
 
 const max_chats_em_memoria = 500
 
 const ttl_inatividade_ms = 3_600_000
+
+const tempo_resposta_ms = 1000
 
 pub type AntiSpam =
   Subject(MensagemAntiSpam)
@@ -165,6 +168,11 @@ fn tratar(
 // Funções de Conveniência (Client API)
 // ---------------------------------------------------------------------------
 
+/// Verificação de uma mensagem nova. Se o ator não responder (nome sem dono
+/// durante o restart, morte ou mais de 1 s), devolve `Permitido` e registra
+/// Warning: perder a mensagem do usuário é pior do que deixar passar uma
+/// mensagem sem rate limit na janela de restart (o estado em memória do
+/// anti-spam se perde no restart de qualquer jeito).
 pub fn verificar(
   actor: AntiSpam,
   chat_id: IdChat,
@@ -174,25 +182,32 @@ pub fn verificar(
   let peso = anti_spam.peso_mensagem(corpo)
   let conta_flood = anti_spam.conta_para_flood(corpo)
   let agora = sistema.agora_ms()
-  process.call(actor, 1000, fn(resposta) {
+  chamar(actor, fn(resposta) {
     Verificar(chat_id, remetente, peso, conta_flood, agora, resposta)
   })
+  |> decisao_ou_permitir("verificar")
 }
 
 /// Verificação de mensagem atrasada (ver `anti_spam.avaliar_atrasada`).
+/// Mesmo fallback de `verificar`: sem resposta do ator, `Permitido` + Warning.
 pub fn verificar_atrasada(
   actor: AntiSpam,
   chat_id: IdChat,
   remetente: IdChat,
 ) -> anti_spam.DecisaoAntiSpam {
   let agora = sistema.agora_ms()
-  process.call(actor, 1000, fn(resposta) {
+  chamar(actor, fn(resposta) {
     VerificarAtrasada(chat_id, remetente, agora, resposta)
   })
+  |> decisao_ou_permitir("verificar_atrasada")
 }
 
-pub fn desbloquear(actor: AntiSpam, alvo: String) -> Bool {
-  process.call(actor, 1000, fn(resposta) { Desbloquear(alvo, resposta) })
+/// `Ok(True)` se o alvo estava bloqueado e foi liberado, `Ok(False)` se não
+/// estava. `Error(Nil)` se o ator não respondeu: o chamador não pode afirmar
+/// que o alvo "não estava em quarentena".
+pub fn desbloquear(actor: AntiSpam, alvo: String) -> Result(Bool, Nil) {
+  chamar(actor, fn(resposta) { Desbloquear(alvo, resposta) })
+  |> registrar_sem_resposta("desbloquear")
 }
 
 /// Ver `anti_spam.em_quarentena`. Não muda o estado.
@@ -201,17 +216,52 @@ pub fn desbloquear(actor: AntiSpam, alvo: String) -> Bool {
 /// decide como sempre. Um process.call aqui geraria panic e a mensagem se
 /// perderia sem aviso.
 pub fn em_quarentena(actor: AntiSpam, chat_id: IdChat, atrasada: Bool) -> Bool {
-  let resposta = process.new_subject()
-  let enviado =
-    ator_vivo.enviar(
-      actor,
-      EmQuarentena(chat_id, atrasada, sistema.agora_ms(), resposta),
-    )
-  use <- bool.guard(!enviado, False)
-  process.receive(resposta, 1000) |> result.unwrap(False)
+  chamar(actor, fn(resposta) {
+    EmQuarentena(chat_id, atrasada, sistema.agora_ms(), resposta)
+  })
+  |> result.unwrap(False)
 }
 
-pub fn contar_silenciados(actor: AntiSpam) -> Int {
+/// Quantos chats estão silenciados agora. `Error(Nil)` se o ator não
+/// respondeu: o `/status` mostra "indisponível" em vez de um 0 enganoso.
+pub fn contar_silenciados(actor: AntiSpam) -> Result(Int, Nil) {
   let agora = sistema.agora_ms()
-  process.call(actor, 1000, fn(resposta) { ContarSilenciados(agora, resposta) })
+  chamar(actor, fn(resposta) { ContarSilenciados(agora, resposta) })
+  |> registrar_sem_resposta("contar_silenciados")
+}
+
+/// Pedido com resposta sem risco de panic: ao contrário de `process.call`,
+/// não falha com nome sem dono, ator morto ou tempo esgotado; devolve
+/// `Error(Nil)`. Uma resposta tardia fica na caixa do chamador e é ignorada.
+fn chamar(
+  actor: AntiSpam,
+  montar: fn(Subject(r)) -> MensagemAntiSpam,
+) -> Result(r, Nil) {
+  let resposta = process.new_subject()
+  let enviado = ator_vivo.enviar(actor, montar(resposta))
+  use <- bool.guard(!enviado, Error(Nil))
+  process.receive(resposta, tempo_resposta_ms)
+}
+
+fn registrar_sem_resposta(
+  resultado: Result(r, Nil),
+  operacao: String,
+) -> Result(r, Nil) {
+  case resultado {
+    Ok(_) -> Nil
+    Error(Nil) ->
+      logging.log(
+        logging.Warning,
+        "AntiSpam: ator sem resposta em " <> operacao,
+      )
+  }
+  resultado
+}
+
+fn decisao_ou_permitir(
+  resultado: Result(anti_spam.DecisaoAntiSpam, Nil),
+  operacao: String,
+) -> anti_spam.DecisaoAntiSpam {
+  registrar_sem_resposta(resultado, operacao <> "; mensagem permitida")
+  |> result.unwrap(anti_spam.Permitido)
 }

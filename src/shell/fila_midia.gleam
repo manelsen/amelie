@@ -389,13 +389,11 @@ fn entregar(
   ctx: Contexto,
 ) -> Result(Nil, Erro) {
   let resposta_sanitizada = acessibilidade.sanitizar_saida_voz(resposta)
-  ctx.historico.adicionar(
-    chat_id,
+  ctx.historico.adicionar(chat_id, [
     TurnoUsuario(rotulo_usuario(tipo, msg.legenda)),
-  )
-  |> sistema.registrar_falha("Falha ao gravar mídia no histórico")
-  ctx.historico.adicionar(chat_id, TurnoAssistente(resposta_sanitizada))
-  |> sistema.registrar_falha("Falha ao gravar resposta no histórico")
+    TurnoAssistente(resposta_sanitizada),
+  ])
+  |> sistema.registrar_falha("Falha ao gravar mídia e resposta no histórico")
   case msg.message_id {
     option.Some(mid) ->
       entrega_auditada.enviar_citando(

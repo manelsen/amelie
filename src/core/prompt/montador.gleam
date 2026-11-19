@@ -7,13 +7,28 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
-pub fn montar(texto: String, config: Config, historico: List(Turno)) -> String {
-  let cabecalho = montar_cabecalho(config)
-  let hist_str = montar_historico(historico, config.historico_max)
-
-  [cabecalho, hist_str, "Usuário: " <> texto]
+/// Prompt da mensagem atual. Não traz o histórico: ele segue à parte, como
+/// turnos estruturados (`historico_para_ia`), uma única vez.
+pub fn montar(texto: String, config: Config) -> String {
+  [montar_cabecalho(config), "Usuário: " <> texto]
   |> list.filter(fn(s) { s != "" })
   |> string.join("\n\n")
+}
+
+/// Os turnos que acompanham uma chamada à IA: no máximo os últimos `max`.
+/// Turnos da Amélie no início do recorte são descartados, para a conversa
+/// enviada sempre começar por um turno do usuário (Gemini e OpenRouter
+/// esperam isso); por isso o resultado pode ter menos de `max` turnos.
+pub fn historico_para_ia(historico: List(Turno), max: Int) -> List(Turno) {
+  let total = list.length(historico)
+  historico
+  |> list.drop(total - int.max(0, max))
+  |> list.drop_while(fn(turno) {
+    case turno {
+      TurnoAssistente(_) -> True
+      TurnoUsuario(_) -> False
+    }
+  })
 }
 
 pub fn montar_com_url(
@@ -21,9 +36,8 @@ pub fn montar_com_url(
   url: String,
   conteudo_url: String,
   config: Config,
-  historico: List(Turno),
 ) -> String {
-  let base = montar(texto, config, historico)
+  let base = montar(texto, config)
   let ctx =
     "\n\n--- [Conteúdo lido da URL: "
     <> url
@@ -59,9 +73,7 @@ fn prompt_padrao(config: Config) -> String {
 }
 
 fn montar_historico(turnos: List(Turno), max: Int) -> String {
-  let total = list.length(turnos)
-  turnos
-  |> list.drop(int.max(0, total - max))
+  historico_para_ia(turnos, max)
   |> list.map(formatar_turno)
   |> string.join("\n")
 }
@@ -291,6 +303,8 @@ pub fn montar_followup_video(
     <> "- Se a dúvida for sobre o vídeo, seja concisa, direta, objetiva e útil.\n"
     <> "- Não invente fatos que não estejam presentes no vídeo."
 
+  // O follow-up vai com o arquivo do vídeo (`processar_video`), que não
+  // recebe turnos estruturados: aqui o histórico só pode ir no texto.
   let hist_str = montar_historico(historico, config.historico_max)
 
   [cabecalho, hist_str, "Pergunta do usuário sobre o vídeo: " <> pergunta]

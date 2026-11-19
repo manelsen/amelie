@@ -14,6 +14,7 @@ import logging
 import portas/mensageiro_porta.{type MensageiroPorta}
 import portas/ponte_porta.{type PontePorta}
 import portas/transacao_porta.{type TransacaoPorta}
+import shell/ator_vivo
 import shell/sistema
 
 pub type FilaOffline =
@@ -340,13 +341,27 @@ fn reenviar_transacao(state: Estado, tx: t.Transacao) -> Bool {
   }
 }
 
-pub fn agendar_processamento(fila: FilaOffline, intervalo_ms: Int) -> Nil {
-  let _ = process.spawn(fn() { loop_processamento(fila, intervalo_ms) })
-  Nil
+/// Dispara o laço que pede à fila, a cada `intervalo_ms`, que reprocesse as
+/// pendentes. O laço não fica ligado a quem chama: se a fila (ator nomeado)
+/// estiver reiniciando, o envio só é pulado e o laço tenta de novo no próximo
+/// intervalo, em vez de dar panic e derrubar o processo principal pelo link.
+/// Devolve o pid do laço (útil para encerrá-lo em testes).
+pub fn agendar_processamento(
+  fila: FilaOffline,
+  intervalo_ms: Int,
+) -> process.Pid {
+  process.spawn_unlinked(fn() { loop_processamento(fila, intervalo_ms) })
 }
 
 fn loop_processamento(fila: FilaOffline, intervalo_ms: Int) -> Nil {
-  process.send(fila, ProcessarPendentes)
+  case ator_vivo.enviar(fila, ProcessarPendentes) {
+    True -> Nil
+    False ->
+      logging.log(
+        logging.Warning,
+        "FilaOffline: ator indisponível; nova tentativa no próximo intervalo",
+      )
+  }
   process.sleep(intervalo_ms)
   loop_processamento(fila, intervalo_ms)
 }

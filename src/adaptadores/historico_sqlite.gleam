@@ -5,7 +5,9 @@ import dominio/erro.{type Erro}
 import dominio/id_chat.{type IdChat}
 import dominio/mensagem.{type Turno, TurnoAssistente, TurnoUsuario}
 import gleam/dynamic/decode
+import gleam/list
 import gleam/result
+import gleam/string
 import portas/historico_porta.{type HistoricoPorta, HistoricoPorta}
 import sqlight
 
@@ -17,6 +19,12 @@ const schema = "CREATE TABLE IF NOT EXISTS historico (
   criado_em INTEGER NOT NULL DEFAULT (unixepoch())
 )"
 
+/// Quantos turnos cada chat guarda. O que vai à IA é recortado por
+/// `historico_max` (padrão 50) no core; este teto, folgado acima dele, só
+/// impede a tabela de crescer sem fim e mantém a leitura de `obter` limitada.
+/// `.resumo` resume o que estiver guardado.
+pub const turnos_guardados_por_chat = 200
+
 const schema_idx = "CREATE INDEX IF NOT EXISTS idx_historico_chat
   ON historico (chat_id, id)"
 
@@ -25,7 +33,7 @@ pub fn criar(conn: sqlight.Connection) -> HistoricoPorta {
   let _ = sqlight.exec(schema_idx, conn)
   HistoricoPorta(
     obter: fn(chat_id) { obter(conn, chat_id) },
-    adicionar: fn(chat_id, turno) { adicionar(conn, chat_id, turno) },
+    adicionar: fn(chat_id, turnos) { adicionar(conn, chat_id, turnos) },
     limpar: fn(chat_id) { limpar(conn, chat_id) },
   )
 }
@@ -54,25 +62,52 @@ fn turno_decoder() -> decode.Decoder(Turno) {
   }
 }
 
+/// Um INSERT de várias linhas é atômico e dá ids consecutivos aos turnos,
+/// mesmo com outros processos usando a mesma conexão.
 fn adicionar(
   conn: sqlight.Connection,
   chat_id: IdChat,
-  turno: Turno,
+  turnos: List(Turno),
 ) -> Result(Nil, Erro) {
-  let sql = "INSERT INTO historico (chat_id, papel, conteudo) VALUES (?, ?, ?)"
-  let #(papel, conteudo) = case turno {
-    TurnoUsuario(c) -> #("usuario", c)
-    TurnoAssistente(c) -> #("assistente", c)
-  }
+  use <- se_houver(turnos)
+  let chat = sqlight.text(id_chat.para_texto(chat_id))
+  let linhas = list.map(turnos, fn(_) { "(?, ?, ?)" }) |> string.join(", ")
+  let valores =
+    list.flat_map(turnos, fn(turno) {
+      let #(papel, conteudo) = case turno {
+        TurnoUsuario(c) -> #("usuario", c)
+        TurnoAssistente(c) -> #("assistente", c)
+      }
+      [chat, sqlight.text(papel), sqlight.text(conteudo)]
+    })
+  sqlight.query(
+    "INSERT INTO historico (chat_id, papel, conteudo) VALUES " <> linhas,
+    on: conn,
+    with: valores,
+    expecting: decode.dynamic,
+  )
+  |> result.map_error(fn(e) { erro.ErroBancoDados(e.message) })
+  |> result.try(fn(_) { podar(conn, chat) })
+}
 
+fn se_houver(turnos: List(Turno), seguir: fn() -> Result(Nil, Erro)) {
+  case turnos {
+    [] -> Ok(Nil)
+    _ -> seguir()
+  }
+}
+
+/// Apaga os turnos do chat além dos `turnos_guardados_por_chat` mais novos.
+fn podar(conn: sqlight.Connection, chat: sqlight.Value) -> Result(Nil, Erro) {
+  let sql =
+    "DELETE FROM historico
+     WHERE chat_id = ?1
+       AND id <= (SELECT id FROM historico WHERE chat_id = ?1
+                  ORDER BY id DESC LIMIT 1 OFFSET ?2)"
   sqlight.query(
     sql,
     on: conn,
-    with: [
-      sqlight.text(id_chat.para_texto(chat_id)),
-      sqlight.text(papel),
-      sqlight.text(conteudo),
-    ],
+    with: [chat, sqlight.int(turnos_guardados_por_chat)],
     expecting: decode.dynamic,
   )
   |> result.map(fn(_) { Nil })

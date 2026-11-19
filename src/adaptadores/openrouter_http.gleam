@@ -246,6 +246,7 @@ fn aguardar_video_ativo(_api_key: String, _uri: String) -> Result(Nil, Erro) {
   Ok(Nil)
 }
 
+/// O OpenRouter não guarda arquivos (não há upload): nada a apagar.
 fn deletar_arquivo(_api_key: String, _uri: String) -> Result(Nil, Erro) {
   Ok(Nil)
 }

@@ -3,6 +3,7 @@
 
 import dominio/erro
 import gleam/erlang/process.{type Subject}
+import gleam/erlang/reference.{type Reference}
 import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
@@ -18,7 +19,12 @@ pub const intervalo_padrao_ms = 3_600_000
 const max_idade_midia_segundos = 3600
 
 pub type MensagemManutencao {
-  Tick
+  /// Disparo periódico. `marca` identifica o timer: o ator só aceita o Tick
+  /// cuja marca é a do timer que ele mesmo agendou por último. `send_after`
+  /// para um nome resolve o destino só na entrega, então um timer agendado
+  /// antes de um restart chega ao ator novo; sem a marca, ele somaria uma
+  /// segunda cadeia de manutenção à cadeia do Tick inicial, para sempre.
+  Tick(marca: Reference)
   ExecutarManutencao(resposta: Subject(Nil))
 }
 
@@ -27,6 +33,7 @@ pub type EstadoManutencao {
     transacoes: TransacaoPorta,
     intervalo_ms: Int,
     nome_proprio: process.Name(MensagemManutencao),
+    tick_esperado: Reference,
   )
 }
 
@@ -40,11 +47,13 @@ pub fn iniciar_actor(
     None -> process.new_name("amelie_manutencao")
   }
 
+  let marca = reference.new()
   let builder =
     actor.new(EstadoManutencao(
       transacoes: transacoes,
       intervalo_ms: intervalo_ms,
       nome_proprio: name_val,
+      tick_esperado: marca,
     ))
     |> actor.on_message(tratar)
     |> actor.named(name_val)
@@ -52,7 +61,7 @@ pub fn iniciar_actor(
   case actor.start(builder) {
     Ok(started) -> {
       let subj = process.named_subject(name_val)
-      process.send_after(subj, 10_000, Tick)
+      process.send_after(subj, 10_000, Tick(marca))
       Ok(started)
     }
     Error(err) -> Error(err)
@@ -74,10 +83,16 @@ fn tratar(
   msg: MensagemManutencao,
 ) -> actor.Next(EstadoManutencao, MensagemManutencao) {
   case msg {
-    Tick -> {
+    Tick(marca) if marca == estado.tick_esperado -> {
       executar(estado.transacoes)
+      let proxima = reference.new()
       let subj = process.named_subject(estado.nome_proprio)
-      process.send_after(subj, estado.intervalo_ms, Tick)
+      process.send_after(subj, estado.intervalo_ms, Tick(proxima))
+      actor.continue(EstadoManutencao(..estado, tick_esperado: proxima))
+    }
+    // Timer de uma encarnação anterior do ator: ignora, sem reagendar.
+    Tick(_) -> {
+      logging.log(logging.Debug, "Manutenção: Tick obsoleto ignorado")
       actor.continue(estado)
     }
     ExecutarManutencao(resposta) -> {

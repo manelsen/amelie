@@ -6,6 +6,7 @@ import dominio/erro
 import dominio/mensagem.{type Turno, Mensagem, TurnoAssistente, TurnoUsuario}
 import dominio/video_contexto.{VideoContexto}
 import gleam/erlang/process.{type Subject}
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
@@ -24,8 +25,8 @@ const espera_ms = 2000
 fn historico_capturar(ref: Subject(Turno)) -> HistoricoPorta {
   HistoricoPorta(
     obter: fn(_) { Ok([]) },
-    adicionar: fn(_, turno) {
-      process.send(ref, turno)
+    adicionar: fn(_, turnos) {
+      list.each(turnos, process.send(ref, _))
       Ok(Nil)
     },
     limpar: fn(_) { Ok(Nil) },

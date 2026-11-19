@@ -31,7 +31,7 @@ fn mascarar_jid(id: String) -> String {
     |> string.to_graphemes
     |> list.split_while(fn(g) { g != "." && g != ":" })
   let usuario = string.concat(usuario)
-  let resto = string.concat(resto)
+  let resto = mascarar_resto(string.concat(resto))
   let tamanho = string.length(usuario)
   let mascarado = case tamanho > 8 {
     True ->
@@ -41,4 +41,22 @@ fn mascarar_jid(id: String) -> String {
     False -> "****"
   }
   mascarado <> resto <> sufixo_servidor
+}
+
+/// Sufixo de agente/dispositivo (`:12`, `.0:12`) é curto e fica visível. Qualquer
+/// outra coisa depois do separador (texto de exibição como "Telegram: 987654321")
+/// é mascarada, para nunca devolver um identificador inteiro.
+fn mascarar_resto(resto: String) -> String {
+  let sem_separador = string.drop_start(resto, 1)
+  let curto =
+    string.length(resto) <= 6
+    && list.all(string.to_graphemes(resto), fn(g) {
+      string.contains(".:0123456789", g)
+    })
+  case resto, curto {
+    "", _ -> ""
+    _, True -> resto
+    _, False ->
+      string.slice(resto, 0, 1) <> mascarar_jid(string.trim(sem_separador))
+  }
 }
