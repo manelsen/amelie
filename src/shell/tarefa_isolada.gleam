@@ -42,10 +42,10 @@ pub fn executar(tarefa: fn() -> Nil, tempo_maximo_ms: Int) -> Desfecho {
   }
 }
 
-@external(erlang, "amelie_gleam_ffi", "criar_e_monitorar")
+@external(erlang, "amelie_ffi", "criar_e_monitorar")
 fn criar_e_monitorar(processo: fn() -> Nil) -> #(process.Pid, process.Monitor)
 
-@external(erlang, "amelie_gleam_ffi", "criar_ligado_e_monitorar")
+@external(erlang, "amelie_ffi", "criar_ligado_e_monitorar")
 fn criar_ligado_e_monitorar(
   processo: fn() -> Nil,
 ) -> #(process.Pid, process.Monitor)

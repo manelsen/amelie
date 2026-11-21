@@ -431,8 +431,8 @@ fn colapsar_linhas_vazias(texto: String) -> String {
   }
 }
 
-@external(erlang, "amelie_gleam_ffi", "strip_timestamps")
+@external(erlang, "amelie_ffi", "strip_timestamps")
 fn remover_timestamps_ffi(texto: String) -> String
 
-@external(erlang, "amelie_gleam_ffi", "video_tem_audio")
+@external(erlang, "amelie_ffi", "video_tem_audio")
 fn video_tem_audio(caminho: String) -> Bool

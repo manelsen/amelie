@@ -13,14 +13,14 @@ import logging
 /// URL da ponte whatsmeow quando WHATSMEOW_URL não está definida.
 pub const url_ponte_padrao = "http://localhost:8080"
 
-@external(erlang, "amelie_gleam_ffi", "now_ms")
+@external(erlang, "amelie_ffi", "now_ms")
 pub fn agora_ms() -> Int
 
 pub fn agora_s() -> Int {
   agora_ms() / 1000
 }
 
-@external(erlang, "amelie_gleam_ffi", "get_env")
+@external(erlang, "amelie_ffi", "get_env")
 pub fn ler_env(nome: String) -> Result(String, Nil)
 
 pub fn ler_env_ou(nome: String, padrao: String) -> String {
@@ -44,10 +44,10 @@ pub fn url_ponte() -> String {
 /// falha nela não derruba o chamador.
 /// Reserva uma vaga num contador global `nome` limitado a `maximo`. Devolve
 /// False se não couber; quem reservou devolve a vaga com `liberar_vaga`.
-@external(erlang, "amelie_gleam_ffi", "reservar_vaga")
+@external(erlang, "amelie_ffi", "reservar_vaga")
 pub fn reservar_vaga(nome: String, maximo: Int) -> Bool
 
-@external(erlang, "amelie_gleam_ffi", "liberar_vaga")
+@external(erlang, "amelie_ffi", "liberar_vaga")
 pub fn liberar_vaga(nome: String) -> Nil
 
 pub fn disparar(tarefa: fn() -> a) -> Nil {

@@ -9,7 +9,7 @@ import simplifile
 const camadas = ["dominio", "portas", "core", "adaptadores", "shell"]
 
 /// Único módulo fora das camadas: monta adaptadores e portas.
-const ponto_de_entrada = "amelie_gleam"
+const ponto_de_entrada = "amelie"
 
 /// Bibliotecas que falam com o mundo de fora (banco, servidor e cliente HTTP).
 /// Só os adaptadores e o ponto de entrada podem importá-las.
@@ -94,7 +94,7 @@ pub fn violacoes(arquivo: String, fonte: String) -> List(String) {
     |> string.replace(".gleam", "")
   let camada = camada_de(modulo)
   let e_entrada = modulo == ponto_de_entrada
-  // Só o módulo `amelie_gleam` em si monta tudo; um `amelie_gleam/x` não.
+  // Só o módulo `amelie` em si monta tudo; um `amelie/x` não.
   let permitidas = case e_entrada {
     True -> camadas
     False -> camadas_permitidas(camada)
@@ -140,7 +140,7 @@ pub fn guarda_acusa_infraestrutura_fora_dos_adaptadores_test() {
   assert violacoes("src/shell/x.gleam", "import sqlight\nimport gleam/list\n")
     == ["src/shell/x.gleam: sqlight"]
   assert violacoes("src/adaptadores/x.gleam", "import sqlight\n") == []
-  assert violacoes("src/amelie_gleam.gleam", "import adaptadores/x\n") == []
+  assert violacoes("src/amelie.gleam", "import adaptadores/x\n") == []
 }
 
 pub fn guarda_so_libera_o_ponto_de_entrada_real_test() {
@@ -160,8 +160,8 @@ pub fn guarda_acusa_porta_importando_porta_test() {
 }
 
 pub fn guarda_acusa_camada_importando_o_ponto_de_entrada_test() {
-  assert violacoes("src/core/x.gleam", "import amelie_gleam\n")
-    == ["src/core/x.gleam: amelie_gleam"]
+  assert violacoes("src/core/x.gleam", "import amelie\n")
+    == ["src/core/x.gleam: amelie"]
 }
 
 pub fn guarda_ignora_import_dentro_de_string_test() {
@@ -182,9 +182,6 @@ pub fn guarda_acusa_import_com_espacos_extras_test() {
 }
 
 pub fn guarda_nao_estende_a_excecao_a_submodulos_da_entrada_test() {
-  assert violacoes(
-      "src/amelie_gleam/utilitarios.gleam",
-      "import adaptadores/x\n",
-    )
-    == ["src/amelie_gleam/utilitarios.gleam: adaptadores/x"]
+  assert violacoes("src/amelie/utilitarios.gleam", "import adaptadores/x\n")
+    == ["src/amelie/utilitarios.gleam: adaptadores/x"]
 }

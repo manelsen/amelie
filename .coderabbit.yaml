@@ -60,7 +60,7 @@ reviews:
         só via `shell/sistema`. Atenção a mensagens perdidas sem aviso ao usuário,
         respostas duplicadas (a fila offline reenvia entregas que falharam) e
         jobs que possam derrubar um ator compartilhado.
-    - path: "src/amelie_gleam.gleam"
+    - path: "src/amelie.gleam"
       instructions: |
         Único lugar que constrói adaptadores. `mist.read_body` deve aceitar no
         mínimo 20 * 1024 * 1024 bytes para mídia de entrada.

@@ -20,7 +20,7 @@ import shell/metricas
 import shell/tratador/base
 import shell/tratador_mensagem
 
-@external(erlang, "amelie_gleam_ffi", "now_ms")
+@external(erlang, "amelie_ffi", "now_ms")
 fn now_ms() -> Int
 
 fn met() {

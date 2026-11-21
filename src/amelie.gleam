@@ -51,7 +51,7 @@ import logging
 // FFI — variáveis de ambiente
 // ---------------------------------------------------------------------------
 
-@external(erlang, "amelie_gleam_ffi", "ensure_applications_started")
+@external(erlang, "amelie_ffi", "ensure_applications_started")
 fn garantir_aplicacoes_iniciadas() -> Nil
 
 pub fn main() {

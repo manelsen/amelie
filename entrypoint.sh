@@ -51,5 +51,5 @@ echo "[amelie] Iniciando supervisor do bridge (porta ${BRIDGE_PORT})..."
 echo "[amelie] Iniciando app (porta ${GLEAM_PORT})..."
 exec erl \
   -pa /app/build/erlang-shipment/*/ebin \
-  -eval "'amelie_gleam@@main':run(amelie_gleam)." \
+  -eval "'amelie@@main':run(amelie)." \
   -noshell

@@ -16,7 +16,7 @@ import portas/ponte_porta.{
 }
 
 /// Confere que o caminho da mídia está dentro do spool privado da ponte.
-@external(erlang, "amelie_gleam_ffi", "validate_bridge_media")
+@external(erlang, "amelie_ffi", "validate_bridge_media")
 fn validar_arquivo(path: String) -> Result(String, String)
 
 pub fn decodificar_webhook(body: BitArray) -> Result(Webhook, Nil) {

@@ -30,5 +30,5 @@ pub fn autorizar_webhook(
   }
 }
 
-@external(erlang, "amelie_gleam_ffi", "constant_time_equal")
+@external(erlang, "amelie_ffi", "constant_time_equal")
 fn comparar_tokens(a: String, b: String) -> Bool

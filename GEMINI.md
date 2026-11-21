@@ -66,8 +66,8 @@ src/
 │   ├── manutencao.gleam
 │   ├── metricas.gleam
 │   └── extrator_url.gleam
-├── amelie_gleam_ffi.erl # Erlang FFI (OS env, file IO, BEAM metrics)
-└── amelie_gleam.gleam   # Entry point: Wires everything and starts Mist HTTP server
+├── amelie_ffi.erl       # Erlang FFI (OS env, file IO, BEAM metrics)
+└── amelie.gleam         # Entry point: Wires everything and starts Mist HTTP server
 whatsmeow-bridge/     # Go bridge for connecting to WhatsApp via whatsmeow
 config/               # Configuration files (providers.yaml)
 db/                   # SQLite database files
@@ -137,7 +137,7 @@ test/                 # Test suite (mirrors src/ structure)
 ### Coding Style
 - **Gleam Patterns:** Prefer `use` for monadic operations (Result, Option, Decoder).
 - **JSON Decoding:** Use `gleam_json` decoders. Note that `sqlight` decoders use positional indexing (`decode.at([0], ...)`).
-- **FFI:** Erlang FFI is used for system-level calls (OS environment, process spawning, file reading/deletion, memory inspection) in `src/amelie_gleam_ffi.erl`.
+- **FFI:** Erlang FFI is used for system-level calls (OS environment, process spawning, file reading/deletion, memory inspection) in `src/amelie_ffi.erl`.
 
 ## Key Logic Paths
 

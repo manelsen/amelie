@@ -13,23 +13,23 @@ media_paths_test() ->
         try
             Outside = filename:join(Dir, "private.txt"),
             ok = file:write_file(Outside, <<"private">>),
-            ?assertMatch({error, _}, amelie_gleam_ffi:read_bridge_media(list_to_binary(Outside))),
-            ?assertMatch({error, _}, amelie_gleam_ffi:validate_bridge_media(list_to_binary(Root ++ "/../private.txt"))),
+            ?assertMatch({error, _}, amelie_ffi:read_bridge_media(list_to_binary(Outside))),
+            ?assertMatch({error, _}, amelie_ffi:validate_bridge_media(list_to_binary(Root ++ "/../private.txt"))),
             Symlink = filename:join(Root, "amelie_midia_link"),
             ok = file:make_symlink(Outside, Symlink),
-            ?assertMatch({error, _}, amelie_gleam_ffi:read_bridge_media(list_to_binary(Symlink))),
+            ?assertMatch({error, _}, amelie_ffi:read_bridge_media(list_to_binary(Symlink))),
             Hardlink = filename:join(Root, "amelie_midia_hardlink"),
             ok = file:make_link(Outside, Hardlink),
-            ?assertMatch({error, _}, amelie_gleam_ffi:read_bridge_media(list_to_binary(Hardlink))),
+            ?assertMatch({error, _}, amelie_ffi:read_bridge_media(list_to_binary(Hardlink))),
             ?assertEqual({ok, <<"private">>}, file:read_file(Outside)),
             Valid = filename:join(Root, "amelie_midia_audio_123.ogg"),
             ok = file:write_file(Valid, <<"audio">>),
-            ?assertEqual({ok, <<"audio">>}, amelie_gleam_ffi:read_bridge_media(list_to_binary(Valid))),
+            ?assertEqual({ok, <<"audio">>}, amelie_ffi:read_bridge_media(list_to_binary(Valid))),
             ?assertEqual({error, enoent}, file:read_file(Valid)),
             RootLink = filename:join(Dir, "rootlink"),
             ok = file:make_symlink(Root, RootLink),
             true = os:putenv("MEDIA_TEMP_DIR", RootLink),
-            ?assertMatch({error, _}, amelie_gleam_ffi:validate_bridge_media(list_to_binary(RootLink ++ "/amelie_midia_link")))
+            ?assertMatch({error, _}, amelie_ffi:validate_bridge_media(list_to_binary(RootLink ++ "/amelie_midia_link")))
         after restore_env("MEDIA_TEMP_DIR", Previous)
         end
     end).
@@ -45,7 +45,7 @@ ffprobe_does_not_execute_shell_test() ->
         true = os:putenv("PATH", Dir),
         try
             Path = iolist_to_binary(["fake$(printf hacked>", Marker, ").mp4"]),
-            ?assertEqual(true, amelie_gleam_ffi:video_tem_audio(Path)),
+            ?assertEqual(true, amelie_ffi:video_tem_audio(Path)),
             ?assertEqual({error, enoent}, file:read_file(Marker))
         after restore_env("PATH", Previous)
         end
@@ -54,8 +54,8 @@ ffprobe_does_not_execute_shell_test() ->
 private_media_has_unique_names_and_permissions_test() ->
     with_temp(fun(Dir) ->
         with_env(<<"MEDIA_TEMP_DIR">>, list_to_binary(Dir ++ "/spool"), fun() ->
-            {ok, A} = amelie_gleam_ffi:write_private_media(<<"conversation A">>),
-            {ok, B} = amelie_gleam_ffi:write_private_media(<<"conversation B">>),
+            {ok, A} = amelie_ffi:write_private_media(<<"conversation A">>),
+            {ok, B} = amelie_ffi:write_private_media(<<"conversation B">>),
             ?assertNotEqual(A, B),
             ?assertEqual({ok, <<"conversation A">>}, file:read_file(A)),
             ?assertEqual({ok, <<"conversation B">>}, file:read_file(B)),
@@ -65,20 +65,20 @@ private_media_has_unique_names_and_permissions_test() ->
     end).
 
 constant_time_comparison_test() ->
-    ?assert(amelie_gleam_ffi:constant_time_equal(<<"abc">>, <<"abc">>)),
-    ?assertNot(amelie_gleam_ffi:constant_time_equal(<<"abc">>, <<"abd">>)).
+    ?assert(amelie_ffi:constant_time_equal(<<"abc">>, <<"abc">>)),
+    ?assertNot(amelie_ffi:constant_time_equal(<<"abc">>, <<"abd">>)).
 
 safe_mime_test() ->
-    ?assertEqual(<<"image/jpeg">>, amelie_gleam_ffi:safe_mime(<<"image/jpeg">>)),
-    ?assertEqual(<<"audio/ogg">>, amelie_gleam_ffi:safe_mime(<<"audio/ogg; codecs=opus">>)),
-    ?assertEqual(<<"video/mp4">>, amelie_gleam_ffi:safe_mime(<<"Video/MP4">>)),
+    ?assertEqual(<<"image/jpeg">>, amelie_ffi:safe_mime(<<"image/jpeg">>)),
+    ?assertEqual(<<"audio/ogg">>, amelie_ffi:safe_mime(<<"audio/ogg; codecs=opus">>)),
+    ?assertEqual(<<"video/mp4">>, amelie_ffi:safe_mime(<<"Video/MP4">>)),
     %% Injeção no multipart: CRLF e aspas não passam.
     ?assertEqual(<<"application/octet-stream">>,
-                 amelie_gleam_ffi:safe_mime(<<"video/mp4\r\nX-Injetado: 1">>)),
+                 amelie_ffi:safe_mime(<<"video/mp4\r\nX-Injetado: 1">>)),
     ?assertEqual(<<"application/octet-stream">>,
-                 amelie_gleam_ffi:safe_mime(<<"video/mp4\"}},\"x\":{\"y\":\"">>)),
-    ?assertEqual(<<"application/octet-stream">>, amelie_gleam_ffi:safe_mime(<<"semtipo">>)),
-    ?assertEqual(<<"application/octet-stream">>, amelie_gleam_ffi:safe_mime(not_binary)).
+                 amelie_ffi:safe_mime(<<"video/mp4\"}},\"x\":{\"y\":\"">>)),
+    ?assertEqual(<<"application/octet-stream">>, amelie_ffi:safe_mime(<<"semtipo">>)),
+    ?assertEqual(<<"application/octet-stream">>, amelie_ffi:safe_mime(not_binary)).
 
 with_temp(F) ->
     Dir = "/tmp/amelie-security-" ++ integer_to_list(erlang:unique_integer([positive])),

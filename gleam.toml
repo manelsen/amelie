@@ -1,7 +1,7 @@
-name = "amelie_gleam"
+name = "amelie"
 version = "0.1.0"
 target = "erlang"
-description = "Amélie WhatsApp bot — Gleam/BEAM"
+description = "Amélie — Assistente acessível de IA para WhatsApp e Telegram em Gleam/BEAM"
 
 [dependencies]
 gleam_stdlib   = ">= 0.50.0 and < 1.0.0"

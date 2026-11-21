@@ -478,14 +478,14 @@ fn extrair_uri_arquivo(json_str: String) -> Result(String, Nil) {
 // FFI
 // ---------------------------------------------------------------------------
 
-@external(erlang, "amelie_gleam_ffi", "upload_bytes")
+@external(erlang, "amelie_ffi", "upload_bytes")
 fn enviar_dados_ffi(
   api_key: String,
   dados: BitArray,
   mime: String,
 ) -> Result(String, String)
 
-@external(erlang, "amelie_gleam_ffi", "upload_file")
+@external(erlang, "amelie_ffi", "upload_file")
 fn enviar_arquivo_ffi(
   api_key: String,
   caminho: String,

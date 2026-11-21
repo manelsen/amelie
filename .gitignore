@@ -31,4 +31,5 @@ erl_crash.dump
 
 # Binários do bridge compilados localmente
 whatsmeow-bridge/amelie-whatsmeow-bridge
+whatsmeow-bridge/whatsmeow-bridge
 whatsmeow-bridge/bridge

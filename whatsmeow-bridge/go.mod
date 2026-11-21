@@ -1,4 +1,4 @@
-module github.com/micelio/amelie-whatsmeow-bridge
+module github.com/manelsen/amelie/whatsmeow-bridge
 
 go 1.26.0
 

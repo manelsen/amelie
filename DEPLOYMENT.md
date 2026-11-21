@@ -1,9 +1,9 @@
-# Deployment — Amélie Gleam
+# Deployment — Amélie
 
 ## Estrutura de Arquivos
 
 ```text
-amelie_gleam/
+amelie/
 ├── src/                    # Código Gleam (core funcional, portas, adaptadores, shell)
 ├── whatsmeow-bridge/       # Bridge Go (conectividade WhatsApp via whatsmeow)
 ├── config/                 # Configuração externa de provedores (providers.yaml)

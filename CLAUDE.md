@@ -84,7 +84,7 @@ core/          — Pure business logic. Deterministic. Receives data, returns Li
 portas/        — Port interfaces (abstract types as records of functions).
 adaptadores/   — Concrete implementations of ports (HTTP clients, SQLite).
 shell/         — Effectful orchestration layer. Executes Acao values and OTP actors.
-amelie_gleam.gleam — Entry point: wires adapters → ports, plus a thin Mist router (auth, body read, HTTP status). No business logic.
+amelie.gleam — Entry point: wires adapters → ports, plus a thin Mist router (auth, body read, HTTP status). No business logic.
 ```
 
 ### Data Flow
@@ -118,7 +118,7 @@ A Amélie só atende conversas privadas, nos dois canais. No WhatsApp, a ponte d
 
 ### Ports (Abstract interfaces as record-of-functions)
 
-`shell/` reaches external services only through these ports; `amelie_gleam.gleam` is the only place that builds adapters. Allowed imports per layer: `dominio` → `dominio`; `portas` → `dominio`; `core` → `core`, `dominio` (never `portas`); `adaptadores` → `adaptadores`, `dominio`, `portas`; `shell` → `shell`, `core`, `dominio`, `portas` (never `adaptadores`). `test/arquitetura_test.gleam` enforces this table on every `gleam test`, and also keeps infrastructure libraries (`sqlight`, `mist`, `gleam/httpc`) out of everything but `adaptadores` and the entry point. `shell/despachante_ia` routes AI calls to the configured provider's `IAPorta`. `dominio/provedores_config` only parses YAML text — the entry point reads `config/providers.yaml`.
+`shell/` reaches external services only through these ports; `amelie.gleam` is the only place that builds adapters. Allowed imports per layer: `dominio` → `dominio`; `portas` → `dominio`; `core` → `core`, `dominio` (never `portas`); `adaptadores` → `adaptadores`, `dominio`, `portas`; `shell` → `shell`, `core`, `dominio`, `portas` (never `adaptadores`). `test/arquitetura_test.gleam` enforces this table on every `gleam test`, and also keeps infrastructure libraries (`sqlight`, `mist`, `gleam/httpc`) out of everything but `adaptadores` and the entry point. `shell/despachante_ia` routes AI calls to the configured provider's `IAPorta`. `dominio/provedores_config` only parses YAML text — the entry point reads `config/providers.yaml`.
 
 
 - `portas/mensageiro_porta.MensageiroPorta` — send messages and reactions (WhatsApp bridge, Telegram).
@@ -170,7 +170,7 @@ Messages starting with `.` or `/` (or without prefix where supported) are parsed
 
 ### FFI
 
-`src/amelie_gleam_ffi.erl` provides Erlang FFI for:
+`src/amelie_ffi.erl` provides Erlang FFI for:
 - `get_env/1`, `now_ms/0` — OS environment variables and wall clock. Shell modules use them only through `shell/sistema` (`ler_env`, `ler_env_ou`, `agora_ms`, `agora_s`, `admin_chat_id`, `url_ponte`), which also offers `disparar` for unlinked processes; don't redeclare these externals elsewhere.
 - `read_file/1` and `delete_file/1` — temporary media file reading and cleanup.
 - `total_memory/0`, `processes_memory/0`, `process_count/0` — BEAM runtime metrics.
@@ -178,7 +178,7 @@ Messages starting with `.` or `/` (or without prefix where supported) are parsed
 ## Regras de trabalho
 
 - Quando o usuário reportar que algo não funciona, rastrear o caminho completo do dado em runtime (quem chama → quem passa o argumento → quem envia ao serviço externo) antes de sugerir causa externa (deploy, cache, restart). Código que existe mas não é alcançado é código morto.
-- `mist.read_body` em `amelie_gleam.gleam` deve ser no mínimo `20 * 1024 * 1024` para suportar payloads de mídia de entrada.
+- `mist.read_body` em `amelie.gleam` deve ser no mínimo `20 * 1024 * 1024` para suportar payloads de mídia de entrada.
 - Sempre rodar `gleam test` e `cd whatsmeow-bridge && go test -count=1 ./...` antes de concluir modificações.
 - Seguir o padrão de commits convencionais em português (`feat`, `fix`, `chore`, `refactor`, `docs`).
 - Nomes de módulos, funções, tipos e campos em português. Ficam como estão os termos técnicos consagrados (webhook, cache, token, status, upload, download, log, prompt, trace, sticker, follow-up), nomes de produto (Gemini, Telegram, WhatsApp, SQLite) e campos que espelham o JSON de APIs externas (`update_id`, `file_id`, `file_name`). "Bridge" é sempre "ponte".

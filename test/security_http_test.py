@@ -43,7 +43,7 @@ class WebhookSecurityTest(unittest.TestCase):
         cls.log = open(cls.root / "server.log", "w+")
         cls.addClassCleanup(cls.log.close)
         cls.server = subprocess.Popen(
-            ["erl", "-noshell", "-pa", *ebin_dirs, "-eval", "'amelie_gleam@@main':run(amelie_gleam)."],
+            ["erl", "-noshell", "-pa", *ebin_dirs, "-eval", "'amelie@@main':run(amelie)."],
             cwd=cls.root, env=env,
             stdout=cls.log, stderr=subprocess.STDOUT, start_new_session=True,
         )

@@ -140,13 +140,13 @@ pub fn formatar(estado: Estado) -> String {
   <> "`"
 }
 
-@external(erlang, "amelie_gleam_ffi", "memoria_total_mb")
+@external(erlang, "amelie_ffi", "memoria_total_mb")
 pub fn memoria_total_mb() -> Int
 
-@external(erlang, "amelie_gleam_ffi", "memoria_processos_mb")
+@external(erlang, "amelie_ffi", "memoria_processos_mb")
 pub fn memoria_processos_mb() -> Int
 
-@external(erlang, "amelie_gleam_ffi", "contagem_processos")
+@external(erlang, "amelie_ffi", "contagem_processos")
 pub fn contagem_processos() -> Int
 
 fn incrementar(state: Estado, tipo: TipoContador) -> Estado {

@@ -1,10 +1,10 @@
-# TODO: Paridade `amelie` -> `amelie_gleam`
+# TODO: Paridade `amelie-legacy` -> `amelie`
 
-Este arquivo lista o status de paridade com o sistema legado (`~/git/amelie`), registrando o que já foi implementado, o que foi vetado deliberadamente e os itens operacionais remanescentes.
+Este arquivo lista o status de paridade com o sistema legado (`manelsen/amelie-legacy`), registrando o que já foi implementado, o que foi vetado deliberadamente e os itens operacionais remanescentes.
 
 ## Já presentes aqui
 
-Funcionalidades migradas e ativas no `amelie_gleam`:
+Funcionalidades migradas e ativas na `amelie`:
 
 - **Comandos:** `.ajuda`, `.reset`, `.audio`, `.imagem`, `.video`, `.doc`, `.legenda`, `.longo`, `.curto`, `.cego`, `.modelo [provedor/modelo]`.
 - **Processamento Multimodal:**

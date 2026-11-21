@@ -1,4 +1,4 @@
--module(amelie_gleam_ffi).
+-module(amelie_ffi).
 -include_lib("kernel/include/file.hrl").
 -export([read_file/1, get_env/1, now_ms/0,
          sha256_hex/1, memoria_total_mb/0, memoria_processos_mb/0,

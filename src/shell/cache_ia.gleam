@@ -109,7 +109,7 @@ fn evict(estado: Estado) -> Estado {
 }
 
 /// Inclui o histórico completo e seus papéis, sem colisões por delimitadores.
-@external(erlang, "amelie_gleam_ffi", "cache_key")
+@external(erlang, "amelie_ffi", "cache_key")
 pub fn chave(prompt: String, historico: List(Turno), modelo: String) -> String
 
 pub fn obter(cache: CacheIA, k: String) -> Option(String) {
